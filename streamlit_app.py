@@ -1011,7 +1011,7 @@ def _plotly_atipicos(df_hist, title="Comparación de drivers · original vs norm
 
 
 def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
-    """Panel 2×2 en Plotly con la misma configuración visual que el resto de gráficas."""
+    """Panel 2×2 en Plotly a partir de resultados de sesión."""
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
@@ -1025,245 +1025,121 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=(
-            "A) FCFF · historia y proyección",
-            "B) Escenarios · EV vs Equity",
-            "C) Flujos del proyecto · VPN",
+            "A) FCFF historia y proyección",
+            "B) Escenarios EV / Equity",
+            "C) Flujos del proyecto",
             "D) Ranking sectorial",
         ),
-        vertical_spacing=0.16,
-        horizontal_spacing=0.12,
+        vertical_spacing=0.14,
+        horizontal_spacing=0.10,
     )
     any_ok = False
-
-    # ----- A) FCFF (mismo estilo que fan chart) -----
     if t1 and isinstance(t1, (list, tuple)) and len(t1) > 2:
         df_h, df_p = t1[1], t1[2]
         c_h, c_p = _col_fcff(df_h), _col_fcff(df_p)
         xh = yh = []
         if c_h and df_h is not None:
-            xh = _years_from_df(df_h)
-            yh = [float(v) for v in df_h[c_h].values]
+            xh, yh = _years_from_df(df_h), [float(v) for v in df_h[c_h].values]
             fig.add_trace(go.Scatter(
-                x=xh, y=yh, mode="lines+markers+text", name="FCFF histórico",
-                line=dict(color="#38BDF8", width=3),
-                marker=dict(size=9, color="#38BDF8"),
-                text=[f"{v:,.0f}" for v in yh],
-                textposition="top center",
-                textfont=dict(size=9, color="#E0F2FE"),
+                x=xh, y=yh, mode="lines+markers", name="Histórico",
+                line=dict(color="#38BDF8", width=2.5), marker=dict(size=7),
                 hovertemplate=(
-                    "<b>Lo que ya pasó · Año %{x}</b><br>"
-                    "Dinero libre (FCFF): <b>%{y:,.1f}</b><br>"
-                    "<i>Efectivo que sobró después de operar e invertir.</i>"
-                    "<extra></extra>"
+                    "<b>Histórico %{x}</b><br>FCFF: <b>%{y:,.0f}</b><br>"
+                    "<i>Dinero libre ya observado.</i><extra></extra>"
                 ),
-                legendgroup="fcff",
             ), row=1, col=1)
             any_ok = True
         if c_p and df_p is not None:
-            xp = _years_from_df(df_p)
-            yp = [float(v) for v in df_p[c_p].values]
-            lo = [v * 0.88 for v in yp]
-            hi = [v * 1.12 for v in yp]
+            xp, yp = _years_from_df(df_p), [float(v) for v in df_p[c_p].values]
             fig.add_trace(go.Scatter(
-                x=xp + xp[::-1], y=hi + lo[::-1],
-                fill="toself", fillcolor="rgba(45,212,191,0.22)",
-                line=dict(color="rgba(0,0,0,0)"),
-                name="Banda ≈ ±12%",
-                hoverinfo="skip",
-                showlegend=True,
-                legendgroup="banda",
-            ), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=xp, y=yp, mode="lines+markers+text", name="FCFF proyectado",
-                line=dict(color="#2DD4BF", width=3, dash="dash"),
-                marker=dict(size=9, color="#2DD4BF"),
-                text=[f"{v:,.0f}" for v in yp],
-                textposition="top center",
-                textfont=dict(size=9, color="#CCFBF1"),
+                x=xp, y=yp, mode="lines+markers", name="Proyectado",
+                line=dict(color="#2DD4BF", width=2.5, dash="dash"), marker=dict(size=7),
                 hovertemplate=(
-                    "<b>Proyección · Año %{x}</b><br>"
-                    "FCFF esperado: <b>%{y:,.1f}</b><br>"
-                    "<i>Caso típico. La zona sombreada es un rango probable (±12%).</i>"
-                    "<extra></extra>"
+                    "<b>Proyectado %{x}</b><br>FCFF: <b>%{y:,.0f}</b><br>"
+                    "<i>Estimación a futuro del efectivo libre.</i><extra></extra>"
                 ),
-                legendgroup="fcff",
             ), row=1, col=1)
             xs = (xh or []) + (xp or [])
             if xs:
-                fig.update_xaxes(
-                    range=[min(xs) - 0.4, max(xs) + 0.4],
-                    dtick=1, tickmode="linear",
-                    title_text="Año",
-                    row=1, col=1,
-                )
-            fig.update_yaxes(title_text="FCFF", row=1, col=1)
+                fig.update_xaxes(range=[min(xs) - 0.4, max(xs) + 0.4], dtick=1, row=1, col=1)
             any_ok = True
-
-    # ----- B) Escenarios EV / Equity (mismo estilo que _plotly_escenarios) -----
     if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
         df = t2[1]
         cols = {str(c).lower(): c for c in df.columns}
-        esc = None
-        for k in ("escenario", "scenario", "nombre"):
-            if k in cols:
-                esc = cols[k]
-                break
-        if esc is None:
-            esc = df.columns[0]
-        ev_c = eq_c = None
+        esc = cols.get("escenario") or cols.get("nombre") or df.columns[0]
+        x = [str(v) for v in df[esc].tolist()]
         for c in df.columns:
             cl = str(c).lower()
-            if cl in ("ev", "enterprise value", "valor empresa") or (cl.startswith("ev") and "ebitda" not in cl):
-                ev_c = c
-            if "equity" in cl or "dueño" in cl or "patrimonio" in cl:
-                eq_c = c
-        nums = [c for c in df.columns if c != esc]
-        if ev_c is None and len(nums) >= 1:
-            ev_c = nums[0]
-        if eq_c is None and len(nums) >= 2:
-            eq_c = nums[1]
-        x = [str(v) for v in df[esc].tolist()]
-        if ev_c is not None:
-            yev = pd.to_numeric(df[ev_c], errors="coerce").fillna(0).tolist()
-            fig.add_trace(go.Bar(
-                name="EV (negocio)", x=x, y=yev,
-                marker_color="#14B8A6",
-                text=[f"{v:,.0f}" for v in yev],
-                textposition="outside",
-                textfont=dict(size=11, color="#F8FAFC"),
-                hovertemplate=(
-                    "<b>Escenario: %{x}</b><br>"
-                    "Valor del negocio (EV): <b>%{y:,.1f}</b><br>"
-                    "<i>Como el precio de toda la empresa, antes de restar deudas.</i>"
-                    "<extra></extra>"
-                ),
-                legendgroup="esc",
-            ), row=1, col=2)
-            any_ok = True
-        if eq_c is not None:
-            yeq = pd.to_numeric(df[eq_c], errors="coerce").fillna(0).tolist()
-            fig.add_trace(go.Bar(
-                name="Equity (dueños)", x=x, y=yeq,
-                marker_color="#38BDF8",
-                text=[f"{v:,.0f}" for v in yeq],
-                textposition="outside",
-                textfont=dict(size=11, color="#F8FAFC"),
-                hovertemplate=(
-                    "<b>Escenario: %{x}</b><br>"
-                    "Valor para dueños (Equity): <b>%{y:,.1f}</b><br>"
-                    "<i>Lo que quedaría a los accionistas tras pagar deudas.</i>"
-                    "<extra></extra>"
-                ),
-                legendgroup="esc",
-            ), row=1, col=2)
-            any_ok = True
-        fig.update_xaxes(title_text="Escenario", row=1, col=2)
-        fig.update_yaxes(title_text="Valor", row=1, col=2)
-
-    # ----- C) Flujos VPN (mismo estilo que _plotly_vpn_flows) -----
+            if cl == str(esc).lower():
+                continue
+            if "ev" in cl and "ebitda" not in cl:
+                y = pd.to_numeric(df[c], errors="coerce").fillna(0).tolist()
+                fig.add_trace(go.Bar(name="EV", x=x, y=y, marker_color="#14B8A6",
+                    text=[f"{v:,.0f}" for v in y], textposition="outside",
+                    hovertemplate=(
+                        "<b>%{x}</b><br>Valor negocio (EV): <b>%{y:,.0f}</b><br>"
+                        "<i>Precio de toda la empresa.</i><extra></extra>"
+                    )), row=1, col=2)
+                any_ok = True
+            elif "equity" in cl:
+                y = pd.to_numeric(df[c], errors="coerce").fillna(0).tolist()
+                fig.add_trace(go.Bar(name="Equity", x=x, y=y, marker_color="#38BDF8",
+                    text=[f"{v:,.0f}" for v in y], textposition="outside",
+                    hovertemplate=(
+                        "<b>%{x}</b><br>Valor dueños: <b>%{y:,.0f}</b><br>"
+                        "<i>Lo que queda tras restar deudas.</i><extra></extra>"
+                    )), row=1, col=2)
     if t5 and isinstance(t5, (list, tuple)) and len(t5) > 1 and hasattr(t5[1], "columns"):
         df = t5[1]
         xcol = df.columns[0]
-        ycol = next(
-            (c for c in df.columns if any(k in str(c).lower() for k in ("flujo", "fcff", "vpn", "flow"))),
-            None,
-        )
+        ycol = next((c for c in df.columns if any(k in str(c).lower() for k in ("flujo", "fcff", "vpn", "flow"))), None)
         if ycol is None and len(df.columns) > 1:
             ycol = df.columns[1]
         if ycol is not None:
             x = [str(v) for v in df[xcol].tolist()]
             y = pd.to_numeric(df[ycol], errors="coerce").fillna(0).tolist()
             colors = ["#F87171" if v < 0 else "#34D399" for v in y]
-            fig.add_trace(go.Bar(
-                name="Flujos", x=x, y=y, marker_color=colors,
-                text=[f"{v:,.0f}" for v in y],
-                textposition="outside",
-                textfont=dict(size=10, color="#F8FAFC"),
+            fig.add_trace(go.Bar(name="Flujos", x=x, y=y, marker_color=colors,
+                text=[f"{v:,.0f}" for v in y], textposition="outside",
                 hovertemplate=(
-                    "<b>Periodo %{x}</b><br>"
-                    "Flujo de caja: <b>%{y:,.1f}</b><br>"
-                    "<i>Verde = entra dinero · Rojo = sale (inversión).</i>"
-                    "<extra></extra>"
-                ),
-                legendgroup="flujos",
-                showlegend=True,
-            ), row=2, col=1)
-            fig.add_hline(y=0, line_color="#94A3B8", line_width=1, line_dash="dot", row=2, col=1)
-            fig.update_xaxes(title_text="Periodo", row=2, col=1)
-            fig.update_yaxes(title_text="Flujo / VPN", row=2, col=1)
+                    "<b>%{x}</b><br>Flujo: <b>%{y:,.0f}</b><br>"
+                    "<i>Verde entra · rojo sale.</i><extra></extra>"
+                )), row=2, col=1)
             any_ok = True
-
-    # ----- D) Ranking sectorial (mismo estilo que _plotly_sector) -----
     if t6 and isinstance(t6, (list, tuple)) and len(t6) > 1 and hasattr(t6[1], "columns"):
         df = t6[1]
-        name_c = next(
-            (c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker", "emisor")),
-            df.columns[0],
-        )
-        # Preferir score / margen / múltiplo si existen
-        score_c = next(
-            (c for c in df.columns if any(k in str(c).lower() for k in ("score", "puntaje", "ranking"))),
-            None,
-        )
-        margen_c = next((c for c in df.columns if "margen" in str(c).lower()), None)
-        mult_c = next(
-            (c for c in df.columns if "ev/ebitda" in str(c).lower() or "múltiplo" in str(c).lower() or "multiplo" in str(c).lower()),
-            None,
-        )
-        num_c = score_c or margen_c or mult_c
-        if num_c is None:
-            for c in df.columns:
-                if c == name_c:
-                    continue
-                if pd.api.types.is_numeric_dtype(df[c]):
-                    num_c = c
-                    break
-                try:
-                    pd.to_numeric(df[c], errors="raise")
-                    num_c = c
-                    break
-                except Exception:
-                    continue
+        name_c = next((c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker")), df.columns[0])
+        num_c = None
+        for c in df.columns:
+            if c == name_c:
+                continue
+            if pd.api.types.is_numeric_dtype(df[c]):
+                num_c = c
+                break
+            try:
+                pd.to_numeric(df[c], errors="raise")
+                num_c = c
+                break
+            except Exception:
+                continue
         if num_c is not None:
             labels = df[name_c].astype(str).str.slice(0, 22).tolist()[:12]
             yv = pd.to_numeric(df[num_c], errors="coerce").fillna(0).tolist()[:12]
-            fig.add_trace(go.Bar(
-                name=str(num_c)[:22],
-                y=labels, x=yv, orientation="h",
+            fig.add_trace(go.Bar(name=str(num_c)[:20], y=labels, x=yv, orientation="h",
                 marker_color="#14B8A6",
-                text=[f"{v:.2f}" if abs(v) < 100 else f"{v:,.0f}" for v in yv],
-                textposition="outside",
-                textfont=dict(size=10, color="#F8FAFC"),
                 hovertemplate=(
                     "<b>%{y}</b><br>Indicador: <b>%{x:.2f}</b><br>"
-                    "<i>Comparación con pares del sector. Más alto suele ser mejor posición relativa.</i>"
-                    "<extra></extra>"
-                ),
-                legendgroup="sector",
-                showlegend=True,
-            ), row=2, col=2)
-            fig.update_xaxes(title_text=str(num_c)[:28], row=2, col=2)
-            fig.update_yaxes(title_text="", row=2, col=2)
+                    "<i>Comparación con pares del sector.</i><extra></extra>"
+                )), row=2, col=2)
             any_ok = True
-
     if not any_ok:
         return False
-
-    ok = _finish_plotly(
-        fig,
-        title=title,
-        height=780,
-        barmode="group",
-        uniformtext_minsize=9,
-        uniformtext_mode="hide",
-    )
+    ok = _finish_plotly(fig, title=title, height=740, barmode="group")
     st.caption(
         "Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. "
-        "Misma estética que el resto: etiquetas, hover didáctico y ejes claros. "
-        "Pasa el cursor sobre cada punto o barra para leer el resultado en lenguaje simple."
+        "Pasa el cursor: cada punto o barra te explica el resultado en lenguaje simple."
     )
     return ok
-
 
 
 def _plotly_layout(title="", height=520, legend_bottom=True):
@@ -2628,9 +2504,9 @@ def main():
     with tab7:
         st.markdown("##### Informe ejecutivo")
         st.caption(
-            "Las gráficas del informe usan el mismo formato Plotly que Pronóstico (pestaña 1) y el resto: "
-            "hover didáctico, etiquetas, colores y ejes. "
-            "Ejecuta antes las pestañas 1, 2, 5 y 6 para llenarlas. El PDF sigue siendo estático."
+            "En pantalla el panel usa el gráfico generado por el modelo. "
+            "Las pestañas 1–6 tienen gráficos Plotly con hover, nombres y valores. "
+            "El PDF sigue siendo estático (con títulos y cifras anotadas)."
         )
         if st.button("Generar informe y PDF", type="primary", key="btn7"):
             with st.spinner("Informe…"):
@@ -2649,90 +2525,20 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "KPIs del informe")
-
-            # Gráficas a ancho completo con el MISMO formato que pestaña 1 (y 2, 5, 6)
-            res_all = st.session_state.get("resultados") or {}
-            shown_any = False
-
-            # A) Mismo fan chart y drivers que pestaña 1 · Pronóstico
-            t1 = res_all.get("tab1")
-            if t1 and isinstance(t1, (list, tuple)) and len(t1) > 2:
-                st.markdown("###### A · Pronóstico FCFF (mismo formato que pestaña 1)")
-                df_h = t1[1]
-                df_p = t1[2]
-                if _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)"):
-                    shown_any = True
-                    _chart_tip(
-                        "Pasa el cursor sobre cada punto: verás el año y el dinero libre en lenguaje claro. "
-                        "La zona sombreada es el rango probable; la línea del medio es el caso más típico."
-                    )
-                elif len(t1) > 3:
-                    _show_fig(t1[3], "Fan chart FCFF")
-                    shown_any = True
-                if _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado"):
-                    shown_any = True
-                    _explain(
-                        "<b>Burbuja de lectura · Drivers:</b> azul = dato de los libros; teal = serie suavizada; "
-                        "cruces rojas = años atípicos. Mismo gráfico que en Pronóstico."
-                    )
-                elif len(t1) > 4 and t1[4] is not None:
-                    _show_fig(t1[4], "Atípicos (respaldo estático)")
-
-            # B) Mismo gráfico de escenarios que pestaña 2
-            t2 = res_all.get("tab2")
-            if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1:
-                st.markdown("###### B · Escenarios EV / Equity (mismo formato que pestaña 2)")
-                if _plotly_escenarios(t2[1]):
-                    shown_any = True
-                    _chart_tip(
-                        "Barras altas de Equity = más valor para el accionista. "
-                        "Si Equity es bajo o negativo, la deuda pesa mucho."
-                    )
-                elif len(t2) > 2:
-                    _show_fig(t2[2], "EV vs Equity")
-                    shown_any = True
-
-            # C) Mismos flujos que pestaña 5
-            t5 = res_all.get("tab5")
-            if t5 and isinstance(t5, (list, tuple)) and len(t5) > 1:
-                st.markdown("###### C · Flujos del proyecto (mismo formato que pestaña 5)")
-                if _plotly_vpn_flows(t5[1]):
-                    shown_any = True
-                    _chart_tip(
-                        "Verdes = entra dinero; rojas = sale. El payback es cuándo se recupera lo invertido."
-                    )
-                elif len(t5) > 2:
-                    _show_fig(t5[2], "Recuperación")
-                    shown_any = True
-
-            # D) Mismo ranking que pestaña 6
-            t6 = res_all.get("tab6")
-            if t6 and isinstance(t6, (list, tuple)) and len(t6) > 1:
-                st.markdown("###### D · Ranking sectorial (mismo formato que pestaña 6)")
-                if _plotly_sector(t6[1]):
-                    shown_any = True
-                    _chart_tip(
-                        "Compara márgenes y múltiplos con pares del sector. "
-                        "Un múltiplo muy bajo puede ser oportunidad… o señal de problemas."
-                    )
-                elif len(t6) > 2:
-                    _show_fig(t6[2], "Sector")
-                    shown_any = True
-
-            if shown_any:
-                _explain(
-                    "<b>Burbuja de lectura · Informe:</b> estas gráficas son las mismas de las pestañas 1, 2, 5 y 6 "
-                    "(mismo formato, hover y colores). Sirven de resumen para el comité: FCFF → escenarios → proyecto → sector."
-                )
+            # Panel resumen en Plotly (misma estética); requiere corridas previas
+            if not _plotly_informe_panel(st.session_state.get("resultados") or {}, title="Resumen gráfico · informe"):
+                if len(r) > 2:
+                    _show_fig(r[2], "Panel (respaldo estático)")
             else:
-                # Respaldo: panel 2×2 o figura estática del modelo
-                if not _plotly_informe_panel(res_all, title="Resumen gráfico · informe"):
-                    if len(r) > 2:
-                        _show_fig(r[2], "Panel (respaldo estático)")
-                st.info(
-                    "Para ver las gráficas con el formato completo de Pronóstico, ejecuta antes las pestañas 1, 2, 5 y 6."
+                _chart_tip(
+                    "Cuatro vistas en una: (A) dinero libre pasado y futuro, (B) valor en escenarios, "
+                    "(C) flujos del proyecto, (D) posición frente al sector. Pasa el cursor para leer cada cifra en simple."
                 )
-
+                _explain(
+                    "<b>Burbuja de lectura · Informe:</b> este panel resume la historia del análisis. "
+                    "Úsalo para el comité: primero mira si el FCFF tiene sentido, luego si el valor se sostiene en más de un escenario, "
+                    "si el proyecto recupera la inversión y cómo se ve la empresa frente a sus pares."
+                )
             if len(r) > 3 and r[3]:
                 pdf_path = r[3]
                 if isinstance(pdf_path, str) and os.path.isfile(pdf_path):
