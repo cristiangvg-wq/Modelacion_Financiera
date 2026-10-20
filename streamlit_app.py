@@ -942,7 +942,11 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                 name="Original" if idx == 0 else f"{clave} orig",
                 line=dict(color="#38BDF8", width=2.4),
                 marker=dict(size=7),
-                hovertemplate=f"<b>{clave} original</b><br>Año %{{x}}<br>%{{y:,.2f}}<extra></extra>",
+                hovertemplate=(
+                    f"<b>{clave} · dato real</b><br>Año %{{x}}<br>Valor: <b>%{{y:,.2f}}</b><br>"
+                    "<i>Así se reportó en los estados financieros.</i>"
+                    "<extra></extra>"
+                ),
                 showlegend=(idx == 0),
                 legendgroup="orig",
             ), row=row, col=col)
@@ -952,7 +956,11 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                 name="Normalizado" if idx == 0 else f"{clave} norm",
                 line=dict(color="#2DD4BF", width=2.4, dash="dash"),
                 marker=dict(size=7),
-                hovertemplate=f"<b>{clave} normalizado</b><br>Año %{{x}}<br>%{{y:,.2f}}<extra></extra>",
+                hovertemplate=(
+                    f"<b>{clave} · suavizado</b><br>Año %{{x}}<br>Valor: <b>%{{y:,.2f}}</b><br>"
+                    "<i>Versión sin picos extremos, más útil para proyectar.</i>"
+                    "<extra></extra>"
+                ),
                 showlegend=(idx == 0),
                 legendgroup="norm",
             ), row=row, col=col)
@@ -966,7 +974,11 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                         x=xa, y=ya, mode="markers",
                         name="Atípico" if idx == 0 else f"Atíp. {clave}",
                         marker=dict(size=11, color="#F87171", symbol="x", line=dict(width=1.5, color="#FECACA")),
-                        hovertemplate=f"<b>Atípico · {clave}</b><br>Año %{{x}}<br>%{{y:,.2f}}<extra></extra>",
+                        hovertemplate=(
+                            f"<b>Año raro · {clave}</b><br>Año %{{x}}<br>Valor: <b>%{{y:,.2f}}</b><br>"
+                            "<i>Punto muy lejos del resto. Puede ser un evento único (venta, crisis, etc.).</i>"
+                            "<extra></extra>"
+                        ),
                         showlegend=(idx == 0),
                         legendgroup="atip",
                     ), row=row, col=col)
@@ -984,8 +996,8 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
 
         _finish_plotly(fig, title=title, height=max(360, 280 * nrows))
         st.caption(
-            "Azul = original · teal punteado = normalizado · cruz roja = atípico. "
-            "Pasa el cursor para ver el valor exacto."
+            "Azul = dato real · teal punteado = suavizado (sin picos extremos) · cruz roja = año atípico. "
+            "Pasa el cursor: cada punto te explica en lenguaje simple qué estás viendo."
         )
         return True
     except Exception as e:
@@ -1031,7 +1043,10 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             fig.add_trace(go.Scatter(
                 x=xh, y=yh, mode="lines+markers", name="Histórico",
                 line=dict(color="#38BDF8", width=2.5), marker=dict(size=7),
-                hovertemplate="Hist %{x}: %{y:,.0f}<extra></extra>",
+                hovertemplate=(
+                    "<b>Histórico %{x}</b><br>FCFF: <b>%{y:,.0f}</b><br>"
+                    "<i>Dinero libre ya observado.</i><extra></extra>"
+                ),
             ), row=1, col=1)
             any_ok = True
         if c_p and df_p is not None:
@@ -1039,7 +1054,10 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             fig.add_trace(go.Scatter(
                 x=xp, y=yp, mode="lines+markers", name="Proyectado",
                 line=dict(color="#2DD4BF", width=2.5, dash="dash"), marker=dict(size=7),
-                hovertemplate="Proy %{x}: %{y:,.0f}<extra></extra>",
+                hovertemplate=(
+                    "<b>Proyectado %{x}</b><br>FCFF: <b>%{y:,.0f}</b><br>"
+                    "<i>Estimación a futuro del efectivo libre.</i><extra></extra>"
+                ),
             ), row=1, col=1)
             xs = (xh or []) + (xp or [])
             if xs:
@@ -1058,13 +1076,19 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
                 y = pd.to_numeric(df[c], errors="coerce").fillna(0).tolist()
                 fig.add_trace(go.Bar(name="EV", x=x, y=y, marker_color="#14B8A6",
                     text=[f"{v:,.0f}" for v in y], textposition="outside",
-                    hovertemplate="EV %{x}: %{y:,.0f}<extra></extra>"), row=1, col=2)
+                    hovertemplate=(
+                        "<b>%{x}</b><br>Valor negocio (EV): <b>%{y:,.0f}</b><br>"
+                        "<i>Precio de toda la empresa.</i><extra></extra>"
+                    )), row=1, col=2)
                 any_ok = True
             elif "equity" in cl:
                 y = pd.to_numeric(df[c], errors="coerce").fillna(0).tolist()
                 fig.add_trace(go.Bar(name="Equity", x=x, y=y, marker_color="#38BDF8",
                     text=[f"{v:,.0f}" for v in y], textposition="outside",
-                    hovertemplate="Equity %{x}: %{y:,.0f}<extra></extra>"), row=1, col=2)
+                    hovertemplate=(
+                        "<b>%{x}</b><br>Valor dueños: <b>%{y:,.0f}</b><br>"
+                        "<i>Lo que queda tras restar deudas.</i><extra></extra>"
+                    )), row=1, col=2)
     if t5 and isinstance(t5, (list, tuple)) and len(t5) > 1 and hasattr(t5[1], "columns"):
         df = t5[1]
         xcol = df.columns[0]
@@ -1077,7 +1101,10 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             colors = ["#F87171" if v < 0 else "#34D399" for v in y]
             fig.add_trace(go.Bar(name="Flujos", x=x, y=y, marker_color=colors,
                 text=[f"{v:,.0f}" for v in y], textposition="outside",
-                hovertemplate="%{x}: %{y:,.0f}<extra></extra>"), row=2, col=1)
+                hovertemplate=(
+                    "<b>%{x}</b><br>Flujo: <b>%{y:,.0f}</b><br>"
+                    "<i>Verde entra · rojo sale.</i><extra></extra>"
+                )), row=2, col=1)
             any_ok = True
     if t6 and isinstance(t6, (list, tuple)) and len(t6) > 1 and hasattr(t6[1], "columns"):
         df = t6[1]
@@ -1100,12 +1127,18 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             yv = pd.to_numeric(df[num_c], errors="coerce").fillna(0).tolist()[:12]
             fig.add_trace(go.Bar(name=str(num_c)[:20], y=labels, x=yv, orientation="h",
                 marker_color="#14B8A6",
-                hovertemplate="<b>%{y}</b><br>%{x:.2f}<extra></extra>"), row=2, col=2)
+                hovertemplate=(
+                    "<b>%{y}</b><br>Indicador: <b>%{x:.2f}</b><br>"
+                    "<i>Comparación con pares del sector.</i><extra></extra>"
+                )), row=2, col=2)
             any_ok = True
     if not any_ok:
         return False
     ok = _finish_plotly(fig, title=title, height=740, barmode="group")
-    st.caption("Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. Hover para ver valores.")
+    st.caption(
+        "Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. "
+        "Pasa el cursor: cada punto o barra te explica el resultado en lenguaje simple."
+    )
     return ok
 
 
@@ -1250,7 +1283,12 @@ def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
             text=[f"{v:,.0f}" for v in vh],
             textposition="top center",
             textfont=dict(size=10, color="#E0F2FE"),
-            hovertemplate="<b>Histórico</b><br>Año %{x}<br>FCFF: %{y:,.1f}<extra></extra>",
+            hovertemplate=(
+                "<b>Lo que ya pasó · Año %{x}</b><br>"
+                "Dinero libre (FCFF): <b>%{y:,.1f}</b><br>"
+                "<i>Es el efectivo que sobró después de operar e invertir.</i>"
+                "<extra></extra>"
+            ),
         ))
 
     c_p = _col_fcff(df_proj)
@@ -1276,7 +1314,12 @@ def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
             text=[f"{v:,.0f}" for v in vp],
             textposition="top center",
             textfont=dict(size=10, color="#CCFBF1"),
-            hovertemplate="<b>Proyectado</b><br>Año %{x}<br>FCFF: %{y:,.1f}<extra></extra>",
+            hovertemplate=(
+                "<b>Proyección · Año %{x}</b><br>"
+                "FCFF esperado: <b>%{y:,.1f}</b><br>"
+                "<i>Caso típico. La zona sombreada es un rango probable (±12%).</i>"
+                "<extra></extra>"
+            ),
         ))
 
     if not years_all:
@@ -1334,7 +1377,12 @@ def _plotly_escenarios(df):
             text=[f"{v:,.0f}" for v in yev],
             textposition="outside",
             textfont=dict(size=12, color="#F8FAFC"),
-            hovertemplate="<b>%{x}</b><br>EV: %{y:,.1f}<extra></extra>",
+            hovertemplate=(
+                "<b>Escenario: %{x}</b><br>"
+                "Valor del negocio (EV): <b>%{y:,.1f}</b><br>"
+                "<i>Como el precio de toda la empresa, antes de restar deudas.</i>"
+                "<extra></extra>"
+            ),
         ))
     if eq_c is not None:
         yeq = pd.to_numeric(df[eq_c], errors="coerce").fillna(0).tolist()
@@ -1344,7 +1392,12 @@ def _plotly_escenarios(df):
             text=[f"{v:,.0f}" for v in yeq],
             textposition="outside",
             textfont=dict(size=12, color="#F8FAFC"),
-            hovertemplate="<b>%{x}</b><br>Equity: %{y:,.1f}<extra></extra>",
+            hovertemplate=(
+                "<b>Escenario: %{x}</b><br>"
+                "Valor para dueños (Equity): <b>%{y:,.1f}</b><br>"
+                "<i>Lo que quedaría a los accionistas tras pagar deudas y otros compromisos.</i>"
+                "<extra></extra>"
+            ),
         ))
     if not fig.data:
         return False
@@ -1384,7 +1437,13 @@ def _plotly_vpn_flows(df):
         text=[f"{v:,.0f}" for v in y],
         textposition="outside",
         textfont=dict(size=11, color="#F8FAFC"),
-        hovertemplate="<b>%{x}</b><br>Flujo: %{y:,.1f}<extra></extra>",
+        hovertemplate=(
+            "<b>Periodo %{x}</b><br>"
+            "Flujo de caja: <b>%{y:,.1f}</b><br>"
+            "<i>Verde = entra dinero · Rojo = sale (inversión). "
+            "El payback es cuándo se recupera lo invertido.</i>"
+            "<extra></extra>"
+        ),
         name="Flujos",
     ))
     fig.add_hline(y=0, line_color="#94A3B8", line_width=1, line_dash="dot")
@@ -1415,7 +1474,11 @@ def _plotly_sector(df):
             marker_color="#14B8A6",
             text=[f"{v:.2f}" for v in yv],
             textposition="outside",
-            hovertemplate="<b>%{y}</b><br>Score: %{x:.2f}<extra></extra>",
+            hovertemplate=(
+                "<b>%{y}</b><br>Puntaje: <b>%{x:.2f}</b><br>"
+                "<i>Más alto = mejor posición relativa frente a pares del sector.</i>"
+                "<extra></extra>"
+            ),
         ))
         fig.update_xaxes(title="Score")
         return _finish_plotly(fig, title="Ranking sectorial", height=max(400, 40 * len(labels) + 120))
@@ -1426,14 +1489,23 @@ def _plotly_sector(df):
         fig.add_trace(go.Bar(
             y=labels, x=ym, orientation="h", marker_color="#14B8A6", name="Margen",
             text=[f"{v:.1f}" for v in ym], textposition="outside",
-            hovertemplate="<b>%{y}</b><br>Margen: %{x:.1f}%<extra></extra>",
+            hovertemplate=(
+                "<b>%{y}</b><br>Margen EBITDA: <b>%{x:.1f}%</b><br>"
+                "<i>De cada 100 de ventas, cuánto queda como utilidad operativa bruta.</i>"
+                "<extra></extra>"
+            ),
         ), row=1, col=1)
     if mult_c is not None:
         yx = pd.to_numeric(df[mult_c], errors="coerce").fillna(0).tolist()
         fig.add_trace(go.Bar(
             y=labels, x=yx, orientation="h", marker_color="#38BDF8", name="Múltiplo",
             text=[f"{v:.1f}x" for v in yx], textposition="outside",
-            hovertemplate="<b>%{y}</b><br>EV/EBITDA: %{x:.1f}x<extra></extra>",
+            hovertemplate=(
+                "<b>%{y}</b><br>EV/EBITDA: <b>%{x:.1f}x</b><br>"
+                "<i>Cuántas veces el mercado paga la utilidad operativa. "
+                "Muy bajo puede ser oportunidad o señal de riesgo.</i>"
+                "<extra></extra>"
+            ),
         ), row=1, col=2)
     if not fig.data:
         return False
@@ -2244,16 +2316,24 @@ def main():
             if not _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado"):
                 if len(r) > 4 and r[4] is not None:
                     _show_fig(r[4], "Atípicos (respaldo estático)")
+            else:
+                _explain(
+                    "<b>Burbuja de lectura · Drivers:</b> la línea azul es el número tal como salió en los libros. "
+                    "La línea teal es la misma serie “calmada” (sin picos extremos). "
+                    "Las cruces rojas marcan años raros: venta de activos, crisis, cambio contable, etc. "
+                    "Para proyectar, suele ser más sano apoyarse en la serie suavizada."
+                )
             if len(r) > 5 and r[5]:
                 _html(r[5])
             _chart_tip(
-                "La zona sombreada es el rango probable del dinero libre (FCFF). "
-                "La línea del medio es el caso más típico. Si el pasado queda muy fuera, revisa si hubo un año raro."
+                "Pasa el cursor sobre cada punto: verás el año y el dinero libre en lenguaje claro. "
+                "La zona sombreada es el rango probable; la línea del medio es el caso más típico. "
+                "Si un año del pasado queda muy fuera de la línea, puede haber sido un evento único."
             )
             _explain(
-                "<b>En palabras simples:</b> el FCFF es el efectivo que queda después de operar e invertir. "
-                "Proyectarlo es imaginar cuánto efectivo generará la empresa en los próximos años. "
-                "El fan chart muestra incertidumbre: no es una sola cifra, sino un rango."
+                "<b>Burbuja de lectura · Fan chart:</b> piensa en el FCFF como la “plata libre” del negocio "
+                "(después de pagar operación e inversiones). La línea azul es lo que ya ocurrió; la teal es "
+                "lo que el modelo espera. No es una bola de cristal: la sombra muestra que el futuro es un rango, no un número exacto."
             )
 
     with tab2:
@@ -2281,13 +2361,14 @@ def main():
             elif len(r) > 2:
                 _show_fig(r[2], "EV vs Equity")
             _chart_tip(
-                "Barras altas de Equity = más valor para el accionista en ese escenario. "
-                "Si Equity es bajo o negativo, la deuda y otros pasivos pesan mucho."
+                "Pasa el cursor por cada barra: te explica qué es EV y Equity en ese escenario. "
+                "Barras altas de Equity = más valor para el accionista. Si Equity es bajo o negativo, la deuda pesa mucho."
             )
             _explain(
-                "<b>En palabras simples:</b> el modelo pregunta “¿cuánto valdría la empresa si el futuro va mal, normal o bien?”. "
-                "<b>EV</b> es el valor de todo el negocio; <b>Equity</b> es lo que queda para los dueños después de restar deudas. "
-                "Úsalo para ver si el resultado es robusto o solo se sostiene en el caso optimista."
+                "<b>Burbuja de lectura · Escenarios:</b> es como preguntar “¿y si va mal, normal o bien?”. "
+                "<b>EV</b> = precio de toda la empresa (como el de una casa antes de la hipoteca). "
+                "<b>Equity</b> = lo que les quedaría a los dueños tras pagar deudas. "
+                "Si solo el escenario optimista se ve bien, el caso es frágil: conviene revisar supuestos."
             )
 
     with tab3:
@@ -2379,13 +2460,14 @@ def main():
             elif len(r) > 2:
                 _show_fig(r[2], "Recuperación")
             _chart_tip(
-                "Barras verdes = dinero que entra; rojas = inversión inicial. "
-                "El payback es cuándo se recupera lo invertido (sin medir si ‘valía la pena’ del todo)."
+                "Pasa el cursor: cada barra te dice si ese periodo aporta o resta dinero. "
+                "Verdes = entra; rojas = sale (suele ser la inversión inicial). El payback es el momento en que se recupera lo invertido."
             )
             _explain(
-                "<b>En palabras simples:</b> <b>VPN &gt; 0</b> significa que el proyecto deja más de lo que ‘cuesta’ el capital. "
-                "La <b>TIR</b> es la rentabilidad implícita del proyecto. El <b>payback</b> solo dice en cuántos años recuperas la plata, "
-                "no si el riesgo valía la pena."
+                "<b>Burbuja de lectura · VPN / TIR:</b> "
+                "<b>VPN &gt; 0</b> = el proyecto deja más valor del que “cuesta” el capital (buena señal con estos supuestos). "
+                "<b>TIR</b> = la rentabilidad anual implícita; se compara con el WACC (si TIR &gt; WACC suele ser atractivo). "
+                "<b>Payback</b> solo dice en cuántos años recuperas la plata; no dice si el riesgo valía la pena."
             )
 
     with tab6:
@@ -2409,13 +2491,14 @@ def main():
             elif len(r) > 2:
                 _show_fig(r[2], "Sector")
             _chart_tip(
-                "Compara márgenes y múltiplos con empresas del mismo oficio. "
-                "Un múltiplo muy bajo puede ser oportunidad… o una señal de problemas."
+                "Pasa el cursor por cada empresa: verás margen y múltiplo en palabras simples. "
+                "Compara con ‘vecinas’ del mismo oficio. Un múltiplo muy bajo puede ser oportunidad… o señal de problemas."
             )
             _explain(
-                "<b>En palabras simples:</b> aquí no se mira la empresa sola, sino frente a ‘vecinas’ del sector. "
-                "Si gana más por cada peso invertido (ROIC) que lo que cuesta el capital (WACC), suele crear valor. "
-                "Pasa el cursor por los KPIs de arriba para ver definiciones rápidas."
+                "<b>Burbuja de lectura · Sector:</b> no mires la empresa sola: compárala con pares. "
+                "<b>Margen EBITDA</b> = de cada 100 de ventas, cuánto queda como utilidad operativa bruta. "
+                "<b>EV/EBITDA</b> = cuántas veces el mercado paga esa utilidad. "
+                "Si el ROIC supera al WACC, el negocio suele crear valor para los dueños."
             )
 
     with tab7:
@@ -2446,6 +2529,16 @@ def main():
             if not _plotly_informe_panel(st.session_state.get("resultados") or {}, title="Resumen gráfico · informe"):
                 if len(r) > 2:
                     _show_fig(r[2], "Panel (respaldo estático)")
+            else:
+                _chart_tip(
+                    "Cuatro vistas en una: (A) dinero libre pasado y futuro, (B) valor en escenarios, "
+                    "(C) flujos del proyecto, (D) posición frente al sector. Pasa el cursor para leer cada cifra en simple."
+                )
+                _explain(
+                    "<b>Burbuja de lectura · Informe:</b> este panel resume la historia del análisis. "
+                    "Úsalo para el comité: primero mira si el FCFF tiene sentido, luego si el valor se sostiene en más de un escenario, "
+                    "si el proyecto recupera la inversión y cómo se ve la empresa frente a sus pares."
+                )
             if len(r) > 3 and r[3]:
                 pdf_path = r[3]
                 if isinstance(pdf_path, str) and os.path.isfile(pdf_path):
