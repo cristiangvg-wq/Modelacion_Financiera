@@ -410,8 +410,52 @@ def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_p
     """
     Resuelve tickers comparables del mismo sector/industria.
     Prioridad: claves PEERS_POR_SECTOR que coincidan con sector o industry.
+    Incluye alias de industrias Yahoo frecuentes (Consumer Electronics → technology, etc.).
     """
     blob = _normalizar_texto_sector(f"{sector} {industry}")
+    # Alias industria/sector Yahoo → claves de PEERS_POR_SECTOR
+    _ALIAS = {
+        "consumer electronics": "technology",
+        "internet content": "communication",
+        "internet content & information": "communication",
+        "software—infrastructure": "software",
+        "software—application": "software",
+        "software infrastructure": "software",
+        "software application": "software",
+        "semiconductors": "semiconductor",
+        "semiconductor equipment": "semiconductor",
+        "drug manufacturers": "pharma",
+        "biotechnology": "biotechnology",
+        "banks—diversified": "banks",
+        "banks diversified": "banks",
+        "banks—regional": "banks",
+        "oil & gas integrated": "oil",
+        "oil & gas e&p": "oil",
+        "oil & gas midstream": "gas",
+        "utilities—regulated electric": "electric",
+        "utilities regulated electric": "electric",
+        "utilities—renewable": "renewable",
+        "auto manufacturers": "automotive",
+        "discount stores": "retail",
+        "internet retail": "retail",
+        "telecom services": "telecom",
+        "reits": "reit",
+        "specialty retail": "retail",
+        "packaged foods": "consumer defensive",
+        "household & personal products": "consumer defensive",
+        "aerospace & defense": "aerospace",
+        "capital markets": "capital markets",
+        "credit services": "financial",
+        "asset management": "capital markets",
+        "information technology services": "information technology",
+        "scientific & technical instruments": "technology",
+        "electronic components": "semiconductor",
+        "computer hardware": "technology",
+    }
+    for alias, key in _ALIAS.items():
+        if alias in blob and key not in blob:
+            blob = f"{blob} {key}"
+
     exclude = set()
     if exclude_ticker:
         ex = str(exclude_ticker).upper().strip()
@@ -420,22 +464,26 @@ def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_p
 
     found = []
     seen = set()
-    # Orden: coincidencias más específicas (industry) primero vía longitud de clave
     claves = sorted(PEERS_POR_SECTOR.keys(), key=len, reverse=True)
     matched_keys = []
     for k in claves:
         if k in blob:
             matched_keys.append(k)
-    # Si no hubo match, intentar tokens sueltos
     if not matched_keys:
         for k in claves:
             for token in k.split():
                 if len(token) >= 4 and token in blob:
                     matched_keys.append(k)
                     break
+    # Último recurso: primeras palabras del sector Yahoo genérico
+    if not matched_keys:
+        for token in ("technology", "healthcare", "financial", "energy", "utilities",
+                      "consumer", "industrial", "communication", "basic materials", "real estate"):
+            if token in blob and token in PEERS_POR_SECTOR:
+                matched_keys.append(token)
 
     for k in matched_keys:
-        for t in PEERS_POR_SECTOR[k]:
+        for t in PEERS_POR_SECTOR.get(k, []):
             tu = t.upper()
             if tu in seen or tu in exclude or tu.split(".")[0] in exclude:
                 continue
@@ -449,9 +497,14 @@ def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_p
 def filtrar_empresas_mismo_sector(sector_focal, industry_focal=""):
     """Empresas del catálogo + runtime cuyo sector solapa con el focal."""
     tokens_f = set(_normalizar_texto_sector(f"{sector_focal} {industry_focal}").split())
-    # tokens genéricos poco útiles
-    stop = {"de", "y", "the", "and", "or", "a", "la", "el", "/", "-", "no", "clasificado"}
-    tokens_f = {t for t in tokens_f if len(t) >= 4 and t not in stop}
+    # tokens genéricos poco útiles (permitir tech-like de 3+ letras si son claves de sector)
+    stop = {"de", "y", "the", "and", "or", "a", "la", "el", "/", "-", "no", "clasificado", "none"}
+    tokens_f = {t for t in tokens_f if (len(t) >= 4 or t in PEERS_POR_SECTOR) and t not in stop}
+    # Añadir claves PEERS que estén contenidas en el texto del sector
+    blob_f = _normalizar_texto_sector(f"{sector_focal} {industry_focal}")
+    for k in PEERS_POR_SECTOR:
+        if k in blob_f:
+            tokens_f.add(k)
     matches = {}
     for nombre, emp in list(EMPRESAS.items()) + list(EMPRESAS_RUNTIME.items()):
         sec = _normalizar_texto_sector(emp.get("sector", ""))
@@ -549,8 +602,13 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
     anio_actual = datetime.now().year
     df_mm = df_mm[df_mm.index.astype(int) < anio_actual]
 
-    name = info.get("longName") or info.get("shortName") or used_ticker
-    sector = info.get("sector") or info.get("industry") or "No clasificado"
+    ticker_sym = str(used_ticker).split(".")[0].upper()
+    name = (info.get("longName") or info.get("shortName") or ticker_sym)
+    name = str(name).strip()
+    # Evitar duplicar el ticker si Yahoo ya lo incluye en el nombre
+    if name.upper().endswith(ticker_sym) and " " in name:
+        pass  # se unifica abajo como "Nombre — TICKER"
+    sector = info.get("sector") or "No clasificado"
     industry = info.get("industry") or ""
     descripcion = (info.get("longBusinessSummary") or "")[:280] or f"Empresa cotizada ({used_ticker}). Datos vía Yahoo Finance."
 
@@ -587,10 +645,10 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
         )
         peers = auto_peers
 
-    display_name = f"{name} — {used_ticker}"
-    # Evitar colisión con catálogo
-    if display_name in EMPRESAS:
-        display_name = f"{name} [{used_ticker}]"
+    # Nombre completo + abreviatura Yahoo (ticker base)
+    display_name = f"{name} — {ticker_sym}"
+    if display_name in EMPRESAS or display_name in EMPRESAS_RUNTIME:
+        display_name = f"{name} — {used_ticker}"
 
     # financialCurrency = moneda de los EEFF (modelo); currency = moneda del precio de cotización.
     # En ADRs (ej. EC) pueden diferir: EEFF en COP, precio en USD → upside no comparable sin FX.
@@ -5205,6 +5263,11 @@ def _safe_div(a, b, default=np.nan):
 def _fila_sectorial_desde_emp(nombre, emp):
     """Construye una fila de comparación a partir de un bloque tipo EMPRESAS."""
     short = _nombre_corto(nombre)
+    # Etiqueta legible: "Nombre completo (TICKER)" si el display trae "—"
+    if nombre and "—" in str(nombre):
+        label_emp = f"{str(nombre).split('—')[0].strip()} ({short})"
+    else:
+        label_emp = short
     hist = pd.DataFrame(emp["historico"]).set_index("Año").sort_index()
     params = emp.get("params", {})
     ticker = emp.get("ticker_yf")
@@ -5272,6 +5335,7 @@ def _fila_sectorial_desde_emp(nombre, emp):
 
     row = {
         "Empresa": short,
+        "Nombre": label_emp,
         "Ingresos (miles M)": round(ing, 1),
         "EBITDA (miles M)": round(ebitda, 1),
         "Margen EBITDA (%)": round(margen, 1),
@@ -5338,18 +5402,77 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
             return False
 
     def _add_ticker(ticker, etiqueta="peer sector"):
+        """Descarga peer (completo o ligero) y lo suma al ranking sectorial."""
         if not ticker or not HAS_YF:
             return False
         short_p = str(ticker).split(".")[0].upper()
         if short_p in seen_short:
             return False
+        # 1) Si ya está en runtime, reutilizar
+        for nom, emp in list(EMPRESAS_RUNTIME.items()):
+            ty = str(emp.get("ticker_yf") or "").upper()
+            if ty == str(ticker).upper() or ty.split(".")[0] == short_p or _nombre_corto(nom).upper() == short_p:
+                return _add_emp(nom, emp, etiqueta)
+        # 2) Descarga completa (histórico + params)
         try:
             ok, _html, disp, _ptup = buscar_y_descargar_empresa(str(ticker), "")
             if ok and disp and disp in EMPRESAS_RUNTIME:
                 return _add_emp(disp, EMPRESAS_RUNTIME[disp], etiqueta)
         except Exception as e:
+            notas[short_p] = f"Peer falló (full): {e}"
+        # 3) Fila ligera solo con info Yahoo (múltiplo / margen aprox.) para no dejar el ranking vacío
+        try:
+            t = yf.Ticker(str(ticker))
+            info = t.info or {}
+            long_n = info.get("longName") or info.get("shortName") or short_p
+            disp = f"{long_n} — {short_p}"
+            sec = info.get("sector") or ""
+            ind = info.get("industry") or ""
+            ebitda = _safe_float(info.get("ebitda")) or 0.0
+            rev = _safe_float(info.get("totalRevenue")) or 0.0
+            margen = 100.0 * ebitda / rev if rev else 0.0
+            ev_eb = _safe_float(info.get("enterpriseToEbitda"))
+            if ev_eb is None:
+                ev_eb = 10.0
+            beta = _safe_float(info.get("beta")) or 1.0
+            row = {
+                "Empresa": short_p,
+                "Nombre": disp,
+                "Ingresos (miles M)": round((rev or 0) / 1e9, 2),
+                "EBITDA (miles M)": round((ebitda or 0) / 1e9, 2),
+                "Margen EBITDA (%)": round(margen, 1),
+                "ROIC (%)": 0.0,
+                "WACC estimado (%)": 8.0,
+                "D/E": round((_safe_float(info.get("debtToEquity")) or 0) / 100.0, 2) if info.get("debtToEquity") else 0.5,
+                "EV/EBITDA (x)": round(float(ev_eb), 2),
+                "Crecimiento Ingresos 3a (%)": 0.0,
+                "FCFF (miles M)": 0.0,
+                "Fuente múltiplo": "Yahoo info (peer ligero)",
+                "Sector": f"{sec}" + (f" / {ind}" if ind else ""),
+            }
+            seen_short.add(short_p)
+            notas[short_p] = f"Yahoo ligero · {etiqueta}"
+            rows.append(row)
+            n_fund += 1
+            n_live += 1
+            # Registrar mínimo en runtime para reutilizar
+            EMPRESAS_RUNTIME[disp] = {
+                "ticker_yf": str(ticker).upper(),
+                "ticker_bvc": short_p,
+                "sector": row["Sector"],
+                "params": {"de_ratio": row["D/E"], "kd": 0.06, "tax": 0.25, "g": 0.03, "beta_u": beta / max(1.0 + row["D/E"] * 0.65, 0.5),
+                           "capital_invertido": max(row["Ingresos (miles M)"], 1) * 2, "deuda_neta": 0, "inversion_inicial": 0,
+                           "caja": 0, "nci": 0, "otros_claims": 0, "asociados": 0, "acciones": 0, "exit_multiple": row["EV/EBITDA (x)"],
+                           "moneda": info.get("currency") or "USD"},
+                "historico": {"Año": [datetime.now().year - 1], "Ingresos": [row["Ingresos (miles M)"]],
+                              "EBITDA": [row["EBITDA (miles M)"]], "EBIT": [row["EBITDA (miles M)"] * 0.8],
+                              "FCFF": [0.0], "NOPAT": [0.0], "CAPEX": [0.0], "NWC": [0.0]},
+                "peers": [],
+            }
+            return True
+        except Exception as e:
             notas[short_p] = f"Peer falló: {e}"
-        return False
+            return False
 
     # --- 1) Focal siempre ---
     if focal and nombre_empresa_focal:
@@ -5365,13 +5488,21 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
     for pt in peer_tickers:
         _add_ticker(pt, "peer manual")
 
-    # --- 4) Peers automáticos del sector ---
+    # --- 4) Peers automáticos del sector (clave para empresas Yahoo fuera del catálogo BVC) ---
     auto_peers, matched_keys = obtener_tickers_peers_sector(
         sector_focal_main or sector_focal,
         industry_focal,
         exclude_ticker=exclude_ticker,
-        max_peers=6,
+        max_peers=8,
     )
+    if not auto_peers and (sector_focal or industry_focal):
+        # Reintento con el blob completo sector+industry
+        auto_peers, matched_keys = obtener_tickers_peers_sector(
+            f"{sector_focal} {industry_focal}",
+            "",
+            exclude_ticker=exclude_ticker,
+            max_peers=8,
+        )
     for pt in auto_peers:
         if len(rows) >= 8:
             break
@@ -5525,7 +5656,8 @@ def tab6_comparacion_sectorial(nombre_empresa):
         ax1.bar(x - width / 2, df["Margen EBITDA (%)"], width, label="Margen EBITDA %", color=COLOR_ACCENT)
         ax1.bar(x + width / 2, df["ROIC (%)"], width, label="ROIC %", color=COLOR_PRIMARY)
         ax1.set_xticks(x)
-        ax1.set_xticklabels(df["Empresa"], rotation=15, ha="right", fontsize=9)
+        _labs = df["Nombre"] if "Nombre" in df.columns else df["Empresa"]
+        ax1.set_xticklabels([str(x)[:22] for x in _labs], rotation=15, ha="right", fontsize=8)
         ax1.set_ylabel("%")
         ax1.set_title("Margen operativo vs retorno del capital", fontweight="bold", color=COLOR_PRIMARY)
         ax1.legend()
@@ -5533,8 +5665,9 @@ def tab6_comparacion_sectorial(nombre_empresa):
         ax1.spines["right"].set_visible(False)
 
         ax2 = axes[1]
+        _labs2 = df["Nombre"] if "Nombre" in df.columns else df["Empresa"]
         colors = [COLOR_SUCCESS if str(e).upper() == short.upper() else COLOR_PRIMARY for e in df["Empresa"]]
-        bars = ax2.barh(df["Empresa"], df["EV/EBITDA (x)"], color=colors)
+        bars = ax2.barh([str(x)[:28] for x in _labs2], df["EV/EBITDA (x)"], color=colors)
         ax2.set_xlabel("EV/EBITDA (veces)")
         ax2.set_title("Múltiplo EV/EBITDA (live o estimado)", fontweight="bold", color=COLOR_PRIMARY)
         ax2.spines["top"].set_visible(False)
