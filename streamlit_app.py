@@ -1001,28 +1001,7 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                 )
             fig.update_yaxes(title_text="", row=row, col=col)
 
-        # Título arriba, leyenda abajo (sin solaparse con subtítulos)
-        layout = _plotly_layout(title, height=max(360, 280 * nrows))
-        layout["margin"] = dict(l=48, r=28, t=88, b=72)
-        layout["legend"] = dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.12 if nrows == 1 else -0.08,
-            x=0.5,
-            xanchor="center",
-            font=dict(size=12, color="#F8FAFC"),
-            bgcolor="rgba(15,23,42,0.85)",
-            bordercolor="#475569",
-            borderwidth=1,
-        )
-        layout["hovermode"] = "closest"
-        fig.update_layout(**layout)
-        # Subtítulos centrados y legibles
-        fig.update_annotations(
-            font=dict(size=13, color="#E2E8F0", family="IBM Plex Sans"),
-            yshift=6,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        _finish_plotly(fig, title=title, height=max(360, 280 * nrows))
         st.caption(
             "Azul = original · teal punteado = normalizado · cruz roja = atípico. "
             "Pasa el cursor para ver el valor exacto."
@@ -1144,50 +1123,106 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             any_ok = True
     if not any_ok:
         return False
-    fig.update_layout(**_plotly_layout(title, height=720))
-    fig.update_layout(barmode="group", showlegend=True, legend=dict(orientation="h", y=1.12))
-    st.plotly_chart(fig, use_container_width=True)
+    ok = _finish_plotly(fig, title=title, height=740, barmode="group")
     st.caption("Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. Hover para ver valores.")
-    return True
+    return ok
 
 
-def _plotly_layout(title="", height=520):
+def _plotly_layout(title="", height=520, legend_bottom=True):
+    """Layout unificado: título limpio, leyenda sin solaparse, hover legible."""
+    margin_t = 72 if title else 48
+    margin_b = 88 if legend_bottom else 56
+    legend = dict(
+        bgcolor="rgba(15,23,42,0.92)",
+        bordercolor="#64748B",
+        borderwidth=1,
+        font=dict(size=12, color="#F8FAFC"),
+        orientation="h",
+        x=0.5,
+        xanchor="center",
+    )
+    if legend_bottom:
+        legend.update(yanchor="top", y=-0.18)
+    else:
+        legend.update(yanchor="bottom", y=1.08, x=0, xanchor="left")
+        margin_t = 100
+
     return dict(
-        title=dict(text=title, font=dict(size=16, color="#F8FAFC"), x=0.01),
+        title=dict(
+            text=title or "",
+            font=dict(size=15, color="#F8FAFC", family="IBM Plex Sans"),
+            x=0.0,
+            xanchor="left",
+            y=0.98,
+            yanchor="top",
+            pad=dict(t=4, b=8),
+        ),
         paper_bgcolor="#0F172A",
         plot_bgcolor="#1E293B",
-        font=dict(color="#F1F5F9", size=13, family="IBM Plex Sans, system-ui, sans-serif"),
-        margin=dict(l=60, r=40, t=60, b=60),
+        font=dict(color="#F1F5F9", size=12, family="IBM Plex Sans, system-ui, sans-serif"),
+        margin=dict(l=56, r=28, t=margin_t, b=margin_b),
         height=height,
-        legend=dict(
-            bgcolor="rgba(15,23,42,0.95)",
-            bordercolor="#64748B",
-            borderwidth=1,
+        legend=legend,
+        hovermode="closest",
+        hoverlabel=dict(
+            bgcolor="#0F172A",
+            bordercolor="#14B8A6",
             font=dict(size=12, color="#F8FAFC"),
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            x=0,
         ),
-        hovermode="x unified",
-        hoverlabel=dict(bgcolor="#0F172A", bordercolor="#14B8A6", font=dict(size=13, color="#F8FAFC")),
         xaxis=dict(
             gridcolor="#475569",
-            tickfont=dict(size=12, color="#E2E8F0"),
-            title_font=dict(size=13, color="#F1F5F9"),
+            tickfont=dict(size=11, color="#E2E8F0"),
+            title_font=dict(size=12, color="#F1F5F9"),
             color="#E2E8F0",
             automargin=True,
+            zerolinecolor="#64748B",
         ),
         yaxis=dict(
             gridcolor="#475569",
-            tickfont=dict(size=12, color="#E2E8F0"),
-            title_font=dict(size=13, color="#F1F5F9"),
+            tickfont=dict(size=11, color="#E2E8F0"),
+            title_font=dict(size=12, color="#F1F5F9"),
             color="#E2E8F0",
             automargin=True,
             zeroline=True,
             zerolinecolor="#64748B",
         ),
     )
+
+
+def _finish_plotly(fig, title="", height=520, **extra):
+    """Aplica chrome unificado + subtítulos alineados + render."""
+    layout = _plotly_layout(title, height=height, legend_bottom=True)
+    layout.update(extra)
+    fig.update_layout(**layout)
+    # Subtítulos de make_subplots (anotaciones)
+    try:
+        fig.update_annotations(
+            font=dict(size=13, color="#E2E8F0", family="IBM Plex Sans"),
+            yshift=4,
+        )
+    except Exception:
+        pass
+    # Ejes secundarios en subplots
+    try:
+        fig.update_xaxes(
+            gridcolor="#475569",
+            tickfont=dict(size=11, color="#E2E8F0"),
+            color="#E2E8F0",
+            automargin=True,
+        )
+        fig.update_yaxes(
+            gridcolor="#475569",
+            tickfont=dict(size=11, color="#E2E8F0"),
+            color="#E2E8F0",
+            automargin=True,
+            zeroline=True,
+            zerolinecolor="#64748B",
+        )
+    except Exception:
+        pass
+    st.plotly_chart(fig, use_container_width=True)
+    return True
+
 
 
 def _years_from_df(df):
@@ -1267,7 +1302,6 @@ def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
         return False
 
     y0, y1 = min(years_all), max(years_all)
-    fig.update_layout(**_plotly_layout(title, height=540))
     fig.update_xaxes(
         title="Año",
         range=[y0 - 0.4, y1 + 0.4],
@@ -1276,8 +1310,7 @@ def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
         autorange=False,
     )
     fig.update_yaxes(title="FCFF (miles de millones)")
-    st.plotly_chart(fig, use_container_width=True)
-    return True
+    return _finish_plotly(fig, title=title, height=540)
 
 
 def _plotly_escenarios(df):
@@ -1334,12 +1367,10 @@ def _plotly_escenarios(df):
         ))
     if not fig.data:
         return False
-    fig.update_layout(**_plotly_layout("Escenarios · EV vs Equity", height=480))
-    fig.update_layout(barmode="group", uniformtext_minsize=10, uniformtext_mode="hide")
     fig.update_xaxes(title="Escenario")
     fig.update_yaxes(title="Valor (miles de millones)")
-    st.plotly_chart(fig, use_container_width=True)
-    return True
+    return _finish_plotly(fig, title="Escenarios · EV vs Equity", height=480, barmode="group",
+                          uniformtext_minsize=10, uniformtext_mode="hide")
 
 
 def _plotly_vpn_flows(df):
@@ -1375,12 +1406,10 @@ def _plotly_vpn_flows(df):
         hovertemplate="<b>%{x}</b><br>Flujo: %{y:,.1f}<extra></extra>",
         name="Flujos",
     ))
-    fig.update_layout(**_plotly_layout("Flujos del proyecto · VPN / recuperación", height=480))
     fig.add_hline(y=0, line_color="#94A3B8", line_width=1, line_dash="dot")
     fig.update_xaxes(title="Periodo")
     fig.update_yaxes(title="Flujo / VPN")
-    st.plotly_chart(fig, use_container_width=True)
-    return True
+    return _finish_plotly(fig, title="Flujos del proyecto · VPN / recuperación", height=480)
 
 
 def _plotly_sector(df):
@@ -1407,10 +1436,8 @@ def _plotly_sector(df):
             textposition="outside",
             hovertemplate="<b>%{y}</b><br>Score: %{x:.2f}<extra></extra>",
         ))
-        fig.update_layout(**_plotly_layout("Ranking sectorial", height=max(400, 40 * len(labels) + 120)))
         fig.update_xaxes(title="Score")
-        st.plotly_chart(fig, use_container_width=True)
-        return True
+        return _finish_plotly(fig, title="Ranking sectorial", height=max(400, 40 * len(labels) + 120))
 
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Margen EBITDA %", "EV/EBITDA (x)"))
     if margen_c is not None:
@@ -1429,12 +1456,8 @@ def _plotly_sector(df):
         ), row=1, col=2)
     if not fig.data:
         return False
-    fig.update_layout(**_plotly_layout("Comparables del sector", height=max(420, 36 * len(labels) + 140)))
-    fig.update_layout(showlegend=False)
-    fig.update_xaxes(gridcolor="#475569")
-    fig.update_yaxes(gridcolor="#475569")
-    st.plotly_chart(fig, use_container_width=True)
-    return True
+    return _finish_plotly(fig, title="Comparables del sector",
+                          height=max(420, 36 * len(labels) + 140), showlegend=False)
 
 
 def _show_fig(fig, caption=None):
