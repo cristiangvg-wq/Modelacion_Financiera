@@ -2636,6 +2636,15 @@ def generar_fan_chart(df_hist, df_proj, mc_or_std, horizonte=5, nombre_empresa="
             ax.fill_between(años_fut, lower, upper, color=colors[i], alpha=0.45, label=f"IC {int(nivel*100)}%")
 
     ax.axhline(0, color="#94A3B8", ls=":", lw=1.2)
+    # Eje X solo entre primer año histórico y último proyectado (sin padding excesivo)
+    try:
+        x0 = int(min(años_hist.min(), años_fut.min()))
+        x1 = int(max(años_hist.max(), años_fut.max()))
+        ax.set_xlim(x0 - 0.3, x1 + 0.3)
+        ax.set_xticks(list(range(x0, x1 + 1)))
+        ax.tick_params(axis="x", labelrotation=45, labelsize=8)
+    except Exception:
+        pass
     ax.set_title(f"Fan Chart · FCFF ({metodo_label})\n{nombre_empresa}",
                  fontsize=13, fontweight="bold", color=COLOR_PRIMARY, pad=12)
     ax.set_xlabel("Año")
@@ -6182,11 +6191,26 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         img_paths = []
 
         # Fan / proyección FCFF
-        fig1, ax = plt.subplots(figsize=(9, 4))
-        ax.plot(df_hist.index.astype(int), df_hist["FCFF"], "o-", color=COLOR_PRIMARY, lw=2.2, label="Histórico")
-        ax.plot(df_proj.index.astype(int), df_proj["FCFF"], "s--", color=COLOR_ACCENT, lw=2.2, label="Proyectado")
+        fig1, ax = plt.subplots(figsize=(10, 5))
+        yh = df_hist.index.astype(int)
+        yp = df_proj.index.astype(int)
+        vh = df_hist["FCFF"].astype(float)
+        vp = df_proj["FCFF"].astype(float)
+        ax.plot(yh, vh, "o-", color=COLOR_PRIMARY, lw=2.4, ms=7, label="Histórico")
+        ax.plot(yp, vp, "s--", color=COLOR_ACCENT, lw=2.4, ms=7, label="Proyectado")
+        for x, y in zip(yh, vh):
+            ax.annotate(f"{y:.0f}", (x, y), textcoords="offset points", xytext=(0, 8),
+                        ha="center", fontsize=7, color=COLOR_PRIMARY)
+        for x, y in zip(yp, vp):
+            ax.annotate(f"{y:.0f}", (x, y), textcoords="offset points", xytext=(0, 8),
+                        ha="center", fontsize=7, color=COLOR_ACCENT)
         ax.axhline(0, color="#94A3B8", ls=":")
+        x0, x1 = int(min(yh.min(), yp.min())), int(max(yh.max(), yp.max()))
+        ax.set_xlim(x0 - 0.3, x1 + 0.3)
+        ax.set_xticks(list(range(x0, x1 + 1)))
+        ax.tick_params(axis="x", labelrotation=45, labelsize=8)
         ax.set_title("Dinero libre (FCFF): historia y proyección")
+        ax.set_xlabel("Año")
         ax.set_ylabel("Miles de millones (moneda del emisor)")
         ax.legend()
         ax.spines["top"].set_visible(False)
@@ -6203,16 +6227,23 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         ))
 
         # Escenarios EV/Equity
-        fig2, ax = plt.subplots(figsize=(9, 4))
+        fig2, ax = plt.subplots(figsize=(10, 5))
         x = np.arange(3)
         width = 0.35
-        evs = [escenarios[k]["EV"] for k in ("Pesimista", "Base", "Optimista")]
-        eqs = [escenarios[k]["Equity_Value"] for k in ("Pesimista", "Base", "Optimista")]
-        ax.bar(x - width/2, evs, width, label="Valor empresa (EV)", color=COLOR_ACCENT)
-        ax.bar(x + width/2, eqs, width, label="Valor dueños (Equity)", color=COLOR_PRIMARY)
+        labels_esc = ["Pesimista", "Base", "Optimista"]
+        evs = [float(escenarios[k]["EV"] or 0) for k in labels_esc]
+        eqs = [float(escenarios[k]["Equity_Value"] or 0) for k in labels_esc]
+        b1 = ax.bar(x - width/2, evs, width, label="Valor empresa (EV)", color=COLOR_ACCENT)
+        b2 = ax.bar(x + width/2, eqs, width, label="Valor dueños (Equity)", color=COLOR_PRIMARY)
         ax.set_xticks(x)
-        ax.set_xticklabels(["Pesimista", "Base", "Optimista"])
+        ax.set_xticklabels(labels_esc)
+        for bar, val in zip(list(b1) + list(b2), evs + eqs):
+            ax.annotate(f"{val:,.0f}",
+                        (bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                        textcoords="offset points", xytext=(0, 4),
+                        ha="center", va="bottom", fontsize=8, fontweight="bold")
         ax.set_title("Valoración bajo tres escenarios")
+        ax.set_ylabel("Miles de millones")
         ax.legend()
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -6227,21 +6258,30 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         ))
 
         # VPN path
-        fig3, ax = plt.subplots(figsize=(9, 4))
+        fig3, ax = plt.subplots(figsize=(10, 5))
         vpn_acum = []
-        running = -abs(inversion_inicial)
+        running = -abs(float(inversion_inicial or 0))
         vpn_acum.append(running)
         for i, fcff in enumerate(fcff_vals):
-            running += fcff / ((1 + wacc) ** (i + 1))
+            running += float(fcff) / ((1 + wacc) ** (i + 1))
             vpn_acum.append(running)
-        ax.plot(range(len(vpn_acum)), vpn_acum, "o-", color=COLOR_PRIMARY, lw=2.2)
+        xs = list(range(len(vpn_acum)))
+        xlabels = ["t0 (inversión)"] + [f"t{i}" for i in range(1, len(vpn_acum))]
+        ax.plot(xs, vpn_acum, "o-", color=COLOR_PRIMARY, lw=2.4, ms=7)
+        for x, y, lab in zip(xs, vpn_acum, xlabels):
+            ax.annotate(f"{y:,.0f}", (x, y), textcoords="offset points", xytext=(0, 8),
+                        ha="center", fontsize=7, color=COLOR_PRIMARY)
         ax.axhline(0, color="#94A3B8", ls="--")
-        ax.fill_between(range(len(vpn_acum)), vpn_acum, 0,
+        ax.fill_between(xs, vpn_acum, 0,
                         where=np.array(vpn_acum) >= 0, color=COLOR_SUCCESS, alpha=0.25)
-        ax.fill_between(range(len(vpn_acum)), vpn_acum, 0,
+        ax.fill_between(xs, vpn_acum, 0,
                         where=np.array(vpn_acum) < 0, color=COLOR_DANGER, alpha=0.25)
+        ax.set_xlim(-0.3, len(vpn_acum) - 0.7)
+        ax.set_xticks(xs)
+        ax.set_xticklabels(xlabels, rotation=30, ha="right", fontsize=8)
         ax.set_title("Recuperación del valor del proyecto (VPN acumulado)")
         ax.set_xlabel("Periodo (t=0 es la inversión inicial)")
+        ax.set_ylabel("VPN acumulado")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         p3 = os.path.join(tmpdir, "vpn.png")
@@ -6382,25 +6422,49 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         fig_ui, axes = plt.subplots(2, 2, figsize=(12, 8))
         axes = axes.ravel()
         # A
-        axes[0].plot(df_hist.index.astype(int), df_hist["FCFF"], "o-", color=COLOR_PRIMARY, label="Histórico")
-        axes[0].plot(df_proj.index.astype(int), df_proj["FCFF"], "s--", color=COLOR_ACCENT, label="Proyectado")
-        axes[0].set_title("A) FCFF")
+        yh = df_hist.index.astype(int)
+        yp = df_proj.index.astype(int)
+        vh = df_hist["FCFF"].astype(float)
+        vp = df_proj["FCFF"].astype(float)
+        axes[0].plot(yh, vh, "o-", color=COLOR_PRIMARY, label="Histórico", lw=2, ms=5)
+        axes[0].plot(yp, vp, "s--", color=COLOR_ACCENT, label="Proyectado", lw=2, ms=5)
+        for xx, yy in list(zip(yh, vh))[-4:] + list(zip(yp, vp)):
+            axes[0].annotate(f"{yy:.0f}", (xx, yy), textcoords="offset points", xytext=(0, 6),
+                             ha="center", fontsize=6)
+        x0, x1 = int(min(yh.min(), yp.min())), int(max(yh.max(), yp.max()))
+        axes[0].set_xlim(x0 - 0.3, x1 + 0.3)
+        axes[0].set_xticks(list(range(x0, x1 + 1, max(1, (x1 - x0) // 8 or 1))))
+        axes[0].set_title("A) FCFF por año")
+        axes[0].set_xlabel("Año")
         axes[0].legend(fontsize=8)
         axes[0].spines["top"].set_visible(False)
         axes[0].spines["right"].set_visible(False)
         # B
-        axes[1].bar(x - width/2, evs, width, label="EV", color=COLOR_ACCENT)
-        axes[1].bar(x + width/2, eqs, width, label="Equity", color=COLOR_PRIMARY)
+        b1 = axes[1].bar(x - width/2, evs, width, label="EV", color=COLOR_ACCENT)
+        b2 = axes[1].bar(x + width/2, eqs, width, label="Equity", color=COLOR_PRIMARY)
         axes[1].set_xticks(x)
-        axes[1].set_xticklabels(["Pesim.", "Base", "Optim."])
-        axes[1].set_title("B) Escenarios")
+        axes[1].set_xticklabels(["Pesimista", "Base", "Optimista"], fontsize=8)
+        for bar, val in zip(list(b1) + list(b2), list(evs) + list(eqs)):
+            axes[1].annotate(f"{float(val):,.0f}",
+                             (bar.get_x() + bar.get_width()/2, bar.get_height()),
+                             textcoords="offset points", xytext=(0, 3),
+                             ha="center", fontsize=7, fontweight="bold")
+        axes[1].set_title("B) Escenarios (EV / Equity)")
         axes[1].legend(fontsize=8)
         axes[1].spines["top"].set_visible(False)
         axes[1].spines["right"].set_visible(False)
         # C
-        axes[2].plot(range(len(vpn_acum)), vpn_acum, "o-", color=COLOR_PRIMARY)
+        xs = list(range(len(vpn_acum)))
+        axes[2].plot(xs, vpn_acum, "o-", color=COLOR_PRIMARY, lw=2, ms=5)
+        for xx, yy in zip(xs, vpn_acum):
+            axes[2].annotate(f"{yy:,.0f}", (xx, yy), textcoords="offset points", xytext=(0, 6),
+                             ha="center", fontsize=6)
         axes[2].axhline(0, color="#94A3B8", ls="--")
+        axes[2].set_xlim(-0.3, max(xs) + 0.3 if xs else 1)
+        axes[2].set_xticks(xs)
+        axes[2].set_xticklabels(["t0"] + [f"t{i}" for i in xs[1:]], fontsize=7)
         axes[2].set_title("C) VPN acumulado")
+        axes[2].set_xlabel("Periodo")
         axes[2].spines["top"].set_visible(False)
         axes[2].spines["right"].set_visible(False)
         # D
