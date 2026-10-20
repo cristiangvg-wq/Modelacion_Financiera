@@ -24,6 +24,30 @@ except ImportError:
     HAS_MPL = False
     plt = None
 
+# API key Gemini por defecto (prioridad: Secrets / env → fallback embebido).
+# En producción pública preferir st.secrets["GEMINI_API_KEY"] y rotar esta clave.
+_DEFAULT_GEMINI_KEY = "AQ.Ab8RN6Lq_5w77l3GlbR4hlmYW9vFRDZjPxv5wn8Iaw4WluWMUA"
+
+
+def _resolve_gemini_key(ui_key=None):
+    """Orden: input UI → st.secrets → env → default embebido."""
+    if ui_key and str(ui_key).strip():
+        return str(ui_key).strip()
+    try:
+        if hasattr(st, "secrets") and st.secrets.get("GEMINI_API_KEY"):
+            return str(st.secrets["GEMINI_API_KEY"]).strip()
+    except Exception:
+        pass
+    env = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+    if env:
+        return env
+    return _DEFAULT_GEMINI_KEY
+
+
+# Exponer al módulo de lógica si no hay variable de entorno
+if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+    os.environ["GEMINI_API_KEY"] = _DEFAULT_GEMINI_KEY
+
 # =============================================================================
 # PAGE CONFIG
 # =============================================================================
@@ -464,6 +488,55 @@ footer { visibility: hidden; }
 header[data-testid="stHeader"] {
   background: transparent !important;
 }
+
+/* Burbujas flotantes (tooltips) en KPIs y callouts */
+.tf-kpi {
+  position: relative;
+  cursor: help;
+}
+.tf-kpi[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  width: min(260px, 70vw);
+  background: #0F172A;
+  color: #F1F5F9;
+  border: 1px solid #14B8A6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-transform: none;
+  z-index: 100;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+  pointer-events: none;
+  white-space: normal;
+}
+.tf-kpi[data-tip]:hover::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #14B8A6;
+  z-index: 101;
+}
+.tf-explain {
+  background: rgba(20, 184, 166, 0.08);
+  border-left: 3px solid #14B8A6;
+  border-radius: 0 10px 10px 0;
+  padding: 0.65rem 0.9rem;
+  margin: 0.5rem 0 1rem 0;
+  color: #CCFBF1;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+.tf-explain b { color: #5EEAD4; }
 </style>
 """
 
@@ -542,11 +615,12 @@ def _listar_empresas():
         return base + [e for e in extra if e not in base]
 
 
-def _kpi_card(label: str, value: str, sub: str = "", accent: bool = False) -> str:
+def _kpi_card(label: str, value: str, sub: str = "", accent: bool = False, tip: str = "") -> str:
     cls = "tf-kpi accent" if accent else "tf-kpi"
     sub_html = f'<div class="sub">{sub}</div>' if sub else ""
+    tip_attr = f' data-tip="{tip}"' if tip else ""
     return (
-        f'<div class="{cls}">'
+        f'<div class="{cls}"{tip_attr}>'
         f'<div class="label">{label}</div>'
         f'<div class="value">{value}</div>'
         f"{sub_html}</div>"
@@ -554,14 +628,20 @@ def _kpi_card(label: str, value: str, sub: str = "", accent: bool = False) -> st
 
 
 def _kpi_row(items: list[tuple]) -> None:
-    """items: list of (label, value, sub, accent?)"""
+    """items: (label, value, sub?, accent?, tip?)"""
     cards = []
     for it in items:
         label, value = it[0], it[1]
         sub = it[2] if len(it) > 2 else ""
         accent = it[3] if len(it) > 3 else False
-        cards.append(_kpi_card(label, value, sub, accent))
+        tip = it[4] if len(it) > 4 else ""
+        cards.append(_kpi_card(label, value, sub, accent, tip))
     st.markdown(f'<div class="tf-kpi-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def _explain(text: str) -> None:
+    """Callout didáctico bajo resultados clave."""
+    st.markdown(f'<div class="tf-explain">{text}</div>', unsafe_allow_html=True)
 
 
 def _section_start(title: str) -> None:
@@ -856,13 +936,37 @@ def main():
     except Exception:
         sector = "—"
 
-    # ----- KPI strip -----
+    # ----- KPI strip (con burbujas al pasar el cursor) -----
     _kpi_row(
         [
-            ("WACC", f"{w['wacc']*100:.2f}%", "costo capital", True),
-            ("Ke (CAPM)", f"{w['ke']*100:.2f}%", f"βL {w['beta_l']:.2f}"),
-            ("Horizonte", f"{horizonte} a", f"g {g*100:.1f}%"),
-            ("Emisor", empresa.split("—")[0].strip()[:18], str(sector)[:22]),
+            (
+                "WACC",
+                f"{w['wacc']*100:.2f}%",
+                "costo capital",
+                True,
+                "WACC: rentabilidad mínima exigida por deuda y equity. Si el ROIC supera el WACC, el negocio crea valor.",
+            ),
+            (
+                "Ke (CAPM)",
+                f"{w['ke']*100:.2f}%",
+                f"βL {w['beta_l']:.2f}",
+                False,
+                "Ke (CAPM): costo del equity = rf + β apalancado × ERP + CRP. Es la rentabilidad que piden los accionistas.",
+            ),
+            (
+                "Horizonte",
+                f"{horizonte} a",
+                f"g {g*100:.1f}%",
+                False,
+                "Años de proyección explícita de FCFF. Después se aplica valor terminal (Gordon) con g ≤ techo macro.",
+            ),
+            (
+                "Emisor",
+                empresa.split("—")[0].strip()[:18],
+                str(sector)[:22],
+                False,
+                f"Empresa en análisis: {empresa}. Sector/industria usados para peers y ranking comparativo.",
+            ),
         ]
     )
 
@@ -897,25 +1001,45 @@ def main():
                 st.caption("FCFF · WACC · ROIC · EV · Equity · VPN · TIR · g · Beta")
 
     with st.expander("🤖 Consulta IA", expanded=False):
-        st.caption("Pregunta en lenguaje natural sobre el modelo, el emisor o definiciones. Opcional: API key de sesión.")
-        c_q, c_p = st.columns([3, 1])
-        with c_q:
-            pregunta = st.text_area(
-                "Pregunta",
-                height=88,
-                placeholder="¿Qué es el WACC? · ¿Precio y upside? · Resumen para el comité",
-                label_visibility="collapsed",
+        st.caption(
+            "Pregunta en lenguaje natural sobre el modelo, el emisor o definiciones. "
+            "Gemini viene configurado por defecto; puedes cambiar proveedor o clave abajo."
+        )
+        pregunta = st.text_area(
+            "Pregunta",
+            height=90,
+            placeholder="¿Qué es el WACC? · ¿Precio y upside? · Resumen para el comité",
+            label_visibility="collapsed",
+            key="ia_pregunta",
+        )
+        with st.expander("Proveedor y API key", expanded=False):
+            cprov = st.selectbox(
+                "Proveedor",
+                ["gemini", "xai", "openai"],
+                index=0,
+                key="iaprov",
+                help="Gemini usa la clave por defecto de la app salvo que indiques otra.",
             )
-        with c_p:
-            cprov = st.selectbox("Proveedor", ["gemini", "xai", "openai"], key="iaprov")
-            ckey = st.text_input("API key", type="password", key="iakey")
-            consultar = st.button("Consultar", type="primary", key="btn_ia", use_container_width=True)
+            ckey = st.text_input(
+                "API key (opcional — deja vacío para usar la de Gemini por defecto)",
+                type="password",
+                key="iakey",
+                placeholder="Vacío = Gemini por defecto",
+            )
+            st.caption("Prioridad: clave escrita aquí → Secrets/env → clave Gemini embebida.")
+        consultar = st.button("Consultar", type="primary", key="btn_ia", use_container_width=True)
         if consultar:
             with st.spinner("Consultando…"):
                 try:
+                    key_eff = _resolve_gemini_key(ckey) if (cprov or "gemini") == "gemini" else (ckey or None)
+                    if cprov == "gemini" and not key_eff:
+                        key_eff = _resolve_gemini_key(None)
                     _html(
                         L.asistente_consulta_financiera(
-                            pregunta, empresa, api_key=ckey or None, proveedor=cprov
+                            pregunta,
+                            empresa,
+                            api_key=key_eff,
+                            proveedor=cprov or "gemini",
                         )
                     )
                 except Exception as e:
@@ -972,6 +1096,11 @@ def main():
                 _show_fig(r[4], "Atípicos")
             if len(r) > 5 and r[5]:
                 _html(r[5])
+            _explain(
+                "<b>Cómo leer el fan chart:</b> la banda P10–P90 muestra incertidumbre del FCFF; "
+                "la línea mediana es el escenario central. Si el histórico cae fuera de la banda, "
+                "revisa outliers o el método de proyección."
+            )
 
     with tab2:
         st.markdown("##### Escenarios pesimista · base · optimista")
@@ -994,6 +1123,10 @@ def main():
                 _show_df(r[1], "Por escenario")
             if len(r) > 2:
                 _show_fig(r[2], "EV vs Equity")
+            _explain(
+                "<b>Escenarios:</b> pesimista sube el WACC y baja el FCFF/g; optimista hace lo contrario. "
+                "Compara <b>Equity</b> (no solo EV): es lo que queda para el accionista tras deuda neta, NCI y claims."
+            )
 
     with tab3:
         st.markdown("##### Coherencia de supuestos")
@@ -1056,6 +1189,10 @@ def main():
                 _show_df(r[1], "Flujos")
             if len(r) > 2:
                 _show_fig(r[2], "Recuperación")
+            _explain(
+                "<b>VPN &gt; 0</b> implica que el proyecto cubre el costo de capital (WACC) bajo estos supuestos. "
+                "La <b>TIR</b> es la tasa que hace VPN = 0; el <b>payback</b> solo mide liquidez, no valor."
+            )
 
     with tab6:
         st.markdown("##### Ranking sectorial")
@@ -1074,6 +1211,11 @@ def main():
                 _show_df(r[1], "Comparables")
             if len(r) > 2:
                 _show_fig(r[2], "Sector")
+            _explain(
+                "<b>Ranking sectorial:</b> peers del mismo sector/industria (Yahoo + catálogo). "
+                "EV/EBITDA bajo vs pares puede sugerir descuento; ROIC vs WACC indica creación o destrucción de valor. "
+                "Pasa el cursor por los KPIs superiores para definiciones rápidas."
+            )
 
     with tab7:
         st.markdown("##### Informe ejecutivo")
