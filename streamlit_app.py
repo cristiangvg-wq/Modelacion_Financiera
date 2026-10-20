@@ -13,10 +13,18 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import streamlit as st
 
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")  # backend no interactivo (Streamlit Cloud)
+    import matplotlib.pyplot as plt
+    HAS_MPL = True
+except ImportError:
+    HAS_MPL = False
+    plt = None
 
 # ---------------------------------------------------------------------------
 # Dependencias opcionales
@@ -464,26 +472,77 @@ def vpn_tir(fcff_list, inversion_inicial, wacc):
 # ---------------------------------------------------------------------------
 # UI Streamlit
 # ---------------------------------------------------------------------------
+
 def main():
     st.title("📊 Modelación Financiera y Riesgo")
-    st.caption("Proyección · DCF · Escenarios · VPN/TIR · Sector · **Herramienta pedagógica · No es asesoría de inversión**")
+    st.caption(
+        "Proyección · DCF · Escenarios · VPN/TIR · Sector · Recomendación · Informe · "
+        "**Herramienta pedagógica · No es asesoría de inversión**"
+    )
+
+    # ----- Estado de sesión -----
+    if "empresa_sel" not in st.session_state:
+        st.session_state["empresa_sel"] = list(EMPRESAS.keys())[0]
+    if "fcff_proj" not in st.session_state:
+        st.session_state["fcff_proj"] = None
+    if "df_proj" not in st.session_state:
+        st.session_state["df_proj"] = None
+    if "last_empresa_for_proj" not in st.session_state:
+        st.session_state["last_empresa_for_proj"] = None
 
     # ----- Sidebar: empresa y parámetros -----
     with st.sidebar:
         st.header("1 · Empresa")
-        catalogo = list(EMPRESAS.keys()) + list(EMPRESAS_RUNTIME.keys())
-        empresa = st.selectbox("Catálogo / descargadas", options=catalogo, index=0)
 
-        with st.expander("Buscar ticker Yahoo Finance"):
-            ticker_q = st.text_input("Ticker", placeholder="AAPL, MSFT, EC, ISA.CL")
-            if st.button("Descargar", type="primary"):
-                with st.spinner("Descargando..."):
-                    nombre, msg = descargar_yahoo(ticker_q.strip().upper())
+        with st.expander("Buscar ticker Yahoo Finance", expanded=False):
+            ticker_q = st.text_input("Ticker", placeholder="AAPL, MSFT, EC, ISA.CL", key="ticker_q")
+            if st.button("Descargar", type="primary", key="btn_download"):
+                q = (ticker_q or "").strip().upper()
+                if not q:
+                    st.error("Escribe un ticker")
+                else:
+                    with st.spinner(f"Descargando {q}..."):
+                        nombre, msg = descargar_yahoo(q)
                     if nombre:
-                        st.success(f"{nombre}\n{msg}")
+                        st.session_state["empresa_sel"] = nombre
+                        st.session_state["select_empresa"] = nombre  # sincroniza el selectbox
+                        # Limpiar proyecciones y caches de la empresa anterior
+                        st.session_state["fcff_proj"] = None
+                        st.session_state["df_proj"] = None
+                        st.session_state["df_esc"] = None
+                        st.session_state["df_chk"] = None
+                        st.session_state["vpn_res"] = None
+                        st.session_state["last_empresa_for_proj"] = None
+                        st.success(f"✅ {nombre}\n{msg}")
                         st.rerun()
                     else:
-                        st.error(msg)
+                        st.error(f"No se pudo descargar: {msg}")
+
+        catalogo = list(EMPRESAS.keys()) + list(EMPRESAS_RUNTIME.keys())
+        # Si la empresa guardada ya no está, volver al catálogo
+        if st.session_state["empresa_sel"] not in catalogo:
+            st.session_state["empresa_sel"] = catalogo[0]
+
+        # Mantener select_empresa alineado con empresa_sel
+        if "select_empresa" not in st.session_state or st.session_state["select_empresa"] not in catalogo:
+            st.session_state["select_empresa"] = st.session_state["empresa_sel"] if st.session_state["empresa_sel"] in catalogo else catalogo[0]
+
+        empresa = st.selectbox(
+            "Catálogo / descargadas",
+            options=catalogo,
+            key="select_empresa",
+        )
+
+        # Cambio manual de empresa → limpiar resultados previos
+        if empresa != st.session_state.get("empresa_sel"):
+            st.session_state["empresa_sel"] = empresa
+            st.session_state["fcff_proj"] = None
+            st.session_state["df_proj"] = None
+            st.session_state["df_esc"] = None
+            st.session_state["df_chk"] = None
+            st.session_state["vpn_res"] = None
+            st.session_state["last_empresa_for_proj"] = None
+            st.rerun()
 
         emp = EMPRESAS.get(empresa) or EMPRESAS_RUNTIME.get(empresa)
         if not emp:
@@ -491,27 +550,31 @@ def main():
             st.stop()
 
         p = emp["params"]
+        # Clave por empresa → los widgets se reinician al cambiar de emisor
+        ek = empresa  # prefix for widget keys
+
         st.header("2 · Parámetros")
-        horizonte = st.slider("Horizonte (años)", 3, 10, 5)
-        de_ratio = st.slider("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.0)), 0.05)
-        kd = st.slider("Kd (costo deuda)", 0.0, 0.25, float(p.get("kd", 0.08)), 0.005)
-        tax = st.slider("Tax", 0.0, 0.50, float(p.get("tax", 0.35)), 0.01)
-        g = st.slider("g terminal", 0.0, 0.08, float(p.get("g", 0.03)), 0.005)
-        beta_u = st.slider("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5)), 0.05)
-        rf = st.slider("rf", 0.02, 0.16, 0.12 if p.get("moneda") == "COP" else 0.04, 0.005)
-        erp = st.slider("ERP", 0.03, 0.10, 0.055, 0.005)
-        crp = st.slider("CRP país", 0.0, 0.05, 0.0, 0.005)
+        horizonte = st.slider("Horizonte (años)", 3, 10, 5, key=f"h_{ek}")
+        de_ratio = st.slider("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.0)), 0.05, key=f"de_{ek}")
+        kd = st.slider("Kd (costo deuda)", 0.0, 0.25, float(p.get("kd", 0.08)), 0.005, key=f"kd_{ek}")
+        tax = st.slider("Tax", 0.0, 0.50, float(p.get("tax", 0.35)), 0.01, key=f"tax_{ek}")
+        g = st.slider("g terminal", 0.0, 0.08, float(p.get("g", 0.03)), 0.005, key=f"g_{ek}")
+        beta_u = st.slider("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5)), 0.05, key=f"bu_{ek}")
+        rf_default = 0.12 if p.get("moneda") == "COP" else 0.04
+        rf = st.slider("rf", 0.02, 0.16, float(rf_default), 0.005, key=f"rf_{ek}")
+        erp = st.slider("ERP", 0.03, 0.10, 0.055, 0.005, key=f"erp_{ek}")
+        crp = st.slider("CRP país", 0.0, 0.05, 0.0, 0.005, key=f"crp_{ek}")
 
         st.subheader("Puente a equity")
-        deuda_neta = st.number_input("Deuda neta", value=float(p.get("deuda_neta", 0)), step=100.0)
-        caja = st.number_input("Caja", value=float(p.get("caja", 0)), step=50.0)
-        nci = st.number_input("NCI", value=float(p.get("nci", 0)), step=50.0)
-        otros = st.number_input("Otros claims", value=float(p.get("otros_claims", 0)), step=50.0)
-        asociados = st.number_input("Asociados", value=float(p.get("asociados", 0)), step=50.0)
-        acciones = st.number_input("Acciones (millones)", value=float(p.get("acciones") or 0), step=1.0)
-        inversion = st.number_input("Inversión inicial (proyecto)", value=float(p.get("inversion_inicial", 0)), step=100.0)
-        mid_year = st.checkbox("Mid-year convention", value=True)
-        g_max = st.slider("Techo macro g", 0.02, 0.06, 0.04, 0.005)
+        deuda_neta = st.number_input("Deuda neta", value=float(p.get("deuda_neta", 0) or 0), step=100.0, key=f"dn_{ek}")
+        caja = st.number_input("Caja", value=float(p.get("caja", 0) or 0), step=50.0, key=f"caja_{ek}")
+        nci = st.number_input("NCI", value=float(p.get("nci", 0) or 0), step=50.0, key=f"nci_{ek}")
+        otros = st.number_input("Otros claims", value=float(p.get("otros_claims", 0) or 0), step=50.0, key=f"ot_{ek}")
+        asociados = st.number_input("Asociados", value=float(p.get("asociados", 0) or 0), step=50.0, key=f"as_{ek}")
+        acciones = st.number_input("Acciones (millones)", value=float(p.get("acciones") or 0), step=1.0, key=f"acc_{ek}")
+        inversion = st.number_input("Inversión inicial (proyecto)", value=float(p.get("inversion_inicial", 0) or 0), step=100.0, key=f"inv_{ek}")
+        mid_year = st.checkbox("Mid-year convention", value=True, key=f"my_{ek}")
+        g_max = st.slider("Techo macro g", 0.02, 0.06, 0.04, 0.005, key=f"gmax_{ek}")
 
     # WACC
     w = calcular_wacc(de_ratio, kd, tax, beta_u, rf, erp, crp)
@@ -522,17 +585,22 @@ def main():
     c1.metric("WACC", f"{w['wacc']*100:.2f}%")
     c2.metric("Ke (CAPM)", f"{w['ke']*100:.2f}%")
     c3.metric("β apalancado", f"{w['beta_l']:.2f}")
-    c4.metric("Sector", emp.get("sector", "—")[:28])
+    c4.metric("Sector", str(emp.get("sector", "—"))[:28])
 
-    st.info(f"**{empresa}** · moneda del modelo: **{moneda}** (cifras en miles de millones). Revisa parámetros antes de interpretar.")
+    st.info(
+        f"**{empresa}** · moneda del modelo: **{moneda}** "
+        f"(cifras en miles de millones). Revisa parámetros antes de interpretar."
+    )
 
-    # Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # Tabs (alineadas al original: 1–7)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "1 · Pronóstico",
         "2 · Escenarios DCF",
         "3 · Auditoría",
         "4 · VPN / TIR",
         "5 · Sector",
+        "6 · Recomendación",
+        "7 · Informe",
     ])
 
     df_hist = df_historico(empresa)
@@ -541,37 +609,42 @@ def main():
     with tab1:
         st.subheader("Proyección de FCFF (drivers)")
         if df_hist.empty:
-            st.warning("Sin histórico")
+            st.warning("Sin histórico para esta empresa.")
         else:
             st.dataframe(df_hist.style.format("{:.1f}"), use_container_width=True)
             df_proj = proyectar_drivers(df_hist, horizonte=horizonte, tax=tax)
             st.markdown("**Proyección**")
             st.dataframe(df_proj.style.format("{:.1f}"), use_container_width=True)
 
-            # Fan chart Monte Carlo
-            mc = monte_carlo_fcff(df_proj["FCFF"].values, n_sim=400, vol=0.18)
-            fig, ax = plt.subplots(figsize=(10, 4.5))
-            years_p = list(df_proj.index)
-            ax.fill_between(years_p, mc["p10"], mc["p90"], alpha=0.25, color="#00A3A1", label="P10–P90")
-            ax.plot(years_p, mc["p50"], color="#0A2540", lw=2, label="Mediana")
-            ax.plot(years_p, df_proj["FCFF"].values, color="#F59E0B", lw=1.5, ls="--", label="Base drivers")
-            if not df_hist.empty and "FCFF" in df_hist.columns:
-                ax.plot(df_hist.index, df_hist["FCFF"], color="#64748B", marker="o", label="Histórico")
-            ax.set_title("Fan chart FCFF")
-            ax.set_ylabel(f"Miles de millones {moneda}")
-            ax.legend(loc="best", fontsize=8)
-            ax.grid(True, alpha=0.3)
-            st.pyplot(fig)
-            plt.close()
+            if HAS_MPL:
+                mc = monte_carlo_fcff(df_proj["FCFF"].values, n_sim=400, vol=0.18)
+                fig, ax = plt.subplots(figsize=(10, 4.5))
+                years_p = list(df_proj.index)
+                ax.fill_between(years_p, mc["p10"], mc["p90"], alpha=0.25, color="#00A3A1", label="P10–P90")
+                ax.plot(years_p, mc["p50"], color="#0A2540", lw=2, label="Mediana")
+                ax.plot(years_p, df_proj["FCFF"].values, color="#F59E0B", lw=1.5, ls="--", label="Base drivers")
+                if "FCFF" in df_hist.columns:
+                    ax.plot(df_hist.index, df_hist["FCFF"], color="#64748B", marker="o", label="Histórico")
+                ax.set_title(f"Fan chart FCFF — {empresa}")
+                ax.set_ylabel(f"Miles de millones {moneda}")
+                ax.legend(loc="best", fontsize=8)
+                ax.grid(True, alpha=0.3)
+                st.pyplot(fig)
+                plt.close()
+            else:
+                st.warning("matplotlib no instalado")
+
             st.session_state["fcff_proj"] = df_proj["FCFF"].tolist()
             st.session_state["df_proj"] = df_proj
+            st.session_state["last_empresa_for_proj"] = empresa
 
     # ----- TAB 2: Escenarios DCF -----
     with tab2:
         st.subheader("Escenarios pesimista · base · optimista")
-        fcff = st.session_state.get("fcff_proj")
+        same_emp = st.session_state.get("last_empresa_for_proj") == empresa
+        fcff = st.session_state.get("fcff_proj") if same_emp else None
         if not fcff:
-            st.warning("Ejecuta primero la pestaña **Pronóstico**.")
+            st.warning("Abre primero la pestaña **1 · Pronóstico** para esta empresa (genera el FCFF).")
         else:
             escenarios = {
                 "Pesimista": {"wacc_mult": 1.15, "g_mult": 0.6, "fcff_mult": 0.85},
@@ -600,19 +673,21 @@ def main():
                 })
             df_esc = pd.DataFrame(rows)
             st.dataframe(df_esc, use_container_width=True, hide_index=True)
+            st.session_state["df_esc"] = df_esc
 
-            fig, ax = plt.subplots(figsize=(8, 4))
-            x = np.arange(len(df_esc))
-            width = 0.35
-            ax.bar(x - width/2, df_esc["EV"], width, label="EV", color="#0A2540")
-            ax.bar(x + width/2, df_esc["Equity"], width, label="Equity", color="#00A3A1")
-            ax.set_xticks(x)
-            ax.set_xticklabels(df_esc["Escenario"])
-            ax.set_ylabel(f"Miles de millones {moneda}")
-            ax.legend()
-            ax.set_title("Enterprise Value vs Equity Value")
-            st.pyplot(fig)
-            plt.close()
+            if HAS_MPL:
+                fig, ax = plt.subplots(figsize=(8, 4))
+                x = np.arange(len(df_esc))
+                width = 0.35
+                ax.bar(x - width / 2, df_esc["EV"].fillna(0), width, label="EV", color="#0A2540")
+                ax.bar(x + width / 2, df_esc["Equity"].fillna(0), width, label="Equity", color="#00A3A1")
+                ax.set_xticks(x)
+                ax.set_xticklabels(df_esc["Escenario"])
+                ax.set_ylabel(f"Miles de millones {moneda}")
+                ax.legend()
+                ax.set_title("Enterprise Value vs Equity Value")
+                st.pyplot(fig)
+                plt.close()
 
             base = rows[1]
             st.success(
@@ -625,56 +700,52 @@ def main():
     with tab3:
         st.subheader("Auditoría rápida de supuestos")
         checks = []
-        # g < WACC
         ok_g = g < w["wacc"] - 0.005
         checks.append(("g < WACC − 0.5 pp", "OK" if ok_g else "REVISAR", f"g={g*100:.1f}% · WACC={w['wacc']*100:.1f}%"))
-        # g techo macro
         ok_macro = g <= g_max + 1e-9
         checks.append(("g ≤ techo macro", "OK" if ok_macro else "REVISAR", f"g={g*100:.1f}% · techo={g_max*100:.1f}%"))
-        # D/E razonable
         ok_de = de_ratio <= 3.0
         checks.append(("D/E ≤ 3x", "OK" if ok_de else "ALERTA", f"D/E={de_ratio:.2f}"))
-        # Tax
         ok_tax = 0.10 <= tax <= 0.40
         checks.append(("Tax en rango 10–40%", "OK" if ok_tax else "REVISAR", f"tax={tax*100:.0f}%"))
-        # Histórico
         ok_hist = len(df_hist) >= 3
         checks.append(("Histórico ≥ 3 años", "OK" if ok_hist else "REVISAR", f"n={len(df_hist)}"))
-        # ROIC vs WACC (aprox)
         if not df_hist.empty and "NOPAT" in df_hist.columns:
             nopat_avg = float(df_hist["NOPAT"].tail(3).mean())
             ci = float(p.get("capital_invertido") or 1)
             roic = nopat_avg / ci if ci else 0
             checks.append(("ROIC vs WACC (aprox)", "OK" if roic >= w["wacc"] else "REVISAR", f"ROIC≈{roic*100:.1f}%"))
-
         df_chk = pd.DataFrame(checks, columns=["Prueba", "Estado", "Detalle"])
         st.dataframe(df_chk, use_container_width=True, hide_index=True)
-        n_ok = (df_chk["Estado"] == "OK").sum()
+        st.session_state["df_chk"] = df_chk
+        n_ok = int((df_chk["Estado"] == "OK").sum())
         st.write(f"**{n_ok}/{len(df_chk)}** pruebas en verde.")
 
     # ----- TAB 4: VPN / TIR -----
     with tab4:
         st.subheader("Proyecto: VPN, TIR y Payback")
-        fcff = st.session_state.get("fcff_proj")
+        same_emp = st.session_state.get("last_empresa_for_proj") == empresa
+        fcff = st.session_state.get("fcff_proj") if same_emp else None
         if not fcff:
-            st.warning("Ejecuta primero la pestaña **Pronóstico**.")
+            st.warning("Abre primero la pestaña **1 · Pronóstico** para esta empresa.")
         else:
             res = vpn_tir(fcff, inversion, w["wacc"])
             k1, k2, k3 = st.columns(3)
             k1.metric("VPN", f"{res['vpn']:,.1f}")
             k2.metric("TIR", f"{res['tir']*100:.1f}%" if res["tir"] is not None else "N/D")
             k3.metric("Payback (años)", f"{res['payback']}" if res["payback"] else "> horizonte")
+            st.session_state["vpn_res"] = res
 
-            # Gráfico flujos
-            fig, ax = plt.subplots(figsize=(9, 4))
-            labels = ["t0"] + [f"t{i}" for i in range(1, len(res["flows"]))]
-            colors = ["#EF4444" if v < 0 else "#10B981" for v in res["flows"]]
-            ax.bar(labels, res["flows"], color=colors)
-            ax.axhline(0, color="#64748B", lw=0.8)
-            ax.set_title("Flujos del proyecto (incluye inversión inicial)")
-            ax.set_ylabel(f"Miles de millones {moneda}")
-            st.pyplot(fig)
-            plt.close()
+            if HAS_MPL:
+                fig, ax = plt.subplots(figsize=(9, 4))
+                labels = ["t0"] + [f"t{i}" for i in range(1, len(res["flows"]))]
+                colors = ["#EF4444" if v < 0 else "#10B981" for v in res["flows"]]
+                ax.bar(labels, res["flows"], color=colors)
+                ax.axhline(0, color="#64748B", lw=0.8)
+                ax.set_title("Flujos del proyecto (incluye inversión inicial)")
+                ax.set_ylabel(f"Miles de millones {moneda}")
+                st.pyplot(fig)
+                plt.close()
 
             if res["vpn"] is not None and res["vpn"] > 0:
                 st.success("VPN positivo: el proyecto crea valor a este WACC (bajo los supuestos del modelo).")
@@ -683,34 +754,173 @@ def main():
 
     # ----- TAB 5: Sector -----
     with tab5:
-        st.subheader("Comparación rápida (catálogo BVC)")
+        st.subheader("Comparación (catálogo BVC + empresas descargadas en sesión)")
         rows = []
-        for nom, e in EMPRESAS.items():
-            h = pd.DataFrame(e["historico"]).set_index("Año")
+        todas = {**EMPRESAS, **EMPRESAS_RUNTIME}
+        for nom, e in todas.items():
+            h = pd.DataFrame(e["historico"])
+            if "Año" in h.columns:
+                h = h.set_index("Año")
+            if h.empty or "Ingresos" not in h.columns:
+                continue
             ing = float(h["Ingresos"].iloc[-1])
-            ebitda = float(h["EBITDA"].iloc[-1])
+            ebitda = float(h["EBITDA"].iloc[-1]) if "EBITDA" in h.columns else 0.0
             margen = 100 * ebitda / ing if ing else 0
-            fcff_last = float(h["FCFF"].iloc[-1])
+            fcff_last = float(h["FCFF"].iloc[-1]) if "FCFF" in h.columns else 0.0
             pr = e["params"]
-            ww = calcular_wacc(pr["de_ratio"], pr["kd"], pr["tax"], pr["beta_u"], rf=0.12, erp=0.055)
+            ww = calcular_wacc(pr.get("de_ratio", 1), pr.get("kd", 0.08), pr.get("tax", 0.35), pr.get("beta_u", 0.5), rf=rf, erp=erp)
             rows.append({
-                "Empresa": nom.split("—")[0].strip(),
+                "Empresa": nom.split("—")[0].strip()[:24],
                 "Ingresos": round(ing, 0),
                 "Margen EBITDA %": round(margen, 1),
                 "FCFF": round(fcff_last, 0),
-                "D/E": pr["de_ratio"],
+                "D/E": round(float(pr.get("de_ratio", 0)), 2),
                 "WACC %": round(ww["wacc"] * 100, 1),
                 "EV/EBITDA ref": pr.get("exit_multiple"),
+                "Moneda": pr.get("moneda", e.get("moneda", "")),
             })
         df_sec = pd.DataFrame(rows)
         st.dataframe(df_sec, use_container_width=True, hide_index=True)
+        st.session_state["df_sec"] = df_sec
 
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.barh(df_sec["Empresa"], df_sec["Margen EBITDA %"], color="#0A2540")
-        ax.set_xlabel("Margen EBITDA %")
-        ax.set_title("Margen EBITDA (último año del histórico)")
-        st.pyplot(fig)
-        plt.close()
+        if HAS_MPL and not df_sec.empty:
+            fig, ax = plt.subplots(figsize=(8, max(3, 0.35 * len(df_sec))))
+            ax.barh(df_sec["Empresa"], df_sec["Margen EBITDA %"], color="#0A2540")
+            ax.set_xlabel("Margen EBITDA %")
+            ax.set_title("Margen EBITDA (último año del histórico)")
+            st.pyplot(fig)
+            plt.close()
+
+    # ----- TAB 6: Recomendación -----
+    with tab6:
+        st.subheader("Recomendación de comité (apoyo a decisión)")
+        same_emp = st.session_state.get("last_empresa_for_proj") == empresa
+        fcff = st.session_state.get("fcff_proj") if same_emp else None
+        df_esc = st.session_state.get("df_esc")
+        df_chk = st.session_state.get("df_chk")
+
+        if not fcff:
+            st.warning("Genera antes el **Pronóstico** (pestaña 1) para esta empresa.")
+        else:
+            val_base = valorar_dcf(
+                fcff, w["wacc"], g,
+                deuda_neta=deuda_neta, caja=caja, nci=nci,
+                otros_claims=otros, asociados=asociados,
+                acciones=acciones if acciones > 0 else None,
+                mid_year=mid_year, g_max=g_max,
+            )
+            n_ok = 0
+            n_tot = 0
+            if df_chk is not None and not df_chk.empty:
+                n_ok = int((df_chk["Estado"] == "OK").sum())
+                n_tot = len(df_chk)
+
+            alerts = []
+            if g >= w["wacc"] - 0.005:
+                alerts.append("g demasiado cerca (o por encima) del WACC.")
+            if de_ratio > 2.5:
+                alerts.append("Apalancamiento elevado (D/E > 2.5).")
+            if val_base.get("Equity_Value") is not None and val_base["Equity_Value"] < 0:
+                alerts.append("Equity value negativo en escenario base.")
+
+            # Veredicto simple
+            if alerts or (n_tot and n_ok < n_tot * 0.6):
+                veredicto = "REVISAR / NO AVANZAR sin calibrar supuestos"
+                color = "warning"
+            elif val_base.get("Equity_Value") and val_base["Equity_Value"] > 0:
+                veredicto = "AVANZAR A COMITÉ con supuestos documentados"
+                color = "success"
+            else:
+                veredicto = "NEUTRAL — falta contraste de mercado o más histórico"
+                color = "info"
+
+            st.markdown(f"### Veredicto: **{veredicto}**")
+            if color == "success":
+                st.success("El escenario base es coherente y el equity value es positivo bajo los supuestos actuales.")
+            elif color == "warning":
+                st.warning("Hay alertas materiales. No uses esto como orden de compra.")
+            else:
+                st.info(veredicto)
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("EV base", f"{val_base['EV']:,.0f}" if val_base.get("EV") is not None else "—")
+            m2.metric("Equity base", f"{val_base['Equity_Value']:,.0f}" if val_base.get("Equity_Value") is not None else "—")
+            m3.metric("VPS", f"{val_base['value_per_share']:,.1f}" if val_base.get("value_per_share") else "—")
+
+            if alerts:
+                st.markdown("**Alertas**")
+                for a in alerts:
+                    st.write(f"• {a}")
+            if n_tot:
+                st.write(f"Auditoría: **{n_ok}/{n_tot}** pruebas OK.")
+
+            st.caption(
+                "Esto es un marco de gobernanza pedagógica, no una recomendación de inversión ni orden de compra/venta."
+            )
+
+    # ----- TAB 7: Informe -----
+    with tab7:
+        st.subheader("Informe ejecutivo (resumen)")
+        same_emp = st.session_state.get("last_empresa_for_proj") == empresa
+        fcff = st.session_state.get("fcff_proj") if same_emp else None
+
+        lineas = [
+            f"# Informe ejecutivo — {empresa}",
+            f"",
+            f"**Fecha:** {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"**Moneda del modelo:** {moneda} (miles de millones)",
+            f"**Sector:** {emp.get('sector', '—')}",
+            f"",
+            f"## Parámetros clave",
+            f"- WACC: {w['wacc']*100:.2f}% (Ke {w['ke']*100:.2f}%, βL {w['beta_l']:.2f})",
+            f"- g terminal: {g*100:.2f}% (techo macro {g_max*100:.1f}%)",
+            f"- D/E: {de_ratio:.2f} · Tax: {tax*100:.0f}% · Kd: {kd*100:.1f}%",
+            f"- Horizonte explícito: {horizonte} años",
+            f"",
+        ]
+
+        if fcff:
+            val = valorar_dcf(
+                fcff, w["wacc"], g,
+                deuda_neta=deuda_neta, caja=caja, nci=nci,
+                otros_claims=otros, asociados=asociados,
+                acciones=acciones if acciones > 0 else None,
+                mid_year=mid_year, g_max=g_max,
+            )
+            lineas += [
+                f"## Valoración (Gordon, escenario base)",
+                f"- EV: {val['EV']:,.1f}",
+                f"- Equity: {val['Equity_Value']:,.1f}",
+                f"- VPS: {val['value_per_share']:,.1f}" if val.get("value_per_share") else "- VPS: N/D (sin acciones)",
+                f"- g usado: {val['g_used']*100:.2f}%",
+                f"- FCFF proyectado (años 1…n): " + ", ".join(f"{x:.1f}" for x in fcff),
+                f"",
+            ]
+        else:
+            lineas.append("_Sin proyección: ejecuta la pestaña 1 · Pronóstico._\n")
+
+        vpn_res = st.session_state.get("vpn_res")
+        if vpn_res and same_emp:
+            lineas += [
+                f"## Proyecto (VPN / TIR)",
+                f"- VPN: {vpn_res['vpn']:,.1f}",
+                f"- TIR: {vpn_res['tir']*100:.1f}%" if vpn_res.get("tir") is not None else "- TIR: N/D",
+                f"- Payback: {vpn_res.get('payback')}",
+                f"",
+            ]
+
+        lineas += [
+            f"## Aviso",
+            f"Herramienta pedagógica. No constituye asesoría de inversión ni valoración auditada.",
+        ]
+        informe = "\n".join(lineas)
+        st.markdown(informe)
+        st.download_button(
+            "Descargar informe (.md)",
+            data=informe.encode("utf-8"),
+            file_name=f"informe_{empresa.split('—')[0].strip().replace(' ', '_')[:30]}.md",
+            mime="text/markdown",
+        )
 
     st.divider()
     st.caption(
