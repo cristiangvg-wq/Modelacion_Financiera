@@ -1480,6 +1480,101 @@ def _plotly_vpn_flows(df):
     return _finish_plotly(fig, title="Flujos del proyecto · VPN / recuperación", height=480)
 
 
+def _plotly_valor_proyecto(df, chart_key=None):
+    """
+    Evolución del valor acumulado del proyecto (payback visual).
+    Misma idea que la figura de recuperación: área roja bajo 0, verde sobre 0.
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return False
+    if df is None or not hasattr(df, "columns") or len(df) == 0:
+        return False
+    xcol = df.columns[0]
+    ycol = None
+    for c in df.columns:
+        cl = str(c).lower()
+        if any(k in cl for k in ("flujo", "flow", "fcff", "cash", "vpn")):
+            ycol = c
+            break
+    if ycol is None:
+        for c in df.columns[1:]:
+            if pd.api.types.is_numeric_dtype(df[c]):
+                ycol = c
+                break
+    if ycol is None:
+        return False
+
+    x = [str(v) for v in df[xcol].tolist()]
+    flujos = pd.to_numeric(df[ycol], errors="coerce").fillna(0).tolist()
+    # Valor acumulado del proyecto (suma de flujos)
+    acum = []
+    s = 0.0
+    for v in flujos:
+        s += float(v)
+        acum.append(s)
+
+    fig = go.Figure()
+
+    # Área bajo la curva: verde si acumulado >= 0, rosa si < 0 (relleno hasta 0)
+    # Plotly no colorea por tramo fácilmente; usamos dos fills con clip
+    x_num = list(range(len(x)))
+
+    # Relleno positivo (ya recuperó)
+    y_pos = [max(v, 0) for v in acum]
+    fig.add_trace(go.Scatter(
+        x=x, y=y_pos,
+        mode="lines",
+        line=dict(width=0),
+        fill="tozeroy",
+        fillcolor="rgba(52, 211, 153, 0.35)",
+        name="Ya recuperó y gana",
+        hoverinfo="skip",
+        showlegend=True,
+    ))
+    # Relleno negativo (aún no recupera) — valores negativos para tozeroy
+    y_neg = [min(v, 0) for v in acum]
+    fig.add_trace(go.Scatter(
+        x=x, y=y_neg,
+        mode="lines",
+        line=dict(width=0),
+        fill="tozeroy",
+        fillcolor="rgba(248, 113, 113, 0.35)",
+        name="Aún no recupera",
+        hoverinfo="skip",
+        showlegend=True,
+    ))
+    # Línea de evolución + puntos
+    fig.add_trace(go.Scatter(
+        x=x, y=acum,
+        mode="lines+markers+text",
+        name="Valor acumulado",
+        line=dict(color="#1E3A5F", width=3),
+        marker=dict(size=11, color="#1E3A5F"),
+        text=[f"{v:,.0f}" for v in acum],
+        textposition="top center",
+        textfont=dict(size=10, color="#E2E8F0"),
+        hovertemplate=(
+            "<b>Periodo %{x}</b><br>"
+            "Valor acumulado del proyecto: <b>%{y:,.1f}</b><br>"
+            "<i>Suma de flujos hasta este periodo. "
+            "Cuando cruza cero, el proyecto ya recuperó la inversión.</i>"
+            "<extra></extra>"
+        ),
+    ))
+    fig.add_hline(y=0, line_color="#94A3B8", line_width=1.5, line_dash="dash")
+    fig.update_xaxes(title="Periodo")
+    fig.update_yaxes(title="Valor acumulado del proyecto")
+    return _finish_plotly(
+        fig,
+        title="Cómo evoluciona el valor del proyecto",
+        height=480,
+        key=chart_key or "tab5_valor_proyecto",
+    )
+
+
+
 def _plotly_sector(df):
     """Ranking sectorial horizontal con hover."""
     try:
@@ -2526,11 +2621,16 @@ def main():
                 if not _plotly_vpn_flows(r[1]):
                     if len(r) > 2:
                         _show_fig(r[2], "Recuperación")
+                # Gráfica de evolución del valor acumulado (payback visual)
+                if not _plotly_valor_proyecto(r[1], chart_key="tab5_valor_proyecto"):
+                    if len(r) > 2 and r[2] is not None:
+                        pass  # ya se mostró respaldo de flujos si aplica
             elif len(r) > 2:
                 _show_fig(r[2], "Recuperación")
             _chart_tip(
-                "Pasa el cursor: cada barra te dice si ese periodo aporta o resta dinero. "
-                "Verdes = entra; rojas = sale (suele ser la inversión inicial). El payback es el momento en que se recupera lo invertido."
+                "Barras = flujo de cada periodo. La segunda gráfica = valor acumulado: "
+                "zona roja = aún no recuperas la inversión; zona verde = ya recuperaste y ganas. "
+                "El cruce por cero es el payback."
             )
             _explain(
                 "<b>Burbuja de lectura · VPN / TIR:</b> "
