@@ -597,6 +597,84 @@ header[data-testid="stHeader"] {
   font-weight: 600;
   margin-right: 6px;
 }
+
+/* Tour */
+.tf-tour {
+  background: linear-gradient(135deg, #134E4A 0%, #0F172A 100%);
+  border: 1px solid #14B8A6;
+  border-radius: 14px;
+  padding: 1rem 1.15rem;
+  margin: 0 0 1rem 0;
+  color: #ECFDF5;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.tf-tour h4 { margin: 0 0 0.4rem 0; color: #5EEAD4; font-size: 1rem; }
+.tf-tour ol { margin: 0.4rem 0 0.6rem 1.2rem; padding: 0; }
+.tf-tour li { margin: 0.25rem 0; }
+
+/* Semáforo */
+.tf-semaforo {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  margin: 0.6rem 0 1rem 0;
+  flex-wrap: wrap;
+}
+.tf-sem-card {
+  flex: 1;
+  min-width: 140px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px solid #334155;
+  background: #1A2336;
+}
+.tf-sem-card .dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  display: inline-block; margin-right: 8px;
+  box-shadow: 0 0 8px currentColor;
+}
+.tf-sem-card.ok { border-color: rgba(52, 211, 153, 0.5); }
+.tf-sem-card.ok .dot { background: #34D399; color: #34D399; }
+.tf-sem-card.warn { border-color: rgba(251, 191, 36, 0.5); }
+.tf-sem-card.warn .dot { background: #FBBF24; color: #FBBF24; }
+.tf-sem-card.bad { border-color: rgba(248, 113, 113, 0.5); }
+.tf-sem-card.bad .dot { background: #F87171; color: #F87171; }
+.tf-sem-card .ttl { font-weight: 600; color: #F1F5F9; font-size: 0.9rem; }
+.tf-sem-card .dsc { color: #94A3B8; font-size: 0.78rem; margin-top: 4px; line-height: 1.35; }
+
+/* Analogías */
+.tf-analogy {
+  background: #1E293B;
+  border: 1px dashed #475569;
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  margin: 0.4rem 0 0.8rem 0;
+  color: #E2E8F0;
+  font-size: 0.82rem;
+}
+.tf-analogy em { color: #5EEAD4; font-style: normal; font-weight: 600; }
+
+/* Chips glosario */
+.tf-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0.4rem 0; }
+.tf-chip {
+  background: #1A2336;
+  border: 1px solid #334155;
+  color: #E2E8F0;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.tf-chip:hover { border-color: #14B8A6; color: #5EEAD4; }
+
+/* Tema claro */
+html[data-theme="light"] body,
+html[data-theme="light"] [data-testid="stAppViewContainer"] {
+  background: #F8FAFC !important;
+  color: #0F172A !important;
+}
+
 </style>
 """
 
@@ -792,6 +870,163 @@ def _section_end() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+
+
+# --- Didáctica: analogías, semáforo, tour, glosario ---
+ANALOGIAS = {
+    "WACC": "Como la tasa de interés de un préstamo: es lo mínimo que la empresa debe ‘ganar’ para que dueños y bancos queden contentos.",
+    "Ke": "Lo que piden los accionistas por arriesgar su dinero (suele ser más alto que el costo de la deuda).",
+    "FCFF": "El efectivo que sobra después de pagar la operación y las inversiones necesarias. Es la ‘plata libre’ del negocio.",
+    "EV": "El valor de todo el negocio, como el precio de una casa antes de restar la hipoteca.",
+    "Equity": "Lo que les quedaría a los dueños si se vendiera el negocio y se pagaran deudas y otros compromisos.",
+    "g": "Qué tan rápido crece el efectivo a largo plazo. No puede ser más alto que la economía de forma sostenible.",
+    "VPN": "Si es positivo, el proyecto deja más valor del que ‘cuesta’ el capital. Si es negativo, destruye valor con estos supuestos.",
+    "TIR": "La rentabilidad anual implícita del proyecto. Se compara con el WACC: TIR > WACC suele ser buena señal.",
+    "ROIC": "Cuánto gana la empresa por cada peso invertido en el negocio. Si supera al WACC, crea valor.",
+    "D/E": "Cuánta deuda hay por cada peso de patrimonio. Más deuda = más riesgo y suele subir el costo del equity.",
+}
+
+
+def _analogy(term: str) -> None:
+    t = ANALOGIAS.get(term)
+    if t:
+        st.markdown(
+            f'<div class="tf-analogy"><em>{term}:</em> {t}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def _semaforo(items):
+    """items: list of (estado, titulo, detalle) estado in ok|warn|bad."""
+    parts = []
+    for estado, titulo, detalle in items:
+        parts.append(
+            f'<div class="tf-sem-card {estado}">'
+            f'<div class="ttl"><span class="dot"></span>{titulo}</div>'
+            f'<div class="dsc">{detalle}</div></div>'
+        )
+    st.markdown(f'<div class="tf-semaforo">{"".join(parts)}</div>', unsafe_allow_html=True)
+
+
+def _semaforo_desde_checks(g, wacc, de_ratio, n_hist, tax):
+    items = []
+    # g vs WACC
+    if g < wacc - 0.01:
+        items.append(("ok", "Crecimiento (g)", f"g ({g*100:.1f}%) por debajo del WACC ({wacc*100:.1f}%): coherente."))
+    elif g < wacc:
+        items.append(("warn", "Crecimiento (g)", f"g ({g*100:.1f}%) muy cerca del WACC. El valor terminal se infla."))
+    else:
+        items.append(("bad", "Crecimiento (g)", f"g ≥ WACC. El modelo puede explotar: revisa g o el WACC."))
+    # D/E
+    if de_ratio <= 2.0:
+        items.append(("ok", "Apalancamiento", f"D/E = {de_ratio:.2f}: nivel moderado."))
+    elif de_ratio <= 3.0:
+        items.append(("warn", "Apalancamiento", f"D/E = {de_ratio:.2f}: elevado; el equity es más sensible."))
+    else:
+        items.append(("bad", "Apalancamiento", f"D/E = {de_ratio:.2f}: muy alto para muchos sectores."))
+    # Historia
+    if n_hist >= 5:
+        items.append(("ok", "Historia", f"{n_hist} años de datos: base razonable."))
+    elif n_hist >= 3:
+        items.append(("warn", "Historia", f"Solo {n_hist} años: las proyecciones son más frágiles."))
+    else:
+        items.append(("bad", "Historia", f"Muy poca historia ({n_hist}). Usa Excel propio o más años."))
+    # Tax
+    if 0.15 <= tax <= 0.40:
+        items.append(("ok", "Impuestos", f"Tasa {tax*100:.0f}% en rango habitual."))
+    else:
+        items.append(("warn", "Impuestos", f"Tasa {tax*100:.0f}% atípica: confirma jurisdicción."))
+    return items
+
+
+def _tour_guiado():
+    if st.session_state.get("tour_done"):
+        return
+    step = int(st.session_state.get("tour_step", 1))
+    textos = {
+        1: (
+            "Paso 1 de 4 · Elige la empresa",
+            "En la barra izquierda selecciona un emisor del catálogo o descárgalo de Yahoo (ticker como AAPL o EC). "
+            "La <b>Ficha</b> resume sector y datos base.",
+        ),
+        2: (
+            "Paso 2 de 4 · Revisa los parámetros",
+            "Abre <b>Parámetros del modelo</b>. No hace falta ser experto: WACC y g son los dos más sensibles. "
+            "Pasa el cursor por los KPIs verdes para ver definiciones.",
+        ),
+        3: (
+            "Paso 3 de 4 · Genera el pronóstico",
+            "Ve a la pestaña <b>1 · Pronóstico</b> y pulsa el botón principal. "
+            "Sin esta proyección, las demás pestañas de valoración no tienen FCFF.",
+        ),
+        4: (
+            "Paso 4 de 4 · Interpreta con semáforos",
+            "Usa <b>Auditoría</b> y <b>Recomendación</b>. Los semáforos (verde / ámbar / rojo) resumen si los supuestos son sanos. "
+            "La cinta de mercado de arriba es solo contexto del día.",
+        ),
+    }
+    titulo, cuerpo = textos.get(step, textos[1])
+    st.markdown(
+        f'<div class="tf-tour"><h4>🧭 Tour rápido · {titulo}</h4><div>{cuerpo}</div></div>',
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3 = st.columns([1, 1, 2])
+    with c1:
+        if step > 1 and st.button("← Anterior", key="tour_prev"):
+            st.session_state["tour_step"] = step - 1
+            st.rerun()
+    with c2:
+        if step < 4 and st.button("Siguiente →", key="tour_next", type="primary"):
+            st.session_state["tour_step"] = step + 1
+            st.rerun()
+        elif step >= 4 and st.button("Listo, empezar", key="tour_done_btn", type="primary"):
+            st.session_state["tour_done"] = True
+            st.rerun()
+    with c3:
+        if st.button("Saltar tour", key="tour_skip"):
+            st.session_state["tour_done"] = True
+            st.rerun()
+
+
+def _glosario_chips():
+    st.markdown('<div class="tf-chips">' + "".join(
+        f'<span class="tf-chip">{k}</span>' for k in ANALOGIAS.keys()
+    ) + "</div>", unsafe_allow_html=True)
+    term = st.selectbox(
+        "Explicar término",
+        options=["(elige)"] + list(ANALOGIAS.keys()),
+        key="gloss_term",
+        label_visibility="collapsed",
+    )
+    if term and term != "(elige)":
+        _analogy(term)
+
+
+def _ficha_una_pagina(empresa, moneda, w, g, horizonte, sector, resultados):
+    """Texto plano didáctico para descargar."""
+    lines = [
+        f"FICHA RÁPIDA (1 página) — {empresa}",
+        f"Moneda del modelo: {moneda} · Sector: {sector}",
+        f"WACC: {w['wacc']*100:.2f}% · Ke: {w['ke']*100:.2f}% · βL: {w['beta_l']:.2f}",
+        f"g terminal: {g*100:.2f}% · Horizonte: {horizonte} años",
+        "",
+        "EN PALABRAS SIMPLES",
+        f"- WACC: {ANALOGIAS['WACC']}",
+        f"- FCFF: {ANALOGIAS['FCFF']}",
+        f"- Equity: {ANALOGIAS['Equity']}",
+        "",
+        "QUÉ HACER AHORA",
+        "1) Genera el Pronóstico (pestaña 1).",
+        "2) Mira Escenarios (pestaña 2): ¿el equity se mantiene en el caso pesimista?",
+        "3) Revisa el semáforo de Auditoría (pestaña 3).",
+        "4) Lee la Recomendación (pestaña 4) sin tomarla como orden de compra.",
+        "",
+        "Aviso: herramienta pedagógica. No es asesoría de inversión.",
+    ]
+    return "\n".join(lines)
+
+
+
 def _init_state():
     defaults = {
         "empresa_sel": None,
@@ -919,6 +1154,13 @@ def main():
         _render_market_tape()
     except Exception:
         pass
+
+    # Tour guiado (primera visita)
+    if "tour_done" not in st.session_state:
+        st.session_state["tour_done"] = False
+    if "tour_step" not in st.session_state:
+        st.session_state["tour_step"] = 1
+    _tour_guiado()
 
     # ========== SIDEBAR ==========
     with st.sidebar:
@@ -1062,6 +1304,23 @@ def main():
                 except Exception as e:
                     st.error(str(e))
 
+        st.markdown('<p class="tf-sidebar-label">Experiencia</p>', unsafe_allow_html=True)
+        tema = st.toggle("Modo claro (experimental)", value=False, key="tema_claro")
+        if tema:
+            st.markdown(
+                "<script>document.documentElement.setAttribute('data-theme','light');</script>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<script>document.documentElement.setAttribute('data-theme','dark');</script>",
+                unsafe_allow_html=True,
+            )
+        if st.button("Repetir tour guiado", use_container_width=True, key="btn_retour"):
+            st.session_state["tour_done"] = False
+            st.session_state["tour_step"] = 1
+            st.rerun()
+
     # Re-bind from session if expanders caused scope issues — always compute from widgets via session keys
     # Streamlit widgets already wrote to session; read explicit values we set above in this run
     archivo = _archivo_para_logic()
@@ -1119,13 +1378,49 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # Semáforo en vivo (supuestos) + ficha 1 página
+    try:
+        n_hist = 0
+        emp_o = None
+        try:
+            emp_o = L.resolver_empresa(empresa) if hasattr(L, "resolver_empresa") else None
+        except Exception:
+            emp_o = None
+        if emp_o and emp_o.get("historico") is not None:
+            try:
+                import pandas as _pd
+                n_hist = len(_pd.DataFrame(emp_o["historico"]))
+            except Exception:
+                n_hist = 0
+        st.session_state["n_hist"] = n_hist
+        _semaforo(_semaforo_desde_checks(g, w["wacc"], de_ratio, n_hist, tax))
+        _analogy("WACC")
+    except Exception:
+        pass
+
+    ficha_txt = _ficha_una_pagina(empresa, moneda, w, g, horizonte, sector, st.session_state.get("resultados") or {})
+    st.download_button(
+        "📄 Descargar ficha simple (1 página)",
+        data=ficha_txt.encode("utf-8"),
+        file_name=f"ficha_{empresa.split('—')[0].strip().replace(' ', '_')[:24]}.txt",
+        mime="text/plain",
+        key="dl_ficha",
+    )
+
     # ----- Tools strip: Sensibilidad + Glosario en fila; Consulta IA a ancho completo debajo -----
     t1, t2 = st.columns(2)
     with t1:
-        with st.expander("⚡ Sensibilidad WACC · g", expanded=False):
-            sw = st.slider("WACC", 0.06, 0.18, float(w["wacc"]), 0.0025, key="sens_wacc")
-            sg = st.slider("g", 0.005, 0.06, float(g), 0.0025, key="sens_g")
-            if st.button("Aplicar", key="btn_sens", use_container_width=True):
+        with st.expander("⚡ Sensibilidad WACC · g (antes → después)", expanded=False):
+            st.caption("Mueve los sliders y compara el valor base con el nuevo (sin reproyectar FCFF).")
+            sw = st.slider("WACC de prueba", 0.06, 0.18, float(w["wacc"]), 0.0025, key="sens_wacc")
+            sg = st.slider("g de prueba", 0.005, 0.06, float(g), 0.0025, key="sens_g")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("WACC base → prueba", f"{sw*100:.2f}%", delta=f"{(sw - w['wacc'])*100:+.2f} pp")
+            with col_b:
+                st.metric("g base → prueba", f"{sg*100:.2f}%", delta=f"{(sg - g)*100:+.2f} pp")
+            _analogy("WACC")
+            if st.button("Ver impacto en valoración", key="btn_sens", use_container_width=True, type="primary"):
                 try:
                     st.session_state["hero_html"] = L.sensibilidad_rapida_ui(
                         empresa, sw, sg, horizonte, tax,
@@ -1136,12 +1431,18 @@ def main():
                     st.session_state["hero_html"] = f"<div>Error: {e}</div>"
             if st.session_state.get("hero_html"):
                 _html(st.session_state["hero_html"])
+                _explain(
+                    "<b>Antes → después:</b> subir el WACC suele bajar el valor (el futuro se ‘descuenta’ más fuerte). "
+                    "Subir g suele subir el valor terminal, pero si g se acerca al WACC el resultado se vuelve frágil."
+                )
     with t2:
-        with st.expander("📚 Glosario", expanded=False):
-            try:
-                _html(L.glosario_html())
-            except Exception:
-                st.caption("FCFF · WACC · ROIC · EV · Equity · VPN · TIR · g · Beta")
+        with st.expander("📚 Glosario en palabras simples", expanded=False):
+            _glosario_chips()
+            with st.expander("Glosario completo (técnico)", expanded=False):
+                try:
+                    _html(L.glosario_html())
+                except Exception:
+                    st.caption("FCFF · WACC · ROIC · EV · Equity · VPN · TIR · g · Beta")
 
     with st.expander("🤖 Consulta IA", expanded=False):
         st.caption(
@@ -1239,6 +1540,31 @@ def main():
                 _show_fig(r[4], "Atípicos")
             if len(r) > 5 and r[5]:
                 _html(r[5])
+            # Intento de gráfico interactivo (hover) si hay proyección en el resultado
+            try:
+                import plotly.graph_objects as go
+                df_proj = r[2] if len(r) > 2 and hasattr(r[2], "columns") else None
+                if df_proj is not None and "FCFF" in getattr(df_proj, "columns", []):
+                    fig_p = go.Figure()
+                    fig_p.add_trace(go.Scatter(
+                        x=list(df_proj.index.astype(str)),
+                        y=df_proj["FCFF"].values,
+                        mode="lines+markers",
+                        name="FCFF proyectado",
+                        line=dict(color="#14B8A6", width=2),
+                        hovertemplate="Año %{x}<br>FCFF: %{y:.1f}<extra></extra>",
+                    ))
+                    fig_p.update_layout(
+                        title="FCFF interactivo (pasa el cursor)",
+                        paper_bgcolor="#111827",
+                        plot_bgcolor="#151C2C",
+                        font=dict(color="#E8EEF7"),
+                        margin=dict(l=40, r=20, t=40, b=40),
+                        height=320,
+                    )
+                    st.plotly_chart(fig_p, use_container_width=True)
+            except Exception:
+                pass
             _chart_tip(
                 "La zona sombreada es el rango probable del dinero libre (FCFF). "
                 "La línea del medio es el caso más típico. Si el pasado queda muy fuera, revisa si hubo un año raro."
@@ -1303,6 +1629,8 @@ def main():
                 "Si muchas pruebas salen en rojo (por ejemplo g casi igual al WACC, o poca historia), "
                 "el modelo puede estar ‘forzado’ y conviene ajustar supuestos antes de decidir."
             )
+            _semaforo(_semaforo_desde_checks(g, w["wacc"], de_ratio, st.session_state.get("n_hist", 0), tax))
+            _analogy("g")
 
     with tab4:
         st.markdown("##### Recomendación de comité")
@@ -1329,6 +1657,19 @@ def main():
                 "<b>En palabras simples:</b> la recomendación resume si, con estos números, tiene sentido "
                 "llevar el caso a un comité. No es una orden de compra: es un marco para discutir riesgos y valor."
             )
+            # Semáforo de gobernanza rápido
+            alerts = []
+            if g >= w["wacc"] - 0.005:
+                alerts.append(("bad", "Supuesto g", "g demasiado cerca del WACC: valor terminal poco fiable."))
+            else:
+                alerts.append(("ok", "Supuesto g", "g por debajo del WACC con margen razonable."))
+            if de_ratio > 2.5:
+                alerts.append(("warn", "Riesgo financiero", "Apalancamiento alto: el equity puede moverse mucho."))
+            else:
+                alerts.append(("ok", "Riesgo financiero", "Apalancamiento en zona manejable para el ejercicio."))
+            alerts.append(("ok", "Uso del output", "Esto apoya la discusión; no es una orden de compra/venta."))
+            _semaforo(alerts)
+            _analogy("Equity")
 
     with tab5:
         st.markdown("##### VPN · TIR · Payback")
