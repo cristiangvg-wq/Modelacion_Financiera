@@ -675,6 +675,40 @@ html[data-theme="light"] [data-testid="stAppViewContainer"] {
   color: #0F172A !important;
 }
 
+
+/* Download buttons en el área principal (no solo sidebar) */
+.main .stDownloadButton > button {
+  background: linear-gradient(135deg, #0F766E 0%, #14B8A6 100%) !important;
+  color: #042F2E !important;
+  border: none !important;
+  font-weight: 700 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 14px rgba(20, 184, 166, 0.35) !important;
+}
+.main .stDownloadButton > button:hover {
+  background: linear-gradient(135deg, #14B8A6 0%, #2DD4BF 100%) !important;
+  color: #042F2E !important;
+}
+.tf-ficha-box {
+  background: #1A2336;
+  border: 1px solid #14B8A6;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin: 0.5rem 0 1rem 0;
+}
+.tf-ficha-box .ttl {
+  color: #5EEAD4;
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+.tf-ficha-box .dsc {
+  color: #CBD5E1;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
 </style>
 """
 
@@ -742,6 +776,150 @@ def _show_fig(fig, caption=None):
         plt.close(fig)
     except Exception:
         pass
+
+
+
+
+def _plotly_layout(title=""):
+    return dict(
+        title=dict(text=title, font=dict(size=14, color="#E8EEF7")),
+        paper_bgcolor="#111827",
+        plot_bgcolor="#151C2C",
+        font=dict(color="#E8EEF7", size=12),
+        margin=dict(l=48, r=24, t=48, b=40),
+        height=360,
+        legend=dict(bgcolor="rgba(26,35,54,0.9)", bordercolor="#334155"),
+        xaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
+        yaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
+        hovermode="closest",
+    )
+
+
+def _plotly_escenarios(df):
+    """Barras EV vs Equity con hover."""
+    try:
+        import plotly.graph_objects as go
+        if df is None or not hasattr(df, "columns"):
+            return False
+        cols = {c.lower(): c for c in df.columns}
+        # buscar columnas
+        esc = None
+        for k in ("escenario", "scenario", "nombre"):
+            if k in cols:
+                esc = cols[k]
+                break
+        if esc is None:
+            esc = df.columns[0]
+        ev_c = next((cols[k] for k in cols if "ev" in k and "ebitda" not in k), None)
+        eq_c = next((cols[k] for k in cols if "equity" in k or "patrimonio" in k), None)
+        if not ev_c and not eq_c:
+            # try exact
+            for c in df.columns:
+                if str(c).strip().upper() == "EV":
+                    ev_c = c
+                if "Equity" in str(c) or "equity" in str(c):
+                    eq_c = c
+        fig = go.Figure()
+        x = df[esc].astype(str).tolist()
+        if ev_c:
+            fig.add_trace(go.Bar(
+                name="EV (negocio)",
+                x=x,
+                y=pd.to_numeric(df[ev_c], errors="coerce"),
+                marker_color="#0F766E",
+                hovertemplate="<b>%{x}</b><br>EV: %{y:,.1f}<extra></extra>",
+            ))
+        if eq_c:
+            fig.add_trace(go.Bar(
+                name="Equity (dueños)",
+                x=x,
+                y=pd.to_numeric(df[eq_c], errors="coerce"),
+                marker_color="#14B8A6",
+                hovertemplate="<b>%{x}</b><br>Equity: %{y:,.1f}<extra></extra>",
+            ))
+        fig.update_layout(**_plotly_layout("Escenarios · EV vs Equity (pasa el cursor)"))
+        fig.update_layout(barmode="group")
+        st.plotly_chart(fig, use_container_width=True)
+        return True
+    except Exception as e:
+        st.caption(f"Plotly escenarios no disponible: {e}")
+        return False
+
+
+def _plotly_vpn_flows(df):
+    """Flujos del proyecto con hover."""
+    try:
+        import plotly.graph_objects as go
+        if df is None or not hasattr(df, "columns"):
+            return False
+        # detectar columna de flujo y periodo
+        ycol = None
+        xcol = df.columns[0]
+        for c in df.columns:
+            cl = str(c).lower()
+            if any(k in cl for k in ("flujo", "flow", "fcff", "cash")):
+                ycol = c
+                break
+        if ycol is None:
+            # última numérica
+            for c in df.columns[1:]:
+                if pd.api.types.is_numeric_dtype(df[c]):
+                    ycol = c
+                    break
+        if ycol is None:
+            return False
+        y = pd.to_numeric(df[ycol], errors="coerce")
+        colors = ["#F87171" if (isinstance(v, float) and v < 0) else "#34D399" for v in y]
+        fig = go.Figure(go.Bar(
+            x=df[xcol].astype(str),
+            y=y,
+            marker_color=colors,
+            hovertemplate="<b>%{x}</b><br>Flujo: %{y:,.1f}<extra></extra>",
+        ))
+        fig.update_layout(**_plotly_layout("Flujos del proyecto (pasa el cursor)"))
+        fig.add_hline(y=0, line_color="#64748B", line_width=1)
+        st.plotly_chart(fig, use_container_width=True)
+        return True
+    except Exception as e:
+        st.caption(f"Plotly VPN no disponible: {e}")
+        return False
+
+
+def _plotly_sector(df):
+    """Ranking sectorial interactivo."""
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        if df is None or not hasattr(df, "columns"):
+            return False
+        name_c = "Nombre" if "Nombre" in df.columns else ("Empresa" if "Empresa" in df.columns else df.columns[0])
+        labels = df[name_c].astype(str).str.slice(0, 28)
+        margen_c = next((c for c in df.columns if "Margen" in str(c)), None)
+        mult_c = next((c for c in df.columns if "EV/EBITDA" in str(c) or "EV/Ebitda" in str(c)), None)
+        fig = make_subplots(rows=1, cols=2, subplot_titles=("Margen EBITDA %", "EV/EBITDA (x)"))
+        if margen_c:
+            fig.add_trace(go.Bar(
+                y=labels, x=pd.to_numeric(df[margen_c], errors="coerce"),
+                orientation="h", marker_color="#14B8A6",
+                hovertemplate="%{y}<br>Margen: %{x:.1f}%<extra></extra>",
+                name="Margen",
+            ), row=1, col=1)
+        if mult_c:
+            fig.add_trace(go.Bar(
+                y=labels, x=pd.to_numeric(df[mult_c], errors="coerce"),
+                orientation="h", marker_color="#3B82F6",
+                hovertemplate="%{y}<br>EV/EBITDA: %{x:.1f}x<extra></extra>",
+                name="Múltiplo",
+            ), row=1, col=2)
+        fig.update_layout(**_plotly_layout("Comparables del sector (pasa el cursor)"))
+        fig.update_layout(height=420, showlegend=False)
+        fig.update_xaxes(gridcolor="#243044")
+        fig.update_yaxes(gridcolor="#243044")
+        st.plotly_chart(fig, use_container_width=True)
+        return True
+    except Exception as e:
+        st.caption(f"Plotly sector no disponible: {e}")
+        return False
 
 
 def _listar_empresas():
@@ -1399,12 +1577,22 @@ def main():
         pass
 
     ficha_txt = _ficha_una_pagina(empresa, moneda, w, g, horizonte, sector, st.session_state.get("resultados") or {})
+    st.markdown(
+        '<div class="tf-ficha-box">'
+        '<div class="ttl">📄 Ficha simple (1 página)</div>'
+        '<div class="dsc">Resumen en lenguaje cotidiano para compartir con alguien no financiero. '
+        'No reemplaza el informe PDF de la pestaña 7: es un “elevator pitch” del caso.</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     st.download_button(
-        "📄 Descargar ficha simple (1 página)",
+        "Descargar ficha simple (.txt)",
         data=ficha_txt.encode("utf-8"),
         file_name=f"ficha_{empresa.split('—')[0].strip().replace(' ', '_')[:24]}.txt",
         mime="text/plain",
         key="dl_ficha",
+        type="primary",
+        use_container_width=False,
     )
 
     # ----- Tools strip: Sensibilidad + Glosario en fila; Consulta IA a ancho completo debajo -----
@@ -1594,7 +1782,10 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Por escenario")
-            if len(r) > 2:
+                if not _plotly_escenarios(r[1]):
+                    if len(r) > 2:
+                        _show_fig(r[2], "EV vs Equity")
+            elif len(r) > 2:
                 _show_fig(r[2], "EV vs Equity")
             _chart_tip(
                 "Barras altas de Equity = más valor para el accionista en ese escenario. "
@@ -1689,7 +1880,10 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Flujos")
-            if len(r) > 2:
+                if not _plotly_vpn_flows(r[1]):
+                    if len(r) > 2:
+                        _show_fig(r[2], "Recuperación")
+            elif len(r) > 2:
                 _show_fig(r[2], "Recuperación")
             _chart_tip(
                 "Barras verdes = dinero que entra; rojas = inversión inicial. "
@@ -1716,7 +1910,10 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Comparables")
-            if len(r) > 2:
+                if not _plotly_sector(r[1]):
+                    if len(r) > 2:
+                        _show_fig(r[2], "Sector")
+            elif len(r) > 2:
                 _show_fig(r[2], "Sector")
             _chart_tip(
                 "Compara márgenes y múltiplos con empresas del mismo oficio. "
@@ -1730,6 +1927,10 @@ def main():
 
     with tab7:
         st.markdown("##### Informe ejecutivo")
+        st.caption(
+            "El PDF y las figuras embebidas son estáticas (sin burbujas). "
+            "Para hover interactivo usa las pestañas Pronóstico, Escenarios, VPN/TIR y Sector en pantalla."
+        )
         if st.button("Generar informe y PDF", type="primary", key="btn7"):
             with st.spinner("Informe…"):
                 try:
