@@ -912,8 +912,37 @@ def _mpl_to_plotly(fig, title=""):
         if not any_trace:
             return False
 
+        # Eje X = primer dato → último dato (solo series line/bar; ignora polígonos fill)
+        try:
+            xs_all = []
+            for tr in pfig.data:
+                # Saltar rellenos (fan band) para no distorsionar el rango
+                if getattr(tr, "fill", None) in ("toself", "tonexty", "tozeroy"):
+                    continue
+                xd = getattr(tr, "x", None)
+                if xd is None:
+                    continue
+                for v in xd:
+                    try:
+                        xs_all.append(float(v))
+                    except Exception:
+                        pass
+            if xs_all:
+                x0, x1 = min(xs_all), max(xs_all)
+                pad = 0.35
+                # Si parecen años (p.ej. 1990–2100), ticks enteros de 1 en 1
+                looks_years = 1900 <= x0 <= 2100 and 1900 <= x1 <= 2100
+                kw = dict(range=[x0 - pad, x1 + pad], autorange=False)
+                if looks_years:
+                    kw["dtick"] = 1
+                    kw["tickmode"] = "linear"
+                    kw["title"] = "Año"
+                pfig.update_xaxes(**kw)
+        except Exception:
+            pass
+
         layout = _plotly_layout(title or "")
-        # Más alto: un eje ~520px; varios ejes apilados
+        # Más alto: un eje ~560px; varios ejes apilados
         layout["height"] = 560 if n == 1 else min(300 * n + 100, 960)
         if n == 1:
             pfig.update_layout(**layout)
@@ -1971,21 +2000,44 @@ def main():
                 _show_fig(r[4], "Atípicos")
             if len(r) > 5 and r[5]:
                 _html(r[5])
-            # Intento de gráfico interactivo (hover) si hay proyección en el resultado
+            # FCFF interactivo: histórico + proyección, eje = años reales
             try:
                 import plotly.graph_objects as go
+                df_hist_r = r[1] if len(r) > 1 and hasattr(r[1], "columns") else None
                 df_proj = r[2] if len(r) > 2 and hasattr(r[2], "columns") else None
                 if df_proj is not None and "FCFF" in getattr(df_proj, "columns", []):
                     fig_p = go.Figure()
+                    years = []
+                    if df_hist_r is not None and "FCFF" in df_hist_r.columns:
+                        xh = [int(x) for x in df_hist_r.index]
+                        yh = [float(v) for v in df_hist_r["FCFF"].values]
+                        years += xh
+                        fig_p.add_trace(go.Scatter(
+                            x=xh, y=yh, mode="lines+markers+text", name="FCFF histórico",
+                            line=dict(color="#38BDF8", width=3), marker=dict(size=9),
+                            text=[f"{v:.0f}" for v in yh], textposition="top center",
+                            textfont=dict(size=10, color="#E0F2FE"),
+                            hovertemplate="Año %{x}<br>Histórico: %{y:.1f}<extra></extra>",
+                        ))
+                    xp = [int(x) for x in df_proj.index]
+                    yp = [float(v) for v in df_proj["FCFF"].values]
+                    years += xp
                     fig_p.add_trace(go.Scatter(
-                        x=list(df_proj.index.astype(str)),
-                        y=df_proj["FCFF"].values,
-                        mode="lines+markers",
-                        name="FCFF proyectado",
-                        line=dict(color="#14B8A6", width=2),
-                        hovertemplate="Año %{x}<br>FCFF: %{y:.1f}<extra></extra>",
+                        x=xp, y=yp, mode="lines+markers+text", name="FCFF proyectado",
+                        line=dict(color="#2DD4BF", width=3, dash="dash"), marker=dict(size=9),
+                        text=[f"{v:.0f}" for v in yp], textposition="top center",
+                        textfont=dict(size=10, color="#CCFBF1"),
+                        hovertemplate="Año %{x}<br>Proyectado: %{y:.1f}<extra></extra>",
                     ))
-                    fig_p.update_layout(**_plotly_layout("FCFF interactivo (pasa el cursor)"))
+                    fig_p.update_layout(**_plotly_layout("FCFF · historia y proyección (pasa el cursor)"))
+                    if years:
+                        fig_p.update_xaxes(
+                            range=[min(years) - 0.4, max(years) + 0.4],
+                            autorange=False,
+                            dtick=1,
+                            title="Año",
+                        )
+                    fig_p.update_yaxes(title="FCFF (miles de millones)")
                     fig_p.update_layout(height=560)
                     st.plotly_chart(fig_p, use_container_width=True)
             except Exception:
