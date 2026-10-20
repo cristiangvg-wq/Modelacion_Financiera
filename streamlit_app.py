@@ -846,7 +846,7 @@ def _show_df(df, label=None):
         st.write(df)
 
 
-def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · original vs normalizado"):
+def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · original vs normalizado", chart_key=None):
     """
     Gráficos Plotly (mismo estilo que fan chart) para drivers:
     línea original + normalizada + atípicos marcados, con hover.
@@ -994,7 +994,7 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                 )
             fig.update_yaxes(title_text="", row=row, col=col)
 
-        _finish_plotly(fig, title=title, height=max(360, 280 * nrows))
+        _finish_plotly(fig, title=title, height=max(360, 280 * nrows), key=chart_key)
         st.caption(
             "Azul = dato real · teal punteado = suavizado (sin picos extremos) · cruz roja = año atípico. "
             "Pasa el cursor: cada punto te explica en lenguaje simple qué estás viendo."
@@ -1010,7 +1010,7 @@ def _plotly_atipicos(df_hist, title="Comparación de drivers · original vs norm
     return _plotly_comparacion_drivers(df_hist, title=title)
 
 
-def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
+def _plotly_informe_panel(resultados, title="Resumen gráfico del informe", chart_key=None):
     """Panel 2×2 en Plotly a partir de resultados de sesión."""
     try:
         import plotly.graph_objects as go
@@ -1176,7 +1176,7 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             any_ok = True
     if not any_ok:
         return False
-    ok = _finish_plotly(fig, title=title, height=740, barmode="group")
+    ok = _finish_plotly(fig, title=title, height=740, key=chart_key or "informe_panel_2x2", barmode="group")
     st.caption(
         "Respaldo 2×2 · Plotly con burbujas (hover). "
         "Ejecuta las pestañas 1, 2, 5 y 6 para el formato completo a ancho completo (como Pronóstico)."
@@ -1245,8 +1245,10 @@ def _plotly_layout(title="", height=520, legend_bottom=True):
     )
 
 
-def _finish_plotly(fig, title="", height=520, **extra):
-    """Aplica chrome unificado + subtítulos alineados + render."""
+def _finish_plotly(fig, title="", height=520, key=None, **extra):
+    """Aplica chrome unificado + subtítulos alineados + render.
+    `key` evita StreamlitDuplicateElementId si la misma gráfica se muestra en varias pestañas.
+    """
     layout = _plotly_layout(title, height=height, legend_bottom=True)
     layout.update(extra)
     fig.update_layout(**layout)
@@ -1276,7 +1278,10 @@ def _finish_plotly(fig, title="", height=520, **extra):
         )
     except Exception:
         pass
-    st.plotly_chart(fig, use_container_width=True)
+    kwargs = dict(use_container_width=True)
+    if key is not None:
+        kwargs["key"] = key
+    st.plotly_chart(fig, **kwargs)
     return True
 
 
@@ -1304,7 +1309,7 @@ def _col_fcff(df):
     return None
 
 
-def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
+def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF", chart_key=None):
     """Gráfico nativo: histórico + proyección + banda simple. Eje = años reales."""
     try:
         import plotly.graph_objects as go
@@ -1376,10 +1381,10 @@ def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
         autorange=False,
     )
     fig.update_yaxes(title="FCFF (miles de millones)")
-    return _finish_plotly(fig, title=title, height=540)
+    return _finish_plotly(fig, title=title, height=540, key=chart_key)
 
 
-def _plotly_escenarios(df):
+def _plotly_escenarios(df, chart_key=None):
     """Barras EV vs Equity con nombres y valores."""
     try:
         import plotly.graph_objects as go
@@ -1445,11 +1450,11 @@ def _plotly_escenarios(df):
         return False
     fig.update_xaxes(title="Escenario")
     fig.update_yaxes(title="Valor (miles de millones)")
-    return _finish_plotly(fig, title="Escenarios · EV vs Equity", height=480, barmode="group",
+    return _finish_plotly(fig, title="Escenarios · EV vs Equity", height=480, key=chart_key, barmode="group",
                           uniformtext_minsize=10, uniformtext_mode="hide")
 
 
-def _plotly_vpn_flows(df):
+def _plotly_vpn_flows(df, chart_key=None):
     """Flujos del proyecto con valores."""
     try:
         import plotly.graph_objects as go
@@ -1491,10 +1496,10 @@ def _plotly_vpn_flows(df):
     fig.add_hline(y=0, line_color="#94A3B8", line_width=1, line_dash="dot")
     fig.update_xaxes(title="Periodo")
     fig.update_yaxes(title="Flujo / VPN")
-    return _finish_plotly(fig, title="Flujos del proyecto · VPN / recuperación", height=480)
+    return _finish_plotly(fig, title="Flujos del proyecto · VPN / recuperación", height=480, key=chart_key)
 
 
-def _plotly_sector(df):
+def _plotly_sector(df, chart_key=None):
     """Ranking sectorial horizontal con hover."""
     try:
         import plotly.graph_objects as go
@@ -1523,7 +1528,7 @@ def _plotly_sector(df):
             ),
         ))
         fig.update_xaxes(title="Score")
-        return _finish_plotly(fig, title="Ranking sectorial", height=max(400, 40 * len(labels) + 120))
+        return _finish_plotly(fig, title="Ranking sectorial", height=max(400, 40 * len(labels) + 120), key=chart_key)
 
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Margen EBITDA %", "EV/EBITDA (x)"))
     if margen_c is not None:
@@ -1552,7 +1557,7 @@ def _plotly_sector(df):
     if not fig.data:
         return False
     return _finish_plotly(fig, title="Comparables del sector",
-                          height=max(420, 36 * len(labels) + 140), showlegend=False)
+                          height=max(420, 36 * len(labels) + 140), key=chart_key, showlegend=False)
 
 
 def _show_fig(fig, caption=None):
@@ -2351,11 +2356,11 @@ def main():
             # Fan chart Plotly nativo (histórico + proyección + banda)
             df_h = r[1] if len(r) > 1 else None
             df_p = r[2] if len(r) > 2 else None
-            if not _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)"):
+            if not _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)", chart_key="tab1_fan_fcff"):
                 if len(r) > 3:
                     _show_fig(r[3], "Fan chart FCFF")
             # Comparación drivers / atípicos — mismo estilo Plotly
-            if not _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado"):
+            if not _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado", chart_key="tab1_drivers"):
                 if len(r) > 4 and r[4] is not None:
                     _show_fig(r[4], "Atípicos (respaldo estático)")
             else:
@@ -2397,7 +2402,7 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Por escenario")
-                if not _plotly_escenarios(r[1]):
+                if not _plotly_escenarios(r[1], chart_key="tab2_escenarios"):
                     if len(r) > 2:
                         _show_fig(r[2], "EV vs Equity")
             elif len(r) > 2:
@@ -2496,7 +2501,7 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Flujos")
-                if not _plotly_vpn_flows(r[1]):
+                if not _plotly_vpn_flows(r[1], chart_key="tab5_vpn"):
                     if len(r) > 2:
                         _show_fig(r[2], "Recuperación")
             elif len(r) > 2:
@@ -2527,7 +2532,7 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Comparables")
-                if not _plotly_sector(r[1]):
+                if not _plotly_sector(r[1], chart_key="tab6_sector"):
                     if len(r) > 2:
                         _show_fig(r[2], "Sector")
             elif len(r) > 2:
@@ -2576,27 +2581,27 @@ def main():
             if t1 and isinstance(t1, (list, tuple)) and len(t1) > 2:
                 st.markdown("###### A · FCFF historia y proyección")
                 df_h, df_p = t1[1], t1[2]
-                if _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)"):
+                if _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)", chart_key="tab7_fan_fcff"):
                     shown_any = True
-                if _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado"):
+                if _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado", chart_key="tab7_drivers"):
                     shown_any = True
 
             t2 = res_all.get("tab2")
             if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
                 st.markdown("###### B · Escenarios EV / Equity")
-                if _plotly_escenarios(t2[1]):
+                if _plotly_escenarios(t2[1], chart_key="tab7_escenarios"):
                     shown_any = True
 
             t5 = res_all.get("tab5")
             if t5 and isinstance(t5, (list, tuple)) and len(t5) > 1 and hasattr(t5[1], "columns"):
                 st.markdown("###### C · Flujos del proyecto")
-                if _plotly_vpn_flows(t5[1]):
+                if _plotly_vpn_flows(t5[1], chart_key="tab7_vpn"):
                     shown_any = True
 
             t6 = res_all.get("tab6")
             if t6 and isinstance(t6, (list, tuple)) and len(t6) > 1 and hasattr(t6[1], "columns"):
                 st.markdown("###### D · Ranking sectorial")
-                if _plotly_sector(t6[1]):
+                if _plotly_sector(t6[1], chart_key="tab7_sector"):
                     shown_any = True
 
             if shown_any:
@@ -2605,7 +2610,7 @@ def main():
                 )
             else:
                 # Panel 2×2 Plotly (también con hover); sin figuras matplotlib de otras pestañas
-                if not _plotly_informe_panel(res_all, title="Resumen gráfico · informe"):
+                if not _plotly_informe_panel(res_all, title="Resumen gráfico · informe", chart_key="tab7_informe_panel"):
                     st.info(
                         "Aún no hay datos para graficar. Ejecuta las pestañas 1, 2, 5 y 6 "
                         "y luego genera el informe. El texto/KPIs de arriba no dependen de esas gráficas."
