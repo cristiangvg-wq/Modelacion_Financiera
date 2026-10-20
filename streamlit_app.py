@@ -767,7 +767,7 @@ def _mpl_to_plotly(fig, title=""):
                 c = i % cols + 1
                 ax_list.append((ax, pfig, (r, c)))
 
-        palette = ["#14B8A6", "#3B82F6", "#F59E0B", "#A78BFA", "#F87171", "#34D399", "#94A3B8"]
+        palette = ["#2DD4BF", "#38BDF8", "#FBBF24", "#C084FC", "#FB7185", "#4ADE80", "#E2E8F0", "#F8FAFC"]
         any_trace = False
 
         for idx, (ax, target, rc) in enumerate(ax_list):
@@ -803,8 +803,8 @@ def _mpl_to_plotly(fig, title=""):
                                     x=xs,
                                     y=ys,
                                     fill="toself",
-                                    fillcolor="rgba(20,184,166,0.25)",
-                                    line=dict(color="rgba(20,184,166,0.4)", width=0.5),
+                                    fillcolor="rgba(45,212,191,0.35)",
+                                    line=dict(color="rgba(45,212,191,0.7)", width=1),
                                     name="Banda / área",
                                     hoverinfo="skip",
                                     showlegend=(idx == 0),
@@ -830,8 +830,19 @@ def _mpl_to_plotly(fig, title=""):
                 color = palette[li % len(palette)]
                 try:
                     c = line.get_color()
-                    if isinstance(c, str) and c.startswith("#") and len(c) >= 4:
-                        color = c
+                    # Si el color original es muy oscuro, usar paleta brillante (legible en fondo dark)
+                    darkish = False
+                    if isinstance(c, str) and c.startswith("#") and len(c) >= 7:
+                        hx = c.lstrip("#")
+                        r, g, b = int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16)
+                        darkish = (r + g + b) < 200
+                        if not darkish:
+                            color = c
+                    elif isinstance(c, (tuple, list)) and len(c) >= 3:
+                        r, g, b = [float(x) * (255 if float(x) <= 1 else 1) for x in c[:3]]
+                        darkish = (r + g + b) < 200
+                        if not darkish:
+                            color = f"rgb({int(r)},{int(g)},{int(b)})"
                 except Exception:
                     pass
                 target.add_trace(
@@ -839,9 +850,9 @@ def _mpl_to_plotly(fig, title=""):
                         x=xd[mask],
                         y=yd[mask],
                         mode="lines+markers",
-                        name=str(lab)[:40],
-                        line=dict(color=color, width=2),
-                        marker=dict(size=8),
+                        name=str(lab)[:48],
+                        line=dict(color=color, width=3),
+                        marker=dict(size=9, line=dict(width=1, color="#0F172A")),
                         hovertemplate="<b>%{fullData.name}</b><br>x=%{x}<br>y=%{y:,.2f}<extra></extra>",
                     ),
                     **add_kw,
@@ -879,6 +890,7 @@ def _mpl_to_plotly(fig, title=""):
                                 y=heights,
                                 name=str(lab)[:40],
                                 marker_color=palette[bi % len(palette)],
+                                opacity=0.95,
                                 hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>%{y:,.2f}<extra></extra>",
                             ),
                             **add_kw,
@@ -902,7 +914,7 @@ def _mpl_to_plotly(fig, title=""):
 
         layout = _plotly_layout(title or "")
         # Más alto: un eje ~520px; varios ejes apilados
-        layout["height"] = 520 if n == 1 else min(280 * n + 80, 900)
+        layout["height"] = 560 if n == 1 else min(300 * n + 100, 960)
         if n == 1:
             pfig.update_layout(**layout)
         else:
@@ -987,10 +999,10 @@ def _plotly_layout(title=""):
     return dict(
         title=dict(text=title, font=dict(size=16, color="#F8FAFC")),
         paper_bgcolor="#0F172A",
-        plot_bgcolor="#1E293B",
+        plot_bgcolor="#243447",
         font=dict(color="#F1F5F9", size=13, family="IBM Plex Sans, system-ui, sans-serif"),
         margin=dict(l=64, r=120, t=56, b=56),
-        height=520,
+        height=560,
         legend=dict(
             bgcolor="rgba(15,23,42,0.98)",
             bordercolor="#94A3B8",
@@ -1003,16 +1015,16 @@ def _plotly_layout(title=""):
             x=1.01,
         ),
         xaxis=dict(
-            gridcolor="#334155",
-            zerolinecolor="#475569",
-            tickfont=dict(size=12, color="#E2E8F0"),
+            gridcolor="#475569",
+            zerolinecolor="#64748B",
+            tickfont=dict(size=13, color="#F1F5F9"),
             title_font=dict(size=13, color="#F1F5F9"),
             color="#E2E8F0",
         ),
         yaxis=dict(
-            gridcolor="#334155",
-            zerolinecolor="#475569",
-            tickfont=dict(size=12, color="#E2E8F0"),
+            gridcolor="#475569",
+            zerolinecolor="#64748B",
+            tickfont=dict(size=13, color="#F1F5F9"),
             title_font=dict(size=13, color="#F1F5F9"),
             color="#E2E8F0",
             automargin=True,
@@ -1143,7 +1155,7 @@ def _plotly_sector(df):
                 name="Múltiplo",
             ), row=1, col=2)
         fig.update_layout(**_plotly_layout("Comparables del sector (pasa el cursor)"))
-        fig.update_layout(height=520, showlegend=False)
+        fig.update_layout(height=560, showlegend=False)
         fig.update_xaxes(gridcolor="#243044")
         fig.update_yaxes(gridcolor="#243044")
         st.plotly_chart(fig, use_container_width=True)
@@ -1974,7 +1986,7 @@ def main():
                         hovertemplate="Año %{x}<br>FCFF: %{y:.1f}<extra></extra>",
                     ))
                     fig_p.update_layout(**_plotly_layout("FCFF interactivo (pasa el cursor)"))
-                    fig_p.update_layout(height=520)
+                    fig_p.update_layout(height=560)
                     st.plotly_chart(fig_p, use_container_width=True)
             except Exception:
                 pass
