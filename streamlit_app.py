@@ -1480,10 +1480,12 @@ def _plotly_vpn_flows(df):
     return _finish_plotly(fig, title="Flujos del proyecto · VPN / recuperación", height=480)
 
 
-def _plotly_valor_proyecto(df, chart_key=None):
+def _plotly_valor_proyecto(df, wacc=None, chart_key=None):
     """
-    Evolución del valor acumulado del proyecto (payback visual).
-    Misma idea que la figura de recuperación: área roja bajo 0, verde sobre 0.
+    Evolución del valor del proyecto = VPN acumulada con los flujos disponibles.
+    Descuenta cada flujo al WACC: VPN_t = Σ CF_i / (1+WACC)^i
+    Área roja: VPN acumulada < 0 (aún no recupera en valor presente).
+    Área verde: VPN acumulada ≥ 0 (ya recuperó y crea valor).
     """
     try:
         import plotly.graph_objects as go
@@ -1491,13 +1493,20 @@ def _plotly_valor_proyecto(df, chart_key=None):
         return False
     if df is None or not hasattr(df, "columns") or len(df) == 0:
         return False
+
     xcol = df.columns[0]
     ycol = None
     for c in df.columns:
         cl = str(c).lower()
-        if any(k in cl for k in ("flujo", "flow", "fcff", "cash", "vpn")):
+        if any(k in cl for k in ("flujo", "flow", "fcff", "cash")) and "acum" not in cl and "vpn" not in cl:
             ycol = c
             break
+    if ycol is None:
+        for c in df.columns:
+            cl = str(c).lower()
+            if any(k in cl for k in ("flujo", "flow", "fcff", "cash", "vpn")):
+                ycol = c
+                break
     if ycol is None:
         for c in df.columns[1:]:
             if pd.api.types.is_numeric_dtype(df[c]):
@@ -1506,72 +1515,115 @@ def _plotly_valor_proyecto(df, chart_key=None):
     if ycol is None:
         return False
 
-    x = [str(v) for v in df[xcol].tolist()]
-    flujos = pd.to_numeric(df[ycol], errors="coerce").fillna(0).tolist()
-    # Valor acumulado del proyecto (suma de flujos)
-    acum = []
-    s = 0.0
-    for v in flujos:
-        s += float(v)
-        acum.append(s)
+    x_labels = [str(v) for v in df[xcol].tolist()]
+    flujos = pd.to_numeric(df[ycol], errors="coerce").fillna(0).astype(float).tolist()
+    n = len(flujos)
+    if n == 0:
+        return False
+
+    # WACC efectivo
+    try:
+        r = float(wacc) if wacc is not None else 0.10
+    except Exception:
+        r = 0.10
+    if r <= -0.99:
+        r = 0.10
+
+    # VPN period by period (descuento fin de año: t=0 sin descuento o con índice 0)
+    # Convención: primer flujo en t=0 (inversión), luego t=1..n-1
+    vpn_acum = []
+    vpn = 0.0
+    for t, cf in enumerate(flujos):
+        vpn += float(cf) / ((1.0 + r) ** t)
+        vpn_acum.append(vpn)
+
+    vpn_final = vpn_acum[-1] if vpn_acum else 0.0
+
+    # TIR (IRR) con los flujos disponibles
+    tir = None
+    try:
+        tir_val = np.irr(flujos) if hasattr(np, "irr") else None
+    except Exception:
+        tir_val = None
+    if tir_val is None:
+        try:
+            # Newton simple para IRR
+            rate = 0.1
+            for _ in range(50):
+                npv = sum(cf / ((1 + rate) ** t) for t, cf in enumerate(flujos))
+                dnpv = sum(-t * cf / ((1 + rate) ** (t + 1)) for t, cf in enumerate(flujos) if t > 0)
+                if abs(dnpv) < 1e-12:
+                    break
+                rate_new = rate - npv / dnpv
+                if abs(rate_new - rate) < 1e-8:
+                    rate = rate_new
+                    break
+                rate = rate_new
+            if -0.99 < rate < 5:
+                tir = rate
+        except Exception:
+            tir = None
+    else:
+        tir = float(tir_val)
+
+    # Payback en valor presente (primer t con vpn_acum >= 0)
+    payback = None
+    for t, v in enumerate(vpn_acum):
+        if v >= 0:
+            payback = t
+            break
+
+    # KPIs rápidos encima del gráfico
+    try:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("VPN (datos disponibles)", f"{vpn_final:,.2f}", help=f"Descontada al WACC {r*100:.2f}%")
+        with c2:
+            st.metric("TIR", f"{tir*100:.2f}%" if tir is not None else "—")
+        with c3:
+            st.metric("Payback (VP)", f"t={payback}" if payback is not None else "No recupera en el horizonte")
+    except Exception:
+        pass
 
     fig = go.Figure()
-
-    # Área bajo la curva: verde si acumulado >= 0, rosa si < 0 (relleno hasta 0)
-    # Plotly no colorea por tramo fácilmente; usamos dos fills con clip
-    x_num = list(range(len(x)))
-
-    # Relleno positivo (ya recuperó)
-    y_pos = [max(v, 0) for v in acum]
+    y_pos = [max(v, 0) for v in vpn_acum]
+    y_neg = [min(v, 0) for v in vpn_acum]
     fig.add_trace(go.Scatter(
-        x=x, y=y_pos,
-        mode="lines",
-        line=dict(width=0),
-        fill="tozeroy",
-        fillcolor="rgba(52, 211, 153, 0.35)",
-        name="Ya recuperó y gana",
-        hoverinfo="skip",
-        showlegend=True,
+        x=x_labels, y=y_pos, mode="lines", line=dict(width=0),
+        fill="tozeroy", fillcolor="rgba(52, 211, 153, 0.35)",
+        name="Ya recuperó y gana (VPN≥0)", hoverinfo="skip",
     ))
-    # Relleno negativo (aún no recupera) — valores negativos para tozeroy
-    y_neg = [min(v, 0) for v in acum]
     fig.add_trace(go.Scatter(
-        x=x, y=y_neg,
-        mode="lines",
-        line=dict(width=0),
-        fill="tozeroy",
-        fillcolor="rgba(248, 113, 113, 0.35)",
-        name="Aún no recupera",
-        hoverinfo="skip",
-        showlegend=True,
+        x=x_labels, y=y_neg, mode="lines", line=dict(width=0),
+        fill="tozeroy", fillcolor="rgba(248, 113, 113, 0.35)",
+        name="Aún no recupera (VPN<0)", hoverinfo="skip",
     ))
-    # Línea de evolución + puntos
     fig.add_trace(go.Scatter(
-        x=x, y=acum,
-        mode="lines+markers+text",
-        name="Valor acumulado",
+        x=x_labels, y=vpn_acum, mode="lines+markers+text",
+        name="VPN acumulada",
         line=dict(color="#1E3A5F", width=3),
         marker=dict(size=11, color="#1E3A5F"),
-        text=[f"{v:,.0f}" for v in acum],
+        text=[f"{v:,.1f}" for v in vpn_acum],
         textposition="top center",
         textfont=dict(size=10, color="#E2E8F0"),
         hovertemplate=(
             "<b>Periodo %{x}</b><br>"
-            "Valor acumulado del proyecto: <b>%{y:,.1f}</b><br>"
-            "<i>Suma de flujos hasta este periodo. "
-            "Cuando cruza cero, el proyecto ya recuperó la inversión.</i>"
+            "VPN acumulada: <b>%{y:,.2f}</b><br>"
+            f"<i>Flujos descontados al WACC {r*100:.2f}%. "
+            "Cuando cruza cero, el proyecto recuperó la inversión en valor presente.</i>"
             "<extra></extra>"
         ),
     ))
     fig.add_hline(y=0, line_color="#94A3B8", line_width=1.5, line_dash="dash")
     fig.update_xaxes(title="Periodo")
-    fig.update_yaxes(title="Valor acumulado del proyecto")
-    return _finish_plotly(
+    fig.update_yaxes(title="VPN acumulada (valor presente)")
+    ok = _finish_plotly(
         fig,
-        title="Cómo evoluciona el valor del proyecto",
+        title=f"Cómo evoluciona el valor del proyecto · WACC {r*100:.2f}%",
         height=480,
         key=chart_key or "tab5_valor_proyecto",
     )
+    return ok
 
 
 
@@ -2622,15 +2674,15 @@ def main():
                     if len(r) > 2:
                         _show_fig(r[2], "Recuperación")
                 # Gráfica de evolución del valor acumulado (payback visual)
-                if not _plotly_valor_proyecto(r[1], chart_key="tab5_valor_proyecto"):
+                if not _plotly_valor_proyecto(r[1], wacc=w.get("wacc") if isinstance(w, dict) else None, chart_key="tab5_valor_proyecto"):
                     if len(r) > 2 and r[2] is not None:
                         pass  # ya se mostró respaldo de flujos si aplica
             elif len(r) > 2:
                 _show_fig(r[2], "Recuperación")
             _chart_tip(
-                "Barras = flujo de cada periodo. La segunda gráfica = valor acumulado: "
-                "zona roja = aún no recuperas la inversión; zona verde = ya recuperaste y ganas. "
-                "El cruce por cero es el payback."
+                "Barras = flujo de cada periodo (datos financieros disponibles). "
+                "La segunda gráfica calcula la VPN descontando esos flujos al WACC: "
+                "zona roja = VPN acumulada negativa; zona verde = ya recuperaste en valor presente."
             )
             _explain(
                 "<b>Burbuja de lectura · VPN / TIR:</b> "
