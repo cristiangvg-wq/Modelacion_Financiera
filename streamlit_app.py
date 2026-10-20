@@ -736,242 +736,16 @@ def _show_df(df, label=None):
         st.dataframe(df, use_container_width=True)
 
 
-def _mpl_to_plotly(fig, title=""):
-    """
-    Convierte una figura Matplotlib en Plotly (líneas, barras, fill_between)
-    para habilitar hover en todas las pestañas. Devuelve True si se mostró.
-    """
-    try:
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-    except ImportError:
-        return False
-    if fig is None or not HAS_MPL:
-        return False
-    try:
-        axes = fig.get_axes()
-        if not axes:
-            return False
-        n = len(axes)
-        if n == 1:
-            pfig = go.Figure()
-            ax_list = [(axes[0], pfig, None)]
-        else:
-            # grid simple 1xn o 2x2
-            rows = 1 if n <= 3 else 2
-            cols = n if n <= 3 else int(np.ceil(n / 2))
-            pfig = make_subplots(rows=rows, cols=cols)
-            ax_list = []
-            for i, ax in enumerate(axes):
-                r = i // cols + 1
-                c = i % cols + 1
-                ax_list.append((ax, pfig, (r, c)))
-
-        palette = ["#2DD4BF", "#38BDF8", "#FBBF24", "#C084FC", "#FB7185", "#4ADE80", "#E2E8F0", "#F8FAFC"]
-        any_trace = False
-
-        for idx, (ax, target, rc) in enumerate(ax_list):
-            add_kw = {}
-            if rc:
-                add_kw = {"row": rc[0], "col": rc[1]}
-
-            # --- fill_between (colecciones PolyCollection) ---
-            try:
-                for coll in ax.collections:
-                    try:
-                        paths = coll.get_paths()
-                        if not paths:
-                            continue
-                        verts = paths[0].vertices
-                        if verts is None or len(verts) < 4:
-                            continue
-                        xs = verts[:, 0]
-                        ys = verts[:, 1]
-                        mid = len(xs) // 2
-                        # típico fill_between: ida por arriba y vuelta por abajo
-                        x_line = xs[:mid]
-                        y_hi = ys[:mid]
-                        y_lo = ys[: mid - 1 : -1] if mid > 0 else ys
-                        if len(y_lo) != len(x_line) and len(xs) >= 2:
-                            x_line = xs[::2] if len(xs) > 2 else xs
-                            y_hi = ys[::2] if len(ys) > 2 else ys
-                            y_lo = ys[1::2] if len(ys) > 2 else ys
-                        # simplificar: una sola banda con hover del punto medio
-                        if len(xs) >= 2:
-                            target.add_trace(
-                                go.Scatter(
-                                    x=xs,
-                                    y=ys,
-                                    fill="toself",
-                                    fillcolor="rgba(45,212,191,0.35)",
-                                    line=dict(color="rgba(45,212,191,0.7)", width=1),
-                                    name="Banda / área",
-                                    hoverinfo="skip",
-                                    showlegend=(idx == 0),
-                                ),
-                                **add_kw,
-                            )
-                            any_trace = True
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-            # --- líneas ---
-            for li, line in enumerate(ax.get_lines()):
-                xd = np.asarray(line.get_xdata(), dtype=float)
-                yd = np.asarray(line.get_ydata(), dtype=float)
-                mask = np.isfinite(xd) & np.isfinite(yd)
-                if not mask.any():
-                    continue
-                lab = line.get_label()
-                if lab and str(lab).startswith("_"):
-                    lab = f"Serie {li + 1}"
-                color = palette[li % len(palette)]
-                try:
-                    c = line.get_color()
-                    # Si el color original es muy oscuro, usar paleta brillante (legible en fondo dark)
-                    darkish = False
-                    if isinstance(c, str) and c.startswith("#") and len(c) >= 7:
-                        hx = c.lstrip("#")
-                        r, g, b = int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16)
-                        darkish = (r + g + b) < 200
-                        if not darkish:
-                            color = c
-                    elif isinstance(c, (tuple, list)) and len(c) >= 3:
-                        r, g, b = [float(x) * (255 if float(x) <= 1 else 1) for x in c[:3]]
-                        darkish = (r + g + b) < 200
-                        if not darkish:
-                            color = f"rgb({int(r)},{int(g)},{int(b)})"
-                except Exception:
-                    pass
-                target.add_trace(
-                    go.Scatter(
-                        x=xd[mask],
-                        y=yd[mask],
-                        mode="lines+markers",
-                        name=str(lab)[:48],
-                        line=dict(color=color, width=3),
-                        marker=dict(size=9, line=dict(width=1, color="#0F172A")),
-                        hovertemplate="<b>%{fullData.name}</b><br>x=%{x}<br>y=%{y:,.2f}<extra></extra>",
-                    ),
-                    **add_kw,
-                )
-                any_trace = True
-
-            # --- barras ---
-            try:
-                for bi, cont in enumerate(getattr(ax, "containers", []) or []):
-                    try:
-                        heights = [getattr(p, "get_height", lambda: None)() for p in cont]
-                        heights = [h for h in heights if h is not None]
-                        if not heights:
-                            continue
-                        # posiciones x
-                        xs = []
-                        for p in cont:
-                            try:
-                                xs.append(p.get_x() + p.get_width() / 2)
-                            except Exception:
-                                xs.append(len(xs))
-                        lab = cont.get_label() if hasattr(cont, "get_label") else f"Barras {bi + 1}"
-                        if lab and str(lab).startswith("_"):
-                            lab = f"Barras {bi + 1}"
-                        # etiquetas categóricas si existen
-                        try:
-                            labels = [t.get_text() for t in ax.get_xticklabels()]
-                            if labels and len(labels) == len(heights):
-                                xs = labels
-                        except Exception:
-                            pass
-                        target.add_trace(
-                            go.Bar(
-                                x=xs,
-                                y=heights,
-                                name=str(lab)[:40],
-                                marker_color=palette[bi % len(palette)],
-                                opacity=0.95,
-                                hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>%{y:,.2f}<extra></extra>",
-                            ),
-                            **add_kw,
-                        )
-                        any_trace = True
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-            # títulos de eje
-            try:
-                ttl = ax.get_title() or title
-                if n == 1 and ttl:
-                    target.update_layout(title=dict(text=str(ttl)[:80], font=dict(size=16, color="#F8FAFC")))
-            except Exception:
-                pass
-
-        if not any_trace:
-            return False
-
-        layout = _plotly_layout(title or "")
-        # Más alto: un eje ~520px; varios ejes apilados
-        layout["height"] = 560 if n == 1 else min(300 * n + 100, 960)
-        if n == 1:
-            pfig.update_layout(**layout)
-        else:
-            pfig.update_layout(**{k: v for k, v in layout.items() if k != "title"})
-            if title:
-                pfig.update_layout(title=dict(text=title, font=dict(size=16, color="#F8FAFC")))
-        pfig.update_xaxes(
-            gridcolor="#334155",
-            color="#E2E8F0",
-            tickfont=dict(size=12, color="#E2E8F0"),
-            title_font=dict(size=13, color="#F1F5F9"),
-        )
-        pfig.update_yaxes(
-            gridcolor="#334155",
-            color="#E2E8F0",
-            tickfont=dict(size=12, color="#E2E8F0"),
-            title_font=dict(size=13, color="#F1F5F9"),
-            automargin=True,
-        )
-        pfig.update_layout(
-            legend=dict(
-                font=dict(size=13, color="#F8FAFC"),
-                bgcolor="rgba(15,23,42,0.95)",
-                bordercolor="#64748B",
-                borderwidth=1,
-            )
-        )
-        st.plotly_chart(pfig, use_container_width=True, config={"displayModeBar": True, "responsive": True})
-        return True
-    except Exception:
-        return False
-
-
 def _show_fig(fig, caption=None):
-    """
-    Preferir Plotly (hover/burbujas) en todas las pestañas.
-    Si no se puede convertir, muestra Matplotlib estático.
-    """
+    """Renderiza figura con fondo legible (no demasiado oscuro) sobre el tema FinTech."""
     if fig is None:
         return
-    title = caption or ""
+    if not HAS_MPL:
+        st.warning("matplotlib no instalado")
+        return
     if caption:
         st.caption(caption)
-
-    # 1) Intento interactivo
-    if _mpl_to_plotly(fig, title=title):
-        try:
-            if HAS_MPL:
-                plt.close(fig)
-        except Exception:
-            pass
-        return
-
-    # 2) Respaldo estático Matplotlib
-    if not HAS_MPL:
-        st.warning("matplotlib/plotly no disponibles para mostrar la gráfica")
-        return
+    # Fondo claro-gris azulado: contraste alto con líneas y texto
     try:
         fig.patch.set_facecolor("#F1F5F9")
         for ax in fig.get_axes():
@@ -983,10 +757,21 @@ def _show_fig(fig, caption=None):
             for spine in ax.spines.values():
                 spine.set_color("#CBD5E1")
             ax.grid(True, color="#E2E8F0", alpha=0.9, linestyle="-", linewidth=0.6)
+            legend = ax.get_legend()
+            if legend:
+                legend.get_frame().set_facecolor("#FFFFFF")
+                legend.get_frame().set_edgecolor("#CBD5E1")
+                for t in legend.get_texts():
+                    t.set_color("#1E293B")
+            # Reforzar color de líneas/barras si quedaron demasiado tenues
+            for line in ax.get_lines():
+                c = line.get_color()
+                if isinstance(c, str) and c.lower() in ("#0a2540", "#0b1220", "black", "#000000"):
+                    line.set_color("#0F766E")
+                    line.set_linewidth(max(line.get_linewidth(), 1.8))
     except Exception:
         pass
     st.pyplot(fig, clear_figure=False)
-    st.caption("Vista estática (no se pudo generar hover interactivo para esta figura).")
     try:
         plt.close(fig)
     except Exception:
@@ -997,44 +782,16 @@ def _show_fig(fig, caption=None):
 
 def _plotly_layout(title=""):
     return dict(
-        title=dict(text=title, font=dict(size=16, color="#F8FAFC")),
-        paper_bgcolor="#0F172A",
-        plot_bgcolor="#243447",
-        font=dict(color="#F1F5F9", size=13, family="IBM Plex Sans, system-ui, sans-serif"),
-        margin=dict(l=64, r=120, t=56, b=56),
-        height=560,
-        legend=dict(
-            bgcolor="rgba(15,23,42,0.98)",
-            bordercolor="#94A3B8",
-            borderwidth=1,
-            font=dict(size=13, color="#F8FAFC"),
-            orientation="v",
-            yanchor="top",
-            y=0.98,
-            xanchor="left",
-            x=1.01,
-        ),
-        xaxis=dict(
-            gridcolor="#475569",
-            zerolinecolor="#64748B",
-            tickfont=dict(size=13, color="#F1F5F9"),
-            title_font=dict(size=13, color="#F1F5F9"),
-            color="#E2E8F0",
-        ),
-        yaxis=dict(
-            gridcolor="#475569",
-            zerolinecolor="#64748B",
-            tickfont=dict(size=13, color="#F1F5F9"),
-            title_font=dict(size=13, color="#F1F5F9"),
-            color="#E2E8F0",
-            automargin=True,
-        ),
+        title=dict(text=title, font=dict(size=14, color="#E8EEF7")),
+        paper_bgcolor="#111827",
+        plot_bgcolor="#151C2C",
+        font=dict(color="#E8EEF7", size=12),
+        margin=dict(l=48, r=24, t=48, b=40),
+        height=360,
+        legend=dict(bgcolor="rgba(26,35,54,0.9)", bordercolor="#334155"),
+        xaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
+        yaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
         hovermode="closest",
-        hoverlabel=dict(
-            bgcolor="#0F172A",
-            bordercolor="#14B8A6",
-            font=dict(size=13, color="#F8FAFC"),
-        ),
     )
 
 
@@ -1155,7 +912,7 @@ def _plotly_sector(df):
                 name="Múltiplo",
             ), row=1, col=2)
         fig.update_layout(**_plotly_layout("Comparables del sector (pasa el cursor)"))
-        fig.update_layout(height=560, showlegend=False)
+        fig.update_layout(height=420, showlegend=False)
         fig.update_xaxes(gridcolor="#243044")
         fig.update_yaxes(gridcolor="#243044")
         st.plotly_chart(fig, use_container_width=True)
@@ -1985,8 +1742,14 @@ def main():
                         line=dict(color="#14B8A6", width=2),
                         hovertemplate="Año %{x}<br>FCFF: %{y:.1f}<extra></extra>",
                     ))
-                    fig_p.update_layout(**_plotly_layout("FCFF interactivo (pasa el cursor)"))
-                    fig_p.update_layout(height=560)
+                    fig_p.update_layout(
+                        title="FCFF interactivo (pasa el cursor)",
+                        paper_bgcolor="#111827",
+                        plot_bgcolor="#151C2C",
+                        font=dict(color="#E8EEF7"),
+                        margin=dict(l=40, r=20, t=40, b=40),
+                        height=320,
+                    )
                     st.plotly_chart(fig_p, use_container_width=True)
             except Exception:
                 pass
@@ -2165,8 +1928,8 @@ def main():
     with tab7:
         st.markdown("##### Informe ejecutivo")
         st.caption(
-            "En pantalla, los gráficos intentan abrirse con hover (Plotly). "
-            "El PDF descargado sigue siendo estático: las burbujas solo existen en la app."
+            "El PDF y las figuras embebidas son estáticas (sin burbujas). "
+            "Para hover interactivo usa las pestañas Pronóstico, Escenarios, VPN/TIR y Sector en pantalla."
         )
         if st.button("Generar informe y PDF", type="primary", key="btn7"):
             with st.spinner("Informe…"):
