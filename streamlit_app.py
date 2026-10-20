@@ -945,8 +945,8 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
         fig = make_subplots(
             rows=nrows, cols=ncols,
             subplot_titles=titles,
-            vertical_spacing=0.14 if nrows > 1 else 0.10,
-            horizontal_spacing=0.08,
+            vertical_spacing=0.16 if nrows > 1 else 0.12,
+            horizontal_spacing=0.10,
         )
 
         for idx, (clave, (s, s_n, mask, years)) in enumerate(items):
@@ -1001,16 +1001,31 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                 )
             fig.update_yaxes(title_text="", row=row, col=col)
 
-        fig.update_layout(**_plotly_layout(title, height=max(340, 260 * nrows)))
-        fig.update_layout(
-            legend=dict(orientation="h", yanchor="bottom", y=1.06, x=0, font=dict(size=11, color="#F8FAFC")),
-            hovermode="closest",
-            margin=dict(l=40, r=24, t=72, b=40),
+        # Título arriba, leyenda abajo (sin solaparse con subtítulos)
+        layout = _plotly_layout(title, height=max(360, 280 * nrows))
+        layout["margin"] = dict(l=48, r=28, t=88, b=72)
+        layout["legend"] = dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.12 if nrows == 1 else -0.08,
+            x=0.5,
+            xanchor="center",
+            font=dict(size=12, color="#F8FAFC"),
+            bgcolor="rgba(15,23,42,0.85)",
+            bordercolor="#475569",
+            borderwidth=1,
+        )
+        layout["hovermode"] = "closest"
+        fig.update_layout(**layout)
+        # Subtítulos centrados y legibles
+        fig.update_annotations(
+            font=dict(size=13, color="#E2E8F0", family="IBM Plex Sans"),
+            yshift=6,
         )
         st.plotly_chart(fig, use_container_width=True)
         st.caption(
-            "Línea azul = dato original · línea teal punteada = tras filtro Hampel/winsor · "
-            "cruz roja = atípico. Pasa el cursor para ver el valor exacto."
+            "Azul = original · teal punteado = normalizado · cruz roja = atípico. "
+            "Pasa el cursor para ver el valor exacto."
         )
         return True
     except Exception as e:
