@@ -537,6 +537,66 @@ header[data-testid="stHeader"] {
   line-height: 1.45;
 }
 .tf-explain b { color: #5EEAD4; }
+
+/* Cinta de tickers */
+.tf-tape-wrap {
+  overflow: hidden;
+  background: #0F172A;
+  border: 1px solid #243044;
+  border-radius: 12px;
+  margin: 0 0 1rem 0;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+.tf-tape-wrap::before {
+  content: "MERCADO";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: linear-gradient(90deg, #0F766E 0%, #0F172A 100%);
+  color: #ECFDF5;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.tf-tape {
+  display: flex;
+  gap: 1.75rem;
+  width: max-content;
+  padding: 0.55rem 1rem 0.55rem 5.5rem;
+  animation: tf-scroll 45s linear infinite;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.tf-tape:hover { animation-play-state: paused; }
+@keyframes tf-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.tf-tick { color: #E2E8F0; }
+.tf-tick b { color: #F8FAFC; margin-right: 6px; }
+.tf-up { color: #34D399; }
+.tf-down { color: #F87171; }
+.tf-flat { color: #94A3B8; }
+.tf-chart-tip {
+  background: #1A2336;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  margin: -0.25rem 0 1rem 0;
+  color: #CBD5E1;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.tf-chart-tip span {
+  color: #5EEAD4;
+  font-weight: 600;
+  margin-right: 6px;
+}
 </style>
 """
 
@@ -642,6 +702,83 @@ def _kpi_row(items: list[tuple]) -> None:
 def _explain(text: str) -> None:
     """Callout didáctico bajo resultados clave."""
     st.markdown(f'<div class="tf-explain">{text}</div>', unsafe_allow_html=True)
+
+
+def _chart_tip(text: str) -> None:
+    """Texto simple bajo una gráfica."""
+    st.markdown(
+        f'<div class="tf-chart-tip"><span>¿Qué mirar?</span>{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _market_tape_quotes():
+    """Cinta de mercado: tickers globales + Colombia. Cache 5 min."""
+    symbols = [
+        ("AAPL", "Apple"),
+        ("MSFT", "Microsoft"),
+        ("NVDA", "NVIDIA"),
+        ("GOOGL", "Alphabet"),
+        ("AMZN", "Amazon"),
+        ("META", "Meta"),
+        ("JPM", "JPMorgan"),
+        ("XOM", "Exxon"),
+        ("EC", "Ecopetrol"),
+        ("ISA.CL", "ISA"),
+        ("CIB", "Bancolombia"),
+        ("SPY", "S&P 500"),
+    ]
+    rows = []
+    try:
+        import yfinance as yf
+    except ImportError:
+        return [{"sym": s, "name": n, "px": None, "chg": None} for s, n in symbols]
+
+    for sym, name in symbols:
+        try:
+            t = yf.Ticker(sym)
+            hist = t.history(period="5d")
+            if hist is None or len(hist) < 2:
+                info = getattr(t, "info", {}) or {}
+                px = info.get("regularMarketPrice") or info.get("currentPrice")
+                chg = info.get("regularMarketChangePercent")
+                rows.append({"sym": sym.split(".")[0], "name": name, "px": px, "chg": chg})
+                continue
+            px = float(hist["Close"].iloc[-1])
+            prev = float(hist["Close"].iloc[-2])
+            chg = 100.0 * (px - prev) / prev if prev else 0.0
+            rows.append({"sym": sym.split(".")[0], "name": name, "px": px, "chg": chg})
+        except Exception:
+            rows.append({"sym": sym.split(".")[0], "name": name, "px": None, "chg": None})
+    return rows
+
+
+def _render_market_tape() -> None:
+    data = _market_tape_quotes()
+    parts = []
+    for d in data:
+        chg = d.get("chg")
+        px = d.get("px")
+        if chg is None:
+            cls, chg_txt = "tf-flat", "—"
+        elif chg > 0.05:
+            cls, chg_txt = "tf-up", f"+{chg:.2f}%"
+        elif chg < -0.05:
+            cls, chg_txt = "tf-down", f"{chg:.2f}%"
+        else:
+            cls, chg_txt = "tf-flat", f"{chg:.2f}%"
+        px_txt = f"{px:,.2f}" if isinstance(px, (int, float)) else "—"
+        parts.append(
+            f'<span class="tf-tick"><b>{d["sym"]}</b> {d["name"]} '
+            f'{px_txt} <span class="{cls}">{chg_txt}</span></span>'
+        )
+    # Duplicar para loop infinito suave
+    inner = " ".join(parts + parts)
+    st.markdown(
+        f'<div class="tf-tape-wrap"><div class="tf-tape">{inner}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _section_start(title: str) -> None:
@@ -776,6 +913,12 @@ def main():
         """,
         unsafe_allow_html=True,
     )
+
+    # Cinta de mercado (tickers + variación del día)
+    try:
+        _render_market_tape()
+    except Exception:
+        pass
 
     # ========== SIDEBAR ==========
     with st.sidebar:
@@ -1096,10 +1239,14 @@ def main():
                 _show_fig(r[4], "Atípicos")
             if len(r) > 5 and r[5]:
                 _html(r[5])
+            _chart_tip(
+                "La zona sombreada es el rango probable del dinero libre (FCFF). "
+                "La línea del medio es el caso más típico. Si el pasado queda muy fuera, revisa si hubo un año raro."
+            )
             _explain(
-                "<b>Cómo leer el fan chart:</b> la banda P10–P90 muestra incertidumbre del FCFF; "
-                "la línea mediana es el escenario central. Si el histórico cae fuera de la banda, "
-                "revisa outliers o el método de proyección."
+                "<b>En palabras simples:</b> el FCFF es el efectivo que queda después de operar e invertir. "
+                "Proyectarlo es imaginar cuánto efectivo generará la empresa en los próximos años. "
+                "El fan chart muestra incertidumbre: no es una sola cifra, sino un rango."
             )
 
     with tab2:
@@ -1123,9 +1270,14 @@ def main():
                 _show_df(r[1], "Por escenario")
             if len(r) > 2:
                 _show_fig(r[2], "EV vs Equity")
+            _chart_tip(
+                "Barras altas de Equity = más valor para el accionista en ese escenario. "
+                "Si Equity es bajo o negativo, la deuda y otros pasivos pesan mucho."
+            )
             _explain(
-                "<b>Escenarios:</b> pesimista sube el WACC y baja el FCFF/g; optimista hace lo contrario. "
-                "Compara <b>Equity</b> (no solo EV): es lo que queda para el accionista tras deuda neta, NCI y claims."
+                "<b>En palabras simples:</b> el modelo pregunta “¿cuánto valdría la empresa si el futuro va mal, normal o bien?”. "
+                "<b>EV</b> es el valor de todo el negocio; <b>Equity</b> es lo que queda para los dueños después de restar deudas. "
+                "Úsalo para ver si el resultado es robusto o solo se sostiene en el caso optimista."
             )
 
     with tab3:
@@ -1146,6 +1298,11 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Pruebas")
+            _explain(
+                "<b>En palabras simples:</b> la auditoría es una lista de chequeo. "
+                "Si muchas pruebas salen en rojo (por ejemplo g casi igual al WACC, o poca historia), "
+                "el modelo puede estar ‘forzado’ y conviene ajustar supuestos antes de decidir."
+            )
 
     with tab4:
         st.markdown("##### Recomendación de comité")
@@ -1168,6 +1325,10 @@ def main():
                 _show_df(r[1], "Gobernanza")
             if len(r) > 2:
                 _html(r[2])
+            _explain(
+                "<b>En palabras simples:</b> la recomendación resume si, con estos números, tiene sentido "
+                "llevar el caso a un comité. No es una orden de compra: es un marco para discutir riesgos y valor."
+            )
 
     with tab5:
         st.markdown("##### VPN · TIR · Payback")
@@ -1189,9 +1350,14 @@ def main():
                 _show_df(r[1], "Flujos")
             if len(r) > 2:
                 _show_fig(r[2], "Recuperación")
+            _chart_tip(
+                "Barras verdes = dinero que entra; rojas = inversión inicial. "
+                "El payback es cuándo se recupera lo invertido (sin medir si ‘valía la pena’ del todo)."
+            )
             _explain(
-                "<b>VPN &gt; 0</b> implica que el proyecto cubre el costo de capital (WACC) bajo estos supuestos. "
-                "La <b>TIR</b> es la tasa que hace VPN = 0; el <b>payback</b> solo mide liquidez, no valor."
+                "<b>En palabras simples:</b> <b>VPN &gt; 0</b> significa que el proyecto deja más de lo que ‘cuesta’ el capital. "
+                "La <b>TIR</b> es la rentabilidad implícita del proyecto. El <b>payback</b> solo dice en cuántos años recuperas la plata, "
+                "no si el riesgo valía la pena."
             )
 
     with tab6:
@@ -1211,10 +1377,14 @@ def main():
                 _show_df(r[1], "Comparables")
             if len(r) > 2:
                 _show_fig(r[2], "Sector")
+            _chart_tip(
+                "Compara márgenes y múltiplos con empresas del mismo oficio. "
+                "Un múltiplo muy bajo puede ser oportunidad… o una señal de problemas."
+            )
             _explain(
-                "<b>Ranking sectorial:</b> peers del mismo sector/industria (Yahoo + catálogo). "
-                "EV/EBITDA bajo vs pares puede sugerir descuento; ROIC vs WACC indica creación o destrucción de valor. "
-                "Pasa el cursor por los KPIs superiores para definiciones rápidas."
+                "<b>En palabras simples:</b> aquí no se mira la empresa sola, sino frente a ‘vecinas’ del sector. "
+                "Si gana más por cada peso invertido (ROIC) que lo que cuesta el capital (WACC), suele crear valor. "
+                "Pasa el cursor por los KPIs de arriba para ver definiciones rápidas."
             )
 
     with tab7:
