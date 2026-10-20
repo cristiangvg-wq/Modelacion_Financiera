@@ -2289,7 +2289,104 @@ def main():
                 except Exception as e:
                     st.error(str(e))
 
-    # ----- 7 TABS -----
+    # ----- Generar todo (único botón) -----
+    st.markdown("##### Ejecución del modelo")
+    metodo = st.radio(
+        "Método de pronóstico (pestaña 1)",
+        [
+            "Drivers + identidad FCFF (recomendado)",
+            "ETS / Holt (suavizado exponencial)",
+            "ARIMA (benchmark estadístico)",
+        ],
+        horizontal=True,
+        key="metodo_global",
+    )
+    if st.button("▶ Generar todo", type="primary", key="btn_generar_todo", use_container_width=True):
+        progress = st.progress(0, text="Iniciando…")
+        errores = []
+        pasos = [
+            ("1 · Pronóstico FCFF", 1 / 7),
+            ("2 · Escenarios DCF", 2 / 7),
+            ("3 · Auditoría", 3 / 7),
+            ("4 · Recomendación", 4 / 7),
+            ("5 · VPN / TIR", 5 / 7),
+            ("6 · Sector", 6 / 7),
+            ("7 · Informe PDF", 7 / 7),
+        ]
+        try:
+            progress.progress(pasos[0][1], text=pasos[0][0])
+            try:
+                st.session_state["resultados"]["tab1"] = L.tab1_carga_y_pronostico(
+                    empresa, archivo, horizonte, metodo, tax, usar_publicos
+                )
+            except Exception as e:
+                errores.append(f"Pestaña 1: {e}")
+
+            progress.progress(pasos[1][1], text=pasos[1][0])
+            try:
+                st.session_state["resultados"]["tab2"] = L.tab2_simulacion_politicas(
+                    empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                    deuda_neta, rf, erp, crp, usar_publicos,
+                    caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
+                )
+            except Exception as e:
+                errores.append(f"Pestaña 2: {e}")
+
+            progress.progress(pasos[2][1], text=pasos[2][0])
+            try:
+                st.session_state["resultados"]["tab3"] = L.tab3_auditoria_teorica(
+                    empresa, archivo, horizonte, de_ratio, kd, tax, g, beta_u,
+                    capital_invertido, rf, erp, crp, usar_publicos,
+                )
+            except Exception as e:
+                errores.append(f"Pestaña 3: {e}")
+
+            progress.progress(pasos[3][1], text=pasos[3][0])
+            try:
+                st.session_state["resultados"]["tab4"] = L.tab4_recomendacion(
+                    empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                    capital_invertido, deuda_neta, rf, erp, crp, usar_publicos,
+                    caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
+                )
+            except Exception as e:
+                errores.append(f"Pestaña 4: {e}")
+
+            progress.progress(pasos[4][1], text=pasos[4][0])
+            try:
+                st.session_state["resultados"]["tab5"] = L.tab5_vpn_tir(
+                    empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                    inversion_inicial, rf, erp, crp, usar_publicos,
+                )
+            except Exception as e:
+                errores.append(f"Pestaña 5: {e}")
+
+            progress.progress(pasos[5][1], text=pasos[5][0])
+            try:
+                st.session_state["resultados"]["tab6"] = L.tab6_comparacion_sectorial(empresa)
+            except Exception as e:
+                errores.append(f"Pestaña 6: {e}")
+
+            progress.progress(pasos[6][1], text=pasos[6][0])
+            try:
+                st.session_state["resultados"]["tab7"] = L.tab7_informe_ejecutivo(
+                    empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                    capital_invertido, deuda_neta, inversion_inicial, rf, erp, crp, usar_publicos,
+                    caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
+                )
+            except Exception as e:
+                errores.append(f"Pestaña 7: {e}")
+
+            progress.progress(1.0, text="Listo")
+            if errores:
+                st.warning("Algunas pestañas fallaron:\n- " + "\n- ".join(errores))
+            else:
+                st.success("Todos los resultados generados. Revisa cada pestaña.")
+            st.rerun()
+        except Exception as e:
+            st.error(str(e))
+            st.code(traceback.format_exc())
+
+    # ----- 7 TABS (solo visualización; los datos se generan con «Generar todo») -----
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
         [
             "1 · Pronóstico",
@@ -2304,25 +2401,7 @@ def main():
 
     with tab1:
         st.markdown("##### Proyección de FCFF")
-        metodo = st.radio(
-            "Método",
-            [
-                "Drivers + identidad FCFF (recomendado)",
-                "ETS / Holt (suavizado exponencial)",
-                "ARIMA (benchmark estadístico)",
-            ],
-            horizontal=True,
-            label_visibility="collapsed",
-        )
-        if st.button("Generar proyección y Fan Chart", type="primary", key="btn1"):
-            with st.spinner("Proyectando…"):
-                try:
-                    st.session_state["resultados"]["tab1"] = L.tab1_carga_y_pronostico(
-                        empresa, archivo, horizonte, metodo, tax, usar_publicos
-                    )
-                except Exception as e:
-                    st.error(str(e))
-                    st.code(traceback.format_exc())
+        st.caption(f"Método usado: **{metodo}**. Usa el botón «Generar todo» arriba para calcular.")
         r = st.session_state.get("resultados", {}).get("tab1")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -2366,17 +2445,7 @@ def main():
 
     with tab2:
         st.markdown("##### Escenarios pesimista · base · optimista")
-        if st.button("Simular escenarios", type="primary", key="btn2"):
-            with st.spinner("Simulando…"):
-                try:
-                    st.session_state["resultados"]["tab2"] = L.tab2_simulacion_politicas(
-                        empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
-                        deuda_neta, rf, erp, crp, usar_publicos,
-                        caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
-                    )
-                except Exception as e:
-                    st.error(str(e))
-                    st.code(traceback.format_exc())
+        st.caption("Resultados generados con «Generar todo».")
         r = st.session_state.get("resultados", {}).get("tab2")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -2401,16 +2470,7 @@ def main():
 
     with tab3:
         st.markdown("##### Coherencia de supuestos")
-        if st.button("Ejecutar auditoría", type="primary", key="btn3"):
-            with st.spinner("Auditando…"):
-                try:
-                    st.session_state["resultados"]["tab3"] = L.tab3_auditoria_teorica(
-                        empresa, archivo, horizonte, de_ratio, kd, tax, g, beta_u,
-                        capital_invertido, rf, erp, crp, usar_publicos,
-                    )
-                except Exception as e:
-                    st.error(str(e))
-                    st.code(traceback.format_exc())
+        st.caption("Resultados generados con «Generar todo».")
         r = st.session_state.get("resultados", {}).get("tab3")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -2427,17 +2487,7 @@ def main():
 
     with tab4:
         st.markdown("##### Recomendación de comité")
-        if st.button("Generar recomendación", type="primary", key="btn4"):
-            with st.spinner("Generando…"):
-                try:
-                    st.session_state["resultados"]["tab4"] = L.tab4_recomendacion(
-                        empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
-                        capital_invertido, deuda_neta, rf, erp, crp, usar_publicos,
-                        caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
-                    )
-                except Exception as e:
-                    st.error(str(e))
-                    st.code(traceback.format_exc())
+        st.caption("Resultados generados con «Generar todo».")
         r = st.session_state.get("resultados", {}).get("tab4")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -2466,16 +2516,7 @@ def main():
 
     with tab5:
         st.markdown("##### VPN · TIR · Payback")
-        if st.button("Calcular proyecto", type="primary", key="btn5"):
-            with st.spinner("Calculando…"):
-                try:
-                    st.session_state["resultados"]["tab5"] = L.tab5_vpn_tir(
-                        empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
-                        inversion_inicial, rf, erp, crp, usar_publicos,
-                    )
-                except Exception as e:
-                    st.error(str(e))
-                    st.code(traceback.format_exc())
+        st.caption("Resultados generados con «Generar todo».")
         r = st.session_state.get("resultados", {}).get("tab5")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -2500,13 +2541,7 @@ def main():
 
     with tab6:
         st.markdown("##### Ranking sectorial")
-        if st.button("Generar ranking", type="primary", key="btn6"):
-            with st.spinner("Comparando…"):
-                try:
-                    st.session_state["resultados"]["tab6"] = L.tab6_comparacion_sectorial(empresa)
-                except Exception as e:
-                    st.error(str(e))
-                    st.code(traceback.format_exc())
+        st.caption("Resultados generados con «Generar todo».")
         r = st.session_state.get("resultados", {}).get("tab6")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -2536,17 +2571,7 @@ def main():
             "Las pestañas 1–6 tienen gráficos Plotly con hover, nombres y valores. "
             "El PDF sigue siendo estático (con títulos y cifras anotadas)."
         )
-        if st.button("Generar informe y PDF", type="primary", key="btn7"):
-            with st.spinner("Informe…"):
-                try:
-                    st.session_state["resultados"]["tab7"] = L.tab7_informe_ejecutivo(
-                        empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
-                        capital_invertido, deuda_neta, inversion_inicial, rf, erp, crp, usar_publicos,
-                        caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
-                    )
-                except Exception as e:
-                    st.error(str(e))
-                    st.code(traceback.format_exc())
+        st.caption("Resultados generados con «Generar todo» (incluye PDF si el modelo lo produce).")
         r = st.session_state.get("resultados", {}).get("tab7")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
