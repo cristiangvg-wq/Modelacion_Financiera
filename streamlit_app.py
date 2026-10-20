@@ -750,12 +750,20 @@ def _plotly_table(df, title="Tabla"):
         d = d.head(50)
         cols = [str(c) for c in d.columns]
 
+        TEXT_COLS = (
+            "interpretación", "interpretacion", "lectura sencilla", "lectura", "detalle",
+            "comentario", "mensaje", "descripción", "descripcion", "motivo", "nota", "prueba",
+        )
+
+        def _is_text_col(colname):
+            cl = colname.lower().strip()
+            return any(t in cl for t in TEXT_COLS) or cl in ("estado", "resultado", "veredicto")
+
         def _fmt(v, colname):
             if v is None or (isinstance(v, float) and v != v):
                 return "—"
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 fv = float(v)
-                # años
                 if colname.lower() in ("año", "ano", "year", "index") and 1900 <= fv <= 2100 and abs(fv - round(fv)) < 1e-9:
                     return str(int(round(fv)))
                 if abs(fv) >= 100:
@@ -763,23 +771,45 @@ def _plotly_table(df, title="Tabla"):
                 if abs(fv) >= 1:
                     return f"{fv:,.2f}"
                 return f"{fv:.4g}"
-            return str(v)[:64]
+            text = str(v).strip()
+            # columnas largas: no cortar agresivamente; soft-wrap con <br>
+            if _is_text_col(colname):
+                if len(text) > 220:
+                    text = text[:217] + "…"
+                # wrap cada ~42 chars para legibilidad en celda
+                parts, line, n = [], "", 0
+                for w in text.split():
+                    if n + len(w) + 1 > 42 and line:
+                        parts.append(line)
+                        line, n = w, len(w)
+                    else:
+                        line = (line + " " + w).strip()
+                        n = len(line)
+                if line:
+                    parts.append(line)
+                return "<br>".join(parts) if parts else "—"
+            return text[:80]
 
         cell_vals = []
         for c in d.columns:
             cell_vals.append([_fmt(v, str(c)) for v in d[c].tolist()])
 
-        # Anchos: año/index estrecho; texto medio; números proporcionales
+        # Anchos: año estrecho; interpretación/lectura ancha; resto proporcional
         widths = []
         for c, vals in zip(cols, cell_vals):
-            cl = c.lower()
+            cl = c.lower().strip()
             if cl in ("año", "ano", "year", "index", "t", "periodo"):
-                widths.append(55)
-            elif cl in ("escenario", "nombre", "empresa", "ticker", "prueba", "indicador", "estado"):
-                widths.append(140)
+                widths.append(52)
+            elif _is_text_col(c):
+                # texto largo: priorizar espacio
+                widths.append(280)
+            elif cl in ("escenario", "nombre", "empresa", "ticker", "indicador", "estado"):
+                widths.append(110)
             else:
-                maxlen = max((len(x) for x in vals), default=6)
-                widths.append(int(min(120, max(70, maxlen * 8))))
+                # longitud visible sin tags html
+                plain_lens = [len(x.replace("<br>", " ")) for x in vals]
+                maxlen = max(plain_lens, default=6)
+                widths.append(int(min(100, max(64, maxlen * 7))))
 
         n_rows = len(d)
         # Filas alternadas por columna
@@ -803,14 +833,15 @@ def _plotly_table(df, title="Tabla"):
                 align=["center" if str(c).lower() in ("año", "ano", "year") else "right"
                        if str(c).lower() not in ("escenario", "nombre", "empresa", "prueba", "indicador", "estado")
                        else "left" for c in cols],
-                height=28,
+                height=36 if any(_is_text_col(c) for c in cols) else 28,
             ),
         )])
+        row_h = 52 if any(_is_text_col(c) for c in cols) else 30
         fig.update_layout(
             title=dict(text=title, font=dict(size=14, color="#F8FAFC")),
             paper_bgcolor="#0F172A",
             margin=dict(l=8, r=8, t=42, b=8),
-            height=min(140 + 30 * n_rows, 560),
+            height=min(160 + row_h * n_rows, 720),
         )
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         return True
@@ -901,44 +932,50 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
         if not series_map:
             return False
 
-        # Limitar a 4 paneles para legibilidad
+        # Hasta 4 series en grilla 2×2 (compacto: dos por fila)
         items = list(series_map.items())[:4]
         n = len(items)
+        nrows = (n + 1) // 2
+        ncols = 2 if n > 1 else 1
+        titles = []
+        for k, _ in items:
+            titles.append(f"{k}")
+        while len(titles) < nrows * ncols:
+            titles.append("")
         fig = make_subplots(
-            rows=n, cols=1,
-            subplot_titles=[f"{k}: original vs normalizado (hover = valor)" for k, _ in items],
-            vertical_spacing=0.08 if n > 1 else 0.12,
+            rows=nrows, cols=ncols,
+            subplot_titles=titles,
+            vertical_spacing=0.14 if nrows > 1 else 0.10,
+            horizontal_spacing=0.08,
         )
 
-        for i, (clave, (s, s_n, mask, years)) in enumerate(items, start=1):
+        for idx, (clave, (s, s_n, mask, years)) in enumerate(items):
+            row = idx // ncols + 1
+            col = idx % ncols + 1
             y0 = [float(v) if v == v else None for v in s.tolist()]
             y1 = [float(v) if v == v else None for v in s_n.tolist()] if s_n is not None else y0
             x = years
 
             fig.add_trace(go.Scatter(
                 x=x, y=y0, mode="lines+markers",
-                name=f"{clave} original",
-                line=dict(color="#38BDF8", width=2.8),
-                marker=dict(size=9),
-                hovertemplate=f"<b>{clave} original</b><br>Año %{{x}}<br>Valor: %{{y:,.2f}}<extra></extra>",
-                legendgroup=clave,
-                showlegend=True,
-            ), row=i, col=1)
+                name="Original" if idx == 0 else f"{clave} orig",
+                line=dict(color="#38BDF8", width=2.4),
+                marker=dict(size=7),
+                hovertemplate=f"<b>{clave} original</b><br>Año %{{x}}<br>%{{y:,.2f}}<extra></extra>",
+                showlegend=(idx == 0),
+                legendgroup="orig",
+            ), row=row, col=col)
 
             fig.add_trace(go.Scatter(
-                x=x, y=y1, mode="lines+markers+text",
-                name=f"{clave} normalizado",
-                line=dict(color="#2DD4BF", width=2.8, dash="dash"),
-                marker=dict(size=9),
-                text=[f"{v:,.0f}" if v is not None and abs(v) >= 10 else (f"{v:.2f}" if v is not None else "") for v in y1],
-                textposition="top center",
-                textfont=dict(size=9, color="#CCFBF1"),
-                hovertemplate=f"<b>{clave} normalizado</b><br>Año %{{x}}<br>Valor: %{{y:,.2f}}<extra></extra>",
-                legendgroup=clave,
-                showlegend=True,
-            ), row=i, col=1)
+                x=x, y=y1, mode="lines+markers",
+                name="Normalizado" if idx == 0 else f"{clave} norm",
+                line=dict(color="#2DD4BF", width=2.4, dash="dash"),
+                marker=dict(size=7),
+                hovertemplate=f"<b>{clave} normalizado</b><br>Año %{{x}}<br>%{{y:,.2f}}<extra></extra>",
+                showlegend=(idx == 0),
+                legendgroup="norm",
+            ), row=row, col=col)
 
-            # Atípicos
             try:
                 msk = mask.tolist() if hasattr(mask, "tolist") else list(mask)
                 xa = [x[j] for j, f in enumerate(msk) if f and j < len(x)]
@@ -946,28 +983,29 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                 if xa:
                     fig.add_trace(go.Scatter(
                         x=xa, y=ya, mode="markers",
-                        name=f"Atípico {clave}",
-                        marker=dict(size=14, color="#F87171", symbol="x", line=dict(width=2, color="#FECACA")),
+                        name="Atípico" if idx == 0 else f"Atíp. {clave}",
+                        marker=dict(size=11, color="#F87171", symbol="x", line=dict(width=1.5, color="#FECACA")),
                         hovertemplate=f"<b>Atípico · {clave}</b><br>Año %{{x}}<br>%{{y:,.2f}}<extra></extra>",
-                        legendgroup=clave,
-                        showlegend=True,
-                    ), row=i, col=1)
+                        showlegend=(idx == 0),
+                        legendgroup="atip",
+                    ), row=row, col=col)
             except Exception:
                 pass
 
             if x:
                 fig.update_xaxes(
-                    title_text="Año" if i == n else "",
                     range=[min(x) - 0.4, max(x) + 0.4],
                     dtick=1, tickmode="linear",
-                    row=i, col=1,
+                    title_text="Año" if row == nrows else "",
+                    row=row, col=col,
                 )
-            fig.update_yaxes(title_text=str(clave)[:18], row=i, col=1)
+            fig.update_yaxes(title_text="", row=row, col=col)
 
-        fig.update_layout(**_plotly_layout(title, height=max(380, 280 * n)))
+        fig.update_layout(**_plotly_layout(title, height=max(340, 260 * nrows)))
         fig.update_layout(
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(size=11, color="#F8FAFC")),
-            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.06, x=0, font=dict(size=11, color="#F8FAFC")),
+            hovermode="closest",
+            margin=dict(l=40, r=24, t=72, b=40),
         )
         st.plotly_chart(fig, use_container_width=True)
         st.caption(
