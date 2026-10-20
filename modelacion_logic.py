@@ -1728,7 +1728,7 @@ CAPM_POR_MERCADO = {
     "GB": {"rf": 0.04,  "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015},
     "DEFAULT": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02},
 }
-CAPM_AS_OF = "2026-10"  # referencia de coyuntura para gobernanza del modelo
+CAPM_AS_OF = "2026-10"  # US rf~4.5% / ERP~5%; CO rf~12%. Revisar en cada ciclo de FOMC/BanRep.
 
 
 
@@ -1860,7 +1860,10 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     if cash is not None:
         p["caja"] = round(cash / 1e9, 4)
     if total_debt is not None:
+        # deuda_neta = deuda − caja (ya neta). El puente NO debe sumar caja otra vez.
         p["deuda_neta"] = round((total_debt - (cash or 0)) / 1e9, 4)
+        p["deuda_es_bruta"] = False
+        p["deuda_bruta"] = round(total_debt / 1e9, 4)
     if shares is not None and shares > 0:
         p["acciones"] = round(shares / 1e6, 4)  # millones de acciones
 
@@ -2003,10 +2006,17 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["beta_u"] = 1.0
         p["beta_fuente"] = "proxy_mercado_1.0"
 
-    if enterprise_to_ebitda is not None and 1 <= enterprise_to_ebitda <= 40:
+    if enterprise_to_ebitda is not None and 1 <= enterprise_to_ebitda <= 50:
         p["exit_multiple"] = round(float(enterprise_to_ebitda), 2)
     else:
-        p["exit_multiple"] = 0.0
+        # Fallback por mercado: US mega-tech ~22x (no 8–9 del catálogo BVC)
+        merc = p.get("mercado_capm") or _codigo_mercado(
+            (info or {}).get("country"),
+            (info or {}).get("financialCurrency") or (info or {}).get("currency"),
+            ticker_yf,
+        )
+        p["exit_multiple"] = 22.0 if merc == "US" else 10.0
+        p["exit_multiple_fuente"] = f"fallback_{merc}"
 
     p["ticker_yf"] = ticker_yf
     p["currency"] = currency or ""
@@ -2636,14 +2646,6 @@ def generar_fan_chart(df_hist, df_proj, mc_or_std, horizonte=5, nombre_empresa="
             ax.fill_between(años_fut, lower, upper, color=colors[i], alpha=0.45, label=f"IC {int(nivel*100)}%")
 
     ax.axhline(0, color="#94A3B8", ls=":", lw=1.2)
-    try:
-        x0 = int(min(años_hist.min(), años_fut.min()))
-        x1 = int(max(años_hist.max(), años_fut.max()))
-        ax.set_xlim(x0 - 0.3, x1 + 0.3)
-        ax.set_xticks(list(range(x0, x1 + 1)))
-        ax.tick_params(axis="x", labelrotation=45, labelsize=8)
-    except Exception:
-        pass
     ax.set_title(f"Fan Chart · FCFF ({metodo_label})\n{nombre_empresa}",
                  fontsize=13, fontweight="bold", color=COLOR_PRIMARY, pad=12)
     ax.set_xlabel("Año")
@@ -3241,6 +3243,46 @@ def anclar_g_terminal(g, wacc, g_max_macro=0.05, margen_seguridad=0.01):
     return g_use, g_cap
 
 
+
+def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, acciones=None):
+    """Validaciones de robustez antes de DCF / Generar todo.
+    Retorna lista de mensajes (vacía = OK). No lanza salvo casos irrecuperables.
+    """
+    msgs = []
+    try:
+        w = float(wacc)
+        g = float(g)
+    except Exception:
+        return ["WACC o g no numéricos"]
+    if not np.isfinite(w) or w <= 0:
+        msgs.append(f"WACC inválido ({w}). Debe ser > 0.")
+    if not np.isfinite(g):
+        msgs.append("g terminal no finito.")
+    g_use, g_cap = anclar_g_terminal(g, w, g_max_macro=g_max_macro)
+    if g >= w - 1e-6:
+        msgs.append(f"g ({g*100:.2f}%) ≥ WACC ({w*100:.2f}%): Gordon no definido; se anclará a {g_use*100:.2f}%.")
+    if g_use + 0.005 >= w:
+        msgs.append(f"Margen WACC−g muy estrecho ({(w-g_use)*100:.2f} pp): valor terminal frágil.")
+    if fcff_series is not None:
+        try:
+            arr = [float(x) for x in fcff_series]
+            if not arr:
+                msgs.append("Serie FCFF vacía.")
+            elif not any(x > 0 for x in arr):
+                msgs.append("Todos los FCFF ≤ 0: TV Gordon tenderá a 0.")
+            elif not all(np.isfinite(x) for x in arr):
+                msgs.append("FCFF contiene NaN/inf.")
+        except Exception:
+            msgs.append("FCFF no convertible a números.")
+    if acciones is not None:
+        try:
+            if float(acciones) <= 0:
+                msgs.append("Número de acciones ≤ 0: no se calculará VPS.")
+        except Exception:
+            msgs.append("Acciones no numéricas.")
+    return msgs
+
+
 def valoracion_dcf(
     fcff_series,
     wacc,
@@ -3258,11 +3300,15 @@ def valoracion_dcf(
     g_max_macro=0.05,
     nopat_final=None,
     ronic_spread=None,
+    deuda_es_bruta=False,
 ):
     """
     DCF profesional sobre FCFF → Enterprise Value → Equity bridge → por acción.
 
-    Equity atribuible ≈ EV − deuda_neta + caja − NCI − otros claims + asociados.
+    Equity atribuible ≈ EV − deuda_neta − NCI − otros claims + asociados.
+    Convención: `deuda_neta` = deuda financiera − caja operativa (ya neta).
+    No se vuelve a sumar `caja` (evita doble conteo). Si se pasa deuda bruta, usar
+    deuda_es_bruta=True para aplicar Equity = EV − D + caja − NCI − otros + asociados.
     Gordon es el caso base. El múltiplo de salida se informa como escenario independiente;
     no se promedian metodologías diferentes sin una ponderación justificada.
     """
@@ -3345,7 +3391,8 @@ def valoracion_dcf(
     ev_exit = None
     if ebitda_salida is not None and float(exit_multiple) > 0:
         tv_exit = float(ebitda_salida) * float(exit_multiple)
-        pv_tv_exit = tv_exit * (1 + wacc) ** -n  # múltiplo de salida: valor a fin del año N (sin ajuste mid-year)
+        # Misma convención temporal que el TV Gordon (mid-year si aplica)
+        pv_tv_exit = tv_exit * df_tv
         ev_exit = pv_fcff + pv_tv_exit
 
     # Caso base explícito: Gordon. Exit multiple queda separado para comparación.
@@ -3359,7 +3406,12 @@ def valoracion_dcf(
     otros_claims = float(otros_claims or 0)
     asociados = float(asociados or 0)
 
-    equity = ev - deuda_neta + caja - nci - otros_claims + asociados
+    # Convención robusta: deuda_neta ya es neta de caja (Yahoo y catálogo).
+    # Solo si deuda_es_bruta=True se suma la caja de nuevo.
+    if deuda_es_bruta:
+        equity = ev - deuda_neta + caja - nci - otros_claims + asociados
+    else:
+        equity = ev - deuda_neta - nci - otros_claims + asociados
     tv_pct_ev = (pv_tv / ev) if ev and ev > 0 else None
     mult_terminal = (tv / float(ebitda_salida)) if (ebitda_salida and float(ebitda_salida) > 0) else None
     bridge = {
@@ -3470,7 +3522,8 @@ g usado {val.get('g_used', 0)*100:.2f}% (techo {val.get('g_cap', 0)*100:.2f}%). 
 
 
 
-def params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acciones, exit_multiple):
+def params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acciones, exit_multiple, deuda_es_bruta=False):
+    """Bridge EV→Equity. Por defecto deuda_neta ya es neta de caja (no sumar caja otra vez)."""
     return {
         "deuda_neta": float(deuda_neta or 0),
         "caja": float(caja or 0),
@@ -3478,7 +3531,8 @@ def params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, accio
         "otros_claims": float(otros_claims or 0),
         "asociados": float(asociados or 0),
         "acciones": float(acciones) if acciones not in (None, "", 0, "0") else None,
-        "exit_multiple": float(exit_multiple) if exit_multiple not in (None, "") else 0.0,  # 0 = desactivado
+        "exit_multiple": float(exit_multiple) if exit_multiple not in (None, "") else 0.0,
+        "deuda_es_bruta": bool(deuda_es_bruta),
     }
 
 
@@ -3498,6 +3552,7 @@ def valorar_con_bridge(fcff_series, wacc, g, bridge_params, ebitda_salida=None, 
         mid_year=mid_year,
         g_max_macro=g_max_macro,
         nopat_final=nopat_final,
+        deuda_es_bruta=bool(bp.get("deuda_es_bruta", False)),
     )
 
 
@@ -3603,6 +3658,39 @@ def _sanear_historico_tab1(df_hist):
         ].tolist()
         if bad:
             notas.append(f"Inconsistencia EBIT>EBITDA en {bad} — validar EEFF.")
+    # Salto de unidades (p. ej. millones vs miles de millones): Δ ingresos > 300%
+    if "Ingresos" in df.columns and len(df) >= 2:
+        try:
+            ing = pd.to_numeric(df["Ingresos"], errors="coerce")
+            pct = ing.pct_change().abs()
+            jumps = [int(ix) for ix, v in pct.items() if pd.notna(v) and v > 3.0]
+            if jumps:
+                notas.append(
+                    f"Posible salto de unidades en Ingresos (Δ>300%) años {jumps} — "
+                    "revisar si se mezclaron escalas (miles vs miles de millones)."
+                )
+        except Exception:
+            pass
+    # FCFF identidad suave si hay componentes
+    need = {"NOPAT", "Depreciacion", "CAPEX", "Delta_NWC", "FCFF"}
+    if need.issubset(set(df.columns)):
+        try:
+            id_fcff = (
+                pd.to_numeric(df["NOPAT"], errors="coerce")
+                + pd.to_numeric(df["Depreciacion"], errors="coerce")
+                - pd.to_numeric(df["CAPEX"], errors="coerce")
+                - pd.to_numeric(df["Delta_NWC"], errors="coerce")
+            )
+            err = (pd.to_numeric(df["FCFF"], errors="coerce") - id_fcff).abs()
+            scale = pd.to_numeric(df["Ingresos"], errors="coerce").abs().replace(0, np.nan)
+            rel = err / scale
+            bad_id = [int(ix) for ix, v in rel.items() if pd.notna(v) and v > 0.15]
+            if bad_id:
+                notas.append(
+                    f"FCFF no cuadra con NOPAT+D&A−CAPEX−ΔNWC (>15% ingresos) en {bad_id}."
+                )
+        except Exception:
+            pass
     if len(df) < 3:
         raise ValueError(
             f"Tras limpiar años en cero quedan {len(df)} observaciones (mínimo 3). "
@@ -4684,7 +4772,7 @@ def tab1_carga_y_pronostico(nombre_empresa, archivo, horizonte, metodo="Drivers 
 def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u, deuda_neta=0, rf=0.09, erp=0.06, crp=0.0, usar_datos_publicos=True, caja=0, nci=0, otros_claims=0, asociados=0, acciones=None, exit_multiple=0.0, mid_year=True, g_max_macro=0.05):
     try:
         horizonte = int(horizonte)
-        df_hist, _ = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
+        df_hist, mensaje_carga = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
         df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
         # Recalcular NOPAT/FCFF con la tasa de impuestos del usuario y CAPEX extra
         df_proj["NOPAT"] = df_proj["EBIT"] * (1 - float(tax))
@@ -5010,13 +5098,14 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             score += 1; razones.append("Caja proyectada estable")
         elif riesgo_liq == "Alto":
             score -= 2; razones.append("Riesgo de caja")
+        # Unicidad: sin razones repetidas (orden estable)
+        razones = list(dict.fromkeys(razones))
 
         g_pes = max(0.005, float(g) - 0.01)
         val_pes = valorar_con_bridge(_escalar_fcff(df_proj["FCFF"].values, 0.75), wacc + 0.015, g_pes, bp, ebitda_salida=(ebitda_out * 0.75 if ebitda_out else None), precio_mercado=precio_p, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj, 0.75))
 
         emp = resolver_empresa(nombre_empresa) or {}
         mkt = obtener_datos_mercado_bvc(emp.get("ticker_yf"), ticker_bvc=emp.get("ticker_bvc"))
-        _, mensaje_carga = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
         prov = procedencia_datos(mensaje_carga, emp.get("ticker_yf"), mkt)
 
         # Métricas a nivel de FIRMA, consistentes con el DCF: MVA = EV − capital invertido y TIR implícita
@@ -6190,26 +6279,11 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         img_paths = []
 
         # Fan / proyección FCFF
-        fig1, ax = plt.subplots(figsize=(10, 5))
-        yh = df_hist.index.astype(int)
-        yp = df_proj.index.astype(int)
-        vh = df_hist["FCFF"].astype(float)
-        vp = df_proj["FCFF"].astype(float)
-        ax.plot(yh, vh, "o-", color=COLOR_PRIMARY, lw=2.4, ms=7, label="Histórico")
-        ax.plot(yp, vp, "s--", color=COLOR_ACCENT, lw=2.4, ms=7, label="Proyectado")
-        for x, y in zip(yh, vh):
-            ax.annotate(f"{y:.0f}", (x, y), textcoords="offset points", xytext=(0, 8),
-                        ha="center", fontsize=7, color=COLOR_PRIMARY)
-        for x, y in zip(yp, vp):
-            ax.annotate(f"{y:.0f}", (x, y), textcoords="offset points", xytext=(0, 8),
-                        ha="center", fontsize=7, color=COLOR_ACCENT)
+        fig1, ax = plt.subplots(figsize=(9, 4))
+        ax.plot(df_hist.index.astype(int), df_hist["FCFF"], "o-", color=COLOR_PRIMARY, lw=2.2, label="Histórico")
+        ax.plot(df_proj.index.astype(int), df_proj["FCFF"], "s--", color=COLOR_ACCENT, lw=2.2, label="Proyectado")
         ax.axhline(0, color="#94A3B8", ls=":")
-        x0, x1 = int(min(yh.min(), yp.min())), int(max(yh.max(), yp.max()))
-        ax.set_xlim(x0 - 0.3, x1 + 0.3)
-        ax.set_xticks(list(range(x0, x1 + 1)))
-        ax.tick_params(axis="x", labelrotation=45, labelsize=8)
-        ax.set_title("A) Dinero libre (FCFF): historia y proyección")
-        ax.set_xlabel("Año")
+        ax.set_title("Dinero libre (FCFF): historia y proyección")
         ax.set_ylabel("Miles de millones (moneda del emisor)")
         ax.legend()
         ax.spines["top"].set_visible(False)
@@ -6226,23 +6300,16 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         ))
 
         # Escenarios EV/Equity
-        fig2, ax = plt.subplots(figsize=(10, 5))
+        fig2, ax = plt.subplots(figsize=(9, 4))
         x = np.arange(3)
         width = 0.35
-        labels_esc = ["Pesimista", "Base", "Optimista"]
-        evs = [float(escenarios[k]["EV"] or 0) for k in labels_esc]
-        eqs = [float(escenarios[k]["Equity_Value"] or 0) for k in labels_esc]
-        b1 = ax.bar(x - width/2, evs, width, label="Valor empresa (EV)", color=COLOR_ACCENT)
-        b2 = ax.bar(x + width/2, eqs, width, label="Valor dueños (Equity)", color=COLOR_PRIMARY)
+        evs = [escenarios[k]["EV"] for k in ("Pesimista", "Base", "Optimista")]
+        eqs = [escenarios[k]["Equity_Value"] for k in ("Pesimista", "Base", "Optimista")]
+        ax.bar(x - width/2, evs, width, label="Valor empresa (EV)", color=COLOR_ACCENT)
+        ax.bar(x + width/2, eqs, width, label="Valor dueños (Equity)", color=COLOR_PRIMARY)
         ax.set_xticks(x)
-        ax.set_xticklabels(labels_esc)
-        for bar, val in zip(list(b1) + list(b2), evs + eqs):
-            ax.annotate(f"{val:,.0f}",
-                        (bar.get_x() + bar.get_width() / 2, bar.get_height()),
-                        textcoords="offset points", xytext=(0, 4),
-                        ha="center", va="bottom", fontsize=8, fontweight="bold")
-        ax.set_title("B) Valoración bajo tres escenarios")
-        ax.set_ylabel("Miles de millones")
+        ax.set_xticklabels(["Pesimista", "Base", "Optimista"])
+        ax.set_title("Valoración bajo tres escenarios")
         ax.legend()
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -6257,30 +6324,21 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         ))
 
         # VPN path
-        fig3, ax = plt.subplots(figsize=(10, 5))
+        fig3, ax = plt.subplots(figsize=(9, 4))
         vpn_acum = []
-        running = -abs(float(inversion_inicial or 0))
+        running = -abs(inversion_inicial)
         vpn_acum.append(running)
         for i, fcff in enumerate(fcff_vals):
-            running += float(fcff) / ((1 + wacc) ** (i + 1))
+            running += fcff / ((1 + wacc) ** (i + 1))
             vpn_acum.append(running)
-        xs = list(range(len(vpn_acum)))
-        xlabels = ["t0 (inversión)"] + [f"t{i}" for i in range(1, len(vpn_acum))]
-        ax.plot(xs, vpn_acum, "o-", color=COLOR_PRIMARY, lw=2.4, ms=7)
-        for xv, yv in zip(xs, vpn_acum):
-            ax.annotate(f"{yv:,.0f}", (xv, yv), textcoords="offset points", xytext=(0, 8),
-                        ha="center", fontsize=7, color=COLOR_PRIMARY)
+        ax.plot(range(len(vpn_acum)), vpn_acum, "o-", color=COLOR_PRIMARY, lw=2.2)
         ax.axhline(0, color="#94A3B8", ls="--")
-        ax.fill_between(xs, vpn_acum, 0,
+        ax.fill_between(range(len(vpn_acum)), vpn_acum, 0,
                         where=np.array(vpn_acum) >= 0, color=COLOR_SUCCESS, alpha=0.25)
-        ax.fill_between(xs, vpn_acum, 0,
+        ax.fill_between(range(len(vpn_acum)), vpn_acum, 0,
                         where=np.array(vpn_acum) < 0, color=COLOR_DANGER, alpha=0.25)
-        ax.set_xlim(-0.3, len(vpn_acum) - 0.7)
-        ax.set_xticks(xs)
-        ax.set_xticklabels(xlabels, rotation=30, ha="right", fontsize=8)
-        ax.set_title("C) Recuperación del valor del proyecto (VPN acumulado)")
+        ax.set_title("Recuperación del valor del proyecto (VPN acumulado)")
         ax.set_xlabel("Periodo (t=0 es la inversión inicial)")
-        ax.set_ylabel("VPN acumulado")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         p3 = os.path.join(tmpdir, "vpn.png")
@@ -6421,49 +6479,25 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         fig_ui, axes = plt.subplots(2, 2, figsize=(12, 8))
         axes = axes.ravel()
         # A
-        yh = df_hist.index.astype(int)
-        yp = df_proj.index.astype(int)
-        vh = df_hist["FCFF"].astype(float)
-        vp = df_proj["FCFF"].astype(float)
-        axes[0].plot(yh, vh, "o-", color=COLOR_PRIMARY, label="Histórico", lw=2, ms=5)
-        axes[0].plot(yp, vp, "s--", color=COLOR_ACCENT, label="Proyectado", lw=2, ms=5)
-        for xx, yy in list(zip(yh, vh))[-3:] + list(zip(yp, vp)):
-            axes[0].annotate(f"{yy:.0f}", (xx, yy), textcoords="offset points", xytext=(0, 6),
-                             ha="center", fontsize=6)
-        x0, x1 = int(min(yh.min(), yp.min())), int(max(yh.max(), yp.max()))
-        axes[0].set_xlim(x0 - 0.3, x1 + 0.3)
-        axes[0].set_xticks(list(range(x0, x1 + 1, max(1, (x1 - x0) // 8 or 1))))
-        axes[0].set_title("A) FCFF por año")
-        axes[0].set_xlabel("Año")
+        axes[0].plot(df_hist.index.astype(int), df_hist["FCFF"], "o-", color=COLOR_PRIMARY, label="Histórico")
+        axes[0].plot(df_proj.index.astype(int), df_proj["FCFF"], "s--", color=COLOR_ACCENT, label="Proyectado")
+        axes[0].set_title("A) FCFF")
         axes[0].legend(fontsize=8)
         axes[0].spines["top"].set_visible(False)
         axes[0].spines["right"].set_visible(False)
         # B
-        b1 = axes[1].bar(x - width/2, evs, width, label="EV", color=COLOR_ACCENT)
-        b2 = axes[1].bar(x + width/2, eqs, width, label="Equity", color=COLOR_PRIMARY)
+        axes[1].bar(x - width/2, evs, width, label="EV", color=COLOR_ACCENT)
+        axes[1].bar(x + width/2, eqs, width, label="Equity", color=COLOR_PRIMARY)
         axes[1].set_xticks(x)
-        axes[1].set_xticklabels(["Pesimista", "Base", "Optimista"], fontsize=8)
-        for bar, val in zip(list(b1) + list(b2), list(evs) + list(eqs)):
-            axes[1].annotate(f"{float(val):,.0f}",
-                             (bar.get_x() + bar.get_width()/2, bar.get_height()),
-                             textcoords="offset points", xytext=(0, 3),
-                             ha="center", fontsize=7, fontweight="bold")
-        axes[1].set_title("B) Escenarios (EV / Equity)")
+        axes[1].set_xticklabels(["Pesim.", "Base", "Optim."])
+        axes[1].set_title("B) Escenarios")
         axes[1].legend(fontsize=8)
         axes[1].spines["top"].set_visible(False)
         axes[1].spines["right"].set_visible(False)
         # C
-        xs = list(range(len(vpn_acum)))
-        axes[2].plot(xs, vpn_acum, "o-", color=COLOR_PRIMARY, lw=2, ms=5)
-        for xx, yy in zip(xs, vpn_acum):
-            axes[2].annotate(f"{yy:,.0f}", (xx, yy), textcoords="offset points", xytext=(0, 6),
-                             ha="center", fontsize=6)
+        axes[2].plot(range(len(vpn_acum)), vpn_acum, "o-", color=COLOR_PRIMARY)
         axes[2].axhline(0, color="#94A3B8", ls="--")
-        axes[2].set_xlim(-0.3, max(xs) + 0.3 if xs else 1)
-        axes[2].set_xticks(xs)
-        axes[2].set_xticklabels(["t0"] + [f"t{i}" for i in xs[1:]], fontsize=7)
         axes[2].set_title("C) VPN acumulado")
-        axes[2].set_xlabel("Periodo")
         axes[2].spines["top"].set_visible(False)
         axes[2].spines["right"].set_visible(False)
         # D

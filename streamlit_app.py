@@ -24,13 +24,9 @@ except ImportError:
     HAS_MPL = False
     plt = None
 
-# API key Gemini por defecto (prioridad: Secrets / env → fallback embebido).
-# En producción pública preferir st.secrets["GEMINI_API_KEY"] y rotar esta clave.
-_DEFAULT_GEMINI_KEY = "AQ.Ab8RN6Lq_5w77l3GlbR4hlmYW9vFRDZjPxv5wn8Iaw4WluWMUA"
-
-
+# API key Gemini: solo Secrets / env / input UI (sin clave embebida).
 def _resolve_gemini_key(ui_key=None):
-    """Orden: input UI → st.secrets → env → default embebido."""
+    """Orden: input UI → st.secrets → env."""
     if ui_key and str(ui_key).strip():
         return str(ui_key).strip()
     try:
@@ -38,15 +34,9 @@ def _resolve_gemini_key(ui_key=None):
             return str(st.secrets["GEMINI_API_KEY"]).strip()
     except Exception:
         pass
-    env = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-    if env:
-        return env
-    return _DEFAULT_GEMINI_KEY
+    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip() or None
 
 
-# Exponer al módulo de lógica si no hay variable de entorno
-if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
-    os.environ["GEMINI_API_KEY"] = _DEFAULT_GEMINI_KEY
 
 # =============================================================================
 # PAGE CONFIG
@@ -2026,14 +2016,39 @@ def _cargar_params_empresa(nombre):
                 "acciones": out[13],
                 "exit_multiple": out[14],
             }
-            if len(out) > 15:
-                st.session_state["rf"] = out[15]
-            if len(out) > 16:
-                st.session_state["erp"] = out[16]
-            if len(out) > 17:
-                st.session_state["crp"] = out[17]
-            if len(out) > 18:
-                st.session_state["g_max_macro"] = out[18]
+            if len(out) > 15 and out[15] is not None:
+                st.session_state["rf"] = float(out[15])
+            if len(out) > 16 and out[16] is not None:
+                st.session_state["erp"] = float(out[16])
+            if len(out) > 17 and out[17] is not None:
+                st.session_state["crp"] = float(out[17])
+            if len(out) > 18 and out[18] is not None:
+                st.session_state["g_max_macro"] = float(out[18])
+            # Robustez USD / mercado US: nunca dejar rf de COP en emisores US
+            p_full = {}
+            try:
+                if hasattr(L, "params_empresa"):
+                    p_full = L.params_empresa(nombre) or {}
+            except Exception:
+                p_full = {}
+            mon = str(p_full.get("moneda") or (st.session_state.get("params") or {}).get("moneda") or "").upper()
+            merc = str(p_full.get("mercado_capm") or "").upper()
+            # Merge metadata útil en params de sesión
+            p = st.session_state.get("params") or {}
+            for k in ("moneda", "mercado_capm", "deuda_es_bruta", "ticker_yf"):
+                if k in p_full and p_full.get(k) is not None:
+                    p[k] = p_full[k]
+            st.session_state["params"] = p
+            if mon in ("USD", "US$") or merc == "US":
+                if float(st.session_state.get("rf", 0.12)) >= 0.08:
+                    st.session_state["rf"] = 0.045
+                if float(st.session_state.get("erp", 0.055)) > 0.07:
+                    st.session_state["erp"] = 0.05
+                st.session_state["crp"] = 0.0
+                em = float(p.get("exit_multiple") or 0)
+                if em < 12:
+                    p["exit_multiple"] = 22.0
+                    st.session_state["params"] = p
             return
     except Exception as e:
         st.session_state["ficha_html"] = f"<div>No se pudieron cargar params: {e}</div>"
@@ -2072,17 +2087,24 @@ def _archivo_para_logic():
 
 
 def _wacc_quick(de_ratio, kd, tax, beta_u, rf, erp, crp):
-    try:
-        if hasattr(L, "calcular_wacc"):
-            return L.calcular_wacc(de_ratio, kd, tax, beta_u, rf=rf, erp=erp, crp=crp)
-    except Exception:
-        pass
+    """CAPM + WACC alineado con modelacion_logic (beta_apalancado, costo_equity_capm, calcular_wacc)."""
     de = max(float(de_ratio), 0.0)
-    we = 1.0 / (1.0 + de)
-    wd = de / (1.0 + de)
-    beta_l = float(beta_u) * (1.0 + (1.0 - float(tax)) * de)
-    ke = float(rf) + beta_l * float(erp) + float(crp)
-    wacc = we * ke + wd * float(kd) * (1.0 - float(tax))
+    t = float(tax)
+    try:
+        beta_l = float(L.beta_apalancado(float(beta_u), de, t)) if hasattr(L, "beta_apalancado") else float(beta_u) * (1.0 + (1.0 - t) * de)
+    except Exception:
+        beta_l = float(beta_u) * (1.0 + (1.0 - t) * de)
+    try:
+        ke = float(L.costo_equity_capm(beta_l, rf=float(rf), erp=float(erp), crp=float(crp or 0))) if hasattr(L, "costo_equity_capm") else float(rf) + beta_l * float(erp) + float(crp or 0)
+    except Exception:
+        ke = float(rf) + beta_l * float(erp) + float(crp or 0)
+    try:
+        out = L.calcular_wacc(de, float(kd), ke, t)
+        wacc = float(out[0]) if isinstance(out, (tuple, list)) else float(out)
+    except Exception:
+        we = 1.0 / (1.0 + de)
+        wd = de / (1.0 + de)
+        wacc = we * ke + wd * float(kd) * (1.0 - t)
     return {"wacc": wacc, "ke": ke, "beta_l": beta_l}
 
 
@@ -2438,6 +2460,7 @@ def main():
 
     # ----- Generar todo (único botón) -----
     st.markdown("##### Ejecución del modelo")
+    st.caption("Un solo botón calcula las 7 pestañas. CAPM se alinea al mercado del emisor (US/CO/…). Validaciones de WACC vs g y bridge deuda neta mejoran la exactitud.")
     metodo = st.radio(
         "Método de pronóstico (pestaña 1)",
         [
@@ -2448,6 +2471,15 @@ def main():
         horizontal=True,
         key="metodo_global",
     )
+    # Validación de robustez pre-corrida (WACC vs g, finitud)
+    try:
+        if hasattr(L, "validar_inputs_valoracion"):
+            _warns = L.validar_inputs_valoracion(w["wacc"], g, g_max_macro=g_max_macro, acciones=acciones)
+            for _m in (_warns or []):
+                st.warning(_m)
+    except Exception:
+        pass
+
     if st.button("▶ Generar todo", type="primary", key="btn_generar_todo", use_container_width=True):
         progress = st.progress(0, text="Iniciando…")
         errores = []
