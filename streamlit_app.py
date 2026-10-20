@@ -736,39 +736,318 @@ def _show_df(df, label=None):
         st.dataframe(df, use_container_width=True)
 
 
+
+def _plotly_layout(title="", height=520):
+    return dict(
+        title=dict(text=title, font=dict(size=16, color="#F8FAFC"), x=0.01),
+        paper_bgcolor="#0F172A",
+        plot_bgcolor="#1E293B",
+        font=dict(color="#F1F5F9", size=13, family="IBM Plex Sans, system-ui, sans-serif"),
+        margin=dict(l=60, r=40, t=60, b=60),
+        height=height,
+        legend=dict(
+            bgcolor="rgba(15,23,42,0.95)",
+            bordercolor="#64748B",
+            borderwidth=1,
+            font=dict(size=12, color="#F8FAFC"),
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            x=0,
+        ),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#0F172A", bordercolor="#14B8A6", font=dict(size=13, color="#F8FAFC")),
+        xaxis=dict(
+            gridcolor="#475569",
+            tickfont=dict(size=12, color="#E2E8F0"),
+            title_font=dict(size=13, color="#F1F5F9"),
+            color="#E2E8F0",
+            automargin=True,
+        ),
+        yaxis=dict(
+            gridcolor="#475569",
+            tickfont=dict(size=12, color="#E2E8F0"),
+            title_font=dict(size=13, color="#F1F5F9"),
+            color="#E2E8F0",
+            automargin=True,
+            zeroline=True,
+            zerolinecolor="#64748B",
+        ),
+    )
+
+
+def _years_from_df(df):
+    """Extrae años enteros del índice o columna Año."""
+    if df is None:
+        return []
+    if "Año" in getattr(df, "columns", []):
+        return [int(x) for x in df["Año"].tolist()]
+    try:
+        return [int(x) for x in df.index.tolist()]
+    except Exception:
+        return list(range(len(df)))
+
+
+def _col_fcff(df):
+    if df is None:
+        return None
+    for c in df.columns:
+        if str(c).upper().replace(" ", "") in ("FCFF", "FCFF."):
+            return c
+        if "FCFF" in str(c).upper():
+            return c
+    return None
+
+
+def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
+    """Gráfico nativo: histórico + proyección + banda simple. Eje = años reales."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return False
+    fig = go.Figure()
+    years_all = []
+
+    c_h = _col_fcff(df_hist)
+    if df_hist is not None and c_h is not None:
+        yh = _years_from_df(df_hist)
+        vh = [float(v) for v in df_hist[c_h].values]
+        years_all += yh
+        fig.add_trace(go.Scatter(
+            x=yh, y=vh, mode="lines+markers+text", name="FCFF histórico",
+            line=dict(color="#38BDF8", width=3),
+            marker=dict(size=10, color="#38BDF8"),
+            text=[f"{v:,.0f}" for v in vh],
+            textposition="top center",
+            textfont=dict(size=10, color="#E0F2FE"),
+            hovertemplate="<b>Histórico</b><br>Año %{x}<br>FCFF: %{y:,.1f}<extra></extra>",
+        ))
+
+    c_p = _col_fcff(df_proj)
+    if df_proj is not None and c_p is not None:
+        yp = _years_from_df(df_proj)
+        vp = [float(v) for v in df_proj[c_p].values]
+        years_all += yp
+        # Banda de incertidumbre ±12% (lectura didáctica; MC detallado está en el fan MPL)
+        lo = [v * 0.88 for v in vp]
+        hi = [v * 1.12 for v in vp]
+        fig.add_trace(go.Scatter(
+            x=yp + yp[::-1], y=hi + lo[::-1],
+            fill="toself", fillcolor="rgba(45,212,191,0.22)",
+            line=dict(color="rgba(0,0,0,0)"),
+            name="Banda ≈ ±12%",
+            hoverinfo="skip",
+            showlegend=True,
+        ))
+        fig.add_trace(go.Scatter(
+            x=yp, y=vp, mode="lines+markers+text", name="FCFF proyectado",
+            line=dict(color="#2DD4BF", width=3, dash="dash"),
+            marker=dict(size=10, color="#2DD4BF"),
+            text=[f"{v:,.0f}" for v in vp],
+            textposition="top center",
+            textfont=dict(size=10, color="#CCFBF1"),
+            hovertemplate="<b>Proyectado</b><br>Año %{x}<br>FCFF: %{y:,.1f}<extra></extra>",
+        ))
+
+    if not years_all:
+        return False
+
+    y0, y1 = min(years_all), max(years_all)
+    fig.update_layout(**_plotly_layout(title, height=540))
+    fig.update_xaxes(
+        title="Año",
+        range=[y0 - 0.4, y1 + 0.4],
+        dtick=1,
+        tickmode="linear",
+        autorange=False,
+    )
+    fig.update_yaxes(title="FCFF (miles de millones)")
+    st.plotly_chart(fig, use_container_width=True)
+    return True
+
+
+def _plotly_escenarios(df):
+    """Barras EV vs Equity con nombres y valores."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return False
+    if df is None or not hasattr(df, "columns"):
+        return False
+    cols = {str(c).lower(): c for c in df.columns}
+    esc = None
+    for k in ("escenario", "scenario", "nombre"):
+        if k in cols:
+            esc = cols[k]
+            break
+    if esc is None:
+        esc = df.columns[0]
+    ev_c = None
+    eq_c = None
+    for c in df.columns:
+        cl = str(c).lower()
+        if cl in ("ev", "enterprise value", "valor empresa") or (cl.startswith("ev") and "ebitda" not in cl):
+            ev_c = c
+        if "equity" in cl or "dueño" in cl or "patrimonio" in cl:
+            eq_c = c
+    # fallback por posición
+    nums = [c for c in df.columns if c != esc]
+    if ev_c is None and len(nums) >= 1:
+        ev_c = nums[0]
+    if eq_c is None and len(nums) >= 2:
+        eq_c = nums[1]
+    x = [str(v) for v in df[esc].tolist()]
+    fig = go.Figure()
+    if ev_c is not None:
+        yev = pd.to_numeric(df[ev_c], errors="coerce").fillna(0).tolist()
+        fig.add_trace(go.Bar(
+            name="EV (negocio)", x=x, y=yev,
+            marker_color="#14B8A6",
+            text=[f"{v:,.0f}" for v in yev],
+            textposition="outside",
+            textfont=dict(size=12, color="#F8FAFC"),
+            hovertemplate="<b>%{x}</b><br>EV: %{y:,.1f}<extra></extra>",
+        ))
+    if eq_c is not None:
+        yeq = pd.to_numeric(df[eq_c], errors="coerce").fillna(0).tolist()
+        fig.add_trace(go.Bar(
+            name="Equity (dueños)", x=x, y=yeq,
+            marker_color="#38BDF8",
+            text=[f"{v:,.0f}" for v in yeq],
+            textposition="outside",
+            textfont=dict(size=12, color="#F8FAFC"),
+            hovertemplate="<b>%{x}</b><br>Equity: %{y:,.1f}<extra></extra>",
+        ))
+    if not fig.data:
+        return False
+    fig.update_layout(**_plotly_layout("Escenarios · EV vs Equity", height=480))
+    fig.update_layout(barmode="group", uniformtext_minsize=10, uniformtext_mode="hide")
+    fig.update_xaxes(title="Escenario")
+    fig.update_yaxes(title="Valor (miles de millones)")
+    st.plotly_chart(fig, use_container_width=True)
+    return True
+
+
+def _plotly_vpn_flows(df):
+    """Flujos del proyecto con valores."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return False
+    if df is None or not hasattr(df, "columns") or len(df) == 0:
+        return False
+    xcol = df.columns[0]
+    ycol = None
+    for c in df.columns:
+        cl = str(c).lower()
+        if any(k in cl for k in ("flujo", "flow", "fcff", "cash", "vpn")):
+            ycol = c
+            break
+    if ycol is None:
+        for c in df.columns[1:]:
+            if pd.api.types.is_numeric_dtype(df[c]):
+                ycol = c
+                break
+    if ycol is None:
+        return False
+    x = [str(v) for v in df[xcol].tolist()]
+    y = pd.to_numeric(df[ycol], errors="coerce").fillna(0).tolist()
+    colors = ["#F87171" if v < 0 else "#34D399" for v in y]
+    fig = go.Figure(go.Bar(
+        x=x, y=y, marker_color=colors,
+        text=[f"{v:,.0f}" for v in y],
+        textposition="outside",
+        textfont=dict(size=11, color="#F8FAFC"),
+        hovertemplate="<b>%{x}</b><br>Flujo: %{y:,.1f}<extra></extra>",
+        name="Flujos",
+    ))
+    fig.update_layout(**_plotly_layout("Flujos del proyecto · VPN / recuperación", height=480))
+    fig.add_hline(y=0, line_color="#94A3B8", line_width=1, line_dash="dot")
+    fig.update_xaxes(title="Periodo")
+    fig.update_yaxes(title="Flujo / VPN")
+    st.plotly_chart(fig, use_container_width=True)
+    return True
+
+
+def _plotly_sector(df):
+    """Ranking sectorial horizontal con hover."""
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except ImportError:
+        return False
+    if df is None or not hasattr(df, "columns") or len(df) == 0:
+        return False
+    name_c = next((c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker", "emisor")), df.columns[0])
+    labels = df[name_c].astype(str).str.slice(0, 28).tolist()
+    margen_c = next((c for c in df.columns if "margen" in str(c).lower()), None)
+    mult_c = next((c for c in df.columns if "ev/ebitda" in str(c).lower() or "múltiplo" in str(c).lower() or "multiplo" in str(c).lower()), None)
+    score_c = next((c for c in df.columns if "score" in str(c).lower() or "puntaje" in str(c).lower() or "ranking" in str(c).lower()), None)
+
+    if score_c is not None and margen_c is None and mult_c is None:
+        yv = pd.to_numeric(df[score_c], errors="coerce").fillna(0).tolist()
+        fig = go.Figure(go.Bar(
+            y=labels, x=yv, orientation="h",
+            marker_color="#14B8A6",
+            text=[f"{v:.2f}" for v in yv],
+            textposition="outside",
+            hovertemplate="<b>%{y}</b><br>Score: %{x:.2f}<extra></extra>",
+        ))
+        fig.update_layout(**_plotly_layout("Ranking sectorial", height=max(400, 40 * len(labels) + 120)))
+        fig.update_xaxes(title="Score")
+        st.plotly_chart(fig, use_container_width=True)
+        return True
+
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Margen EBITDA %", "EV/EBITDA (x)"))
+    if margen_c is not None:
+        ym = pd.to_numeric(df[margen_c], errors="coerce").fillna(0).tolist()
+        fig.add_trace(go.Bar(
+            y=labels, x=ym, orientation="h", marker_color="#14B8A6", name="Margen",
+            text=[f"{v:.1f}" for v in ym], textposition="outside",
+            hovertemplate="<b>%{y}</b><br>Margen: %{x:.1f}%<extra></extra>",
+        ), row=1, col=1)
+    if mult_c is not None:
+        yx = pd.to_numeric(df[mult_c], errors="coerce").fillna(0).tolist()
+        fig.add_trace(go.Bar(
+            y=labels, x=yx, orientation="h", marker_color="#38BDF8", name="Múltiplo",
+            text=[f"{v:.1f}x" for v in yx], textposition="outside",
+            hovertemplate="<b>%{y}</b><br>EV/EBITDA: %{x:.1f}x<extra></extra>",
+        ), row=1, col=2)
+    if not fig.data:
+        return False
+    fig.update_layout(**_plotly_layout("Comparables del sector", height=max(420, 36 * len(labels) + 140)))
+    fig.update_layout(showlegend=False)
+    fig.update_xaxes(gridcolor="#475569")
+    fig.update_yaxes(gridcolor="#475569")
+    st.plotly_chart(fig, use_container_width=True)
+    return True
+
+
 def _show_fig(fig, caption=None):
-    """Renderiza figura con fondo legible (no demasiado oscuro) sobre el tema FinTech."""
+    """Respaldo estático Matplotlib si no hay Plotly nativo."""
     if fig is None:
-        return
-    if not HAS_MPL:
-        st.warning("matplotlib no instalado")
         return
     if caption:
         st.caption(caption)
-    # Fondo claro-gris azulado: contraste alto con líneas y texto
+    if not HAS_MPL:
+        st.warning("matplotlib no disponible")
+        return
     try:
         fig.patch.set_facecolor("#F1F5F9")
         for ax in fig.get_axes():
             ax.set_facecolor("#FFFFFF")
             ax.tick_params(colors="#334155", labelsize=9)
-            ax.xaxis.label.set_color("#1E293B")
-            ax.yaxis.label.set_color("#1E293B")
-            ax.title.set_color("#0F172A")
-            for spine in ax.spines.values():
-                spine.set_color("#CBD5E1")
-            ax.grid(True, color="#E2E8F0", alpha=0.9, linestyle="-", linewidth=0.6)
-            legend = ax.get_legend()
-            if legend:
-                legend.get_frame().set_facecolor("#FFFFFF")
-                legend.get_frame().set_edgecolor("#CBD5E1")
-                for t in legend.get_texts():
-                    t.set_color("#1E293B")
-            # Reforzar color de líneas/barras si quedaron demasiado tenues
-            for line in ax.get_lines():
-                c = line.get_color()
-                if isinstance(c, str) and c.lower() in ("#0a2540", "#0b1220", "black", "#000000"):
-                    line.set_color("#0F766E")
-                    line.set_linewidth(max(line.get_linewidth(), 1.8))
+            # Ajustar xlim a datos reales si hay líneas
+            try:
+                xs = []
+                for line in ax.get_lines():
+                    xs.extend([float(v) for v in line.get_xdata() if np.isfinite(v)])
+                if xs:
+                    x0, x1 = min(xs), max(xs)
+                    if 1900 <= x0 <= 2100:
+                        ax.set_xlim(x0 - 0.4, x1 + 0.4)
+            except Exception:
+                pass
     except Exception:
         pass
     st.pyplot(fig, clear_figure=False)
@@ -777,149 +1056,6 @@ def _show_fig(fig, caption=None):
     except Exception:
         pass
 
-
-
-
-def _plotly_layout(title=""):
-    return dict(
-        title=dict(text=title, font=dict(size=14, color="#E8EEF7")),
-        paper_bgcolor="#111827",
-        plot_bgcolor="#151C2C",
-        font=dict(color="#E8EEF7", size=12),
-        margin=dict(l=48, r=24, t=48, b=40),
-        height=360,
-        legend=dict(bgcolor="rgba(26,35,54,0.9)", bordercolor="#334155"),
-        xaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
-        yaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
-        hovermode="closest",
-    )
-
-
-def _plotly_escenarios(df):
-    """Barras EV vs Equity con hover."""
-    try:
-        import plotly.graph_objects as go
-        if df is None or not hasattr(df, "columns"):
-            return False
-        cols = {c.lower(): c for c in df.columns}
-        # buscar columnas
-        esc = None
-        for k in ("escenario", "scenario", "nombre"):
-            if k in cols:
-                esc = cols[k]
-                break
-        if esc is None:
-            esc = df.columns[0]
-        ev_c = next((cols[k] for k in cols if "ev" in k and "ebitda" not in k), None)
-        eq_c = next((cols[k] for k in cols if "equity" in k or "patrimonio" in k), None)
-        if not ev_c and not eq_c:
-            # try exact
-            for c in df.columns:
-                if str(c).strip().upper() == "EV":
-                    ev_c = c
-                if "Equity" in str(c) or "equity" in str(c):
-                    eq_c = c
-        fig = go.Figure()
-        x = df[esc].astype(str).tolist()
-        if ev_c:
-            fig.add_trace(go.Bar(
-                name="EV (negocio)",
-                x=x,
-                y=pd.to_numeric(df[ev_c], errors="coerce"),
-                marker_color="#0F766E",
-                hovertemplate="<b>%{x}</b><br>EV: %{y:,.1f}<extra></extra>",
-            ))
-        if eq_c:
-            fig.add_trace(go.Bar(
-                name="Equity (dueños)",
-                x=x,
-                y=pd.to_numeric(df[eq_c], errors="coerce"),
-                marker_color="#14B8A6",
-                hovertemplate="<b>%{x}</b><br>Equity: %{y:,.1f}<extra></extra>",
-            ))
-        fig.update_layout(**_plotly_layout("Escenarios · EV vs Equity (pasa el cursor)"))
-        fig.update_layout(barmode="group")
-        st.plotly_chart(fig, use_container_width=True)
-        return True
-    except Exception as e:
-        st.caption(f"Plotly escenarios no disponible: {e}")
-        return False
-
-
-def _plotly_vpn_flows(df):
-    """Flujos del proyecto con hover."""
-    try:
-        import plotly.graph_objects as go
-        if df is None or not hasattr(df, "columns"):
-            return False
-        # detectar columna de flujo y periodo
-        ycol = None
-        xcol = df.columns[0]
-        for c in df.columns:
-            cl = str(c).lower()
-            if any(k in cl for k in ("flujo", "flow", "fcff", "cash")):
-                ycol = c
-                break
-        if ycol is None:
-            # última numérica
-            for c in df.columns[1:]:
-                if pd.api.types.is_numeric_dtype(df[c]):
-                    ycol = c
-                    break
-        if ycol is None:
-            return False
-        y = pd.to_numeric(df[ycol], errors="coerce")
-        colors = ["#F87171" if (isinstance(v, float) and v < 0) else "#34D399" for v in y]
-        fig = go.Figure(go.Bar(
-            x=df[xcol].astype(str),
-            y=y,
-            marker_color=colors,
-            hovertemplate="<b>%{x}</b><br>Flujo: %{y:,.1f}<extra></extra>",
-        ))
-        fig.update_layout(**_plotly_layout("Flujos del proyecto (pasa el cursor)"))
-        fig.add_hline(y=0, line_color="#64748B", line_width=1)
-        st.plotly_chart(fig, use_container_width=True)
-        return True
-    except Exception as e:
-        st.caption(f"Plotly VPN no disponible: {e}")
-        return False
-
-
-def _plotly_sector(df):
-    """Ranking sectorial interactivo."""
-    try:
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-        if df is None or not hasattr(df, "columns"):
-            return False
-        name_c = "Nombre" if "Nombre" in df.columns else ("Empresa" if "Empresa" in df.columns else df.columns[0])
-        labels = df[name_c].astype(str).str.slice(0, 28)
-        margen_c = next((c for c in df.columns if "Margen" in str(c)), None)
-        mult_c = next((c for c in df.columns if "EV/EBITDA" in str(c) or "EV/Ebitda" in str(c)), None)
-        fig = make_subplots(rows=1, cols=2, subplot_titles=("Margen EBITDA %", "EV/EBITDA (x)"))
-        if margen_c:
-            fig.add_trace(go.Bar(
-                y=labels, x=pd.to_numeric(df[margen_c], errors="coerce"),
-                orientation="h", marker_color="#14B8A6",
-                hovertemplate="%{y}<br>Margen: %{x:.1f}%<extra></extra>",
-                name="Margen",
-            ), row=1, col=1)
-        if mult_c:
-            fig.add_trace(go.Bar(
-                y=labels, x=pd.to_numeric(df[mult_c], errors="coerce"),
-                orientation="h", marker_color="#3B82F6",
-                hovertemplate="%{y}<br>EV/EBITDA: %{x:.1f}x<extra></extra>",
-                name="Múltiplo",
-            ), row=1, col=2)
-        fig.update_layout(**_plotly_layout("Comparables del sector (pasa el cursor)"))
-        fig.update_layout(height=420, showlegend=False)
-        fig.update_xaxes(gridcolor="#243044")
-        fig.update_yaxes(gridcolor="#243044")
-        st.plotly_chart(fig, use_container_width=True)
-        return True
-    except Exception as e:
-        st.caption(f"Plotly sector no disponible: {e}")
-        return False
 
 
 def _listar_empresas():
@@ -1722,37 +1858,16 @@ def main():
             with c_b:
                 if len(r) > 2:
                     _show_df(r[2], "Proyección")
-            if len(r) > 3:
-                _show_fig(r[3], "Fan chart FCFF")
+            # Fan chart Plotly nativo (histórico + proyección + banda)
+            df_h = r[1] if len(r) > 1 else None
+            df_p = r[2] if len(r) > 2 else None
+            if not _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)"):
+                if len(r) > 3:
+                    _show_fig(r[3], "Fan chart FCFF")
             if len(r) > 4 and r[4] is not None:
-                _show_fig(r[4], "Atípicos")
+                _show_fig(r[4], "Atípicos (respaldo estático)")
             if len(r) > 5 and r[5]:
                 _html(r[5])
-            # Intento de gráfico interactivo (hover) si hay proyección en el resultado
-            try:
-                import plotly.graph_objects as go
-                df_proj = r[2] if len(r) > 2 and hasattr(r[2], "columns") else None
-                if df_proj is not None and "FCFF" in getattr(df_proj, "columns", []):
-                    fig_p = go.Figure()
-                    fig_p.add_trace(go.Scatter(
-                        x=list(df_proj.index.astype(str)),
-                        y=df_proj["FCFF"].values,
-                        mode="lines+markers",
-                        name="FCFF proyectado",
-                        line=dict(color="#14B8A6", width=2),
-                        hovertemplate="Año %{x}<br>FCFF: %{y:.1f}<extra></extra>",
-                    ))
-                    fig_p.update_layout(
-                        title="FCFF interactivo (pasa el cursor)",
-                        paper_bgcolor="#111827",
-                        plot_bgcolor="#151C2C",
-                        font=dict(color="#E8EEF7"),
-                        margin=dict(l=40, r=20, t=40, b=40),
-                        height=320,
-                    )
-                    st.plotly_chart(fig_p, use_container_width=True)
-            except Exception:
-                pass
             _chart_tip(
                 "La zona sombreada es el rango probable del dinero libre (FCFF). "
                 "La línea del medio es el caso más típico. Si el pasado queda muy fuera, revisa si hubo un año raro."
@@ -1928,8 +2043,9 @@ def main():
     with tab7:
         st.markdown("##### Informe ejecutivo")
         st.caption(
-            "El PDF y las figuras embebidas son estáticas (sin burbujas). "
-            "Para hover interactivo usa las pestañas Pronóstico, Escenarios, VPN/TIR y Sector en pantalla."
+            "En pantalla el panel usa el gráfico generado por el modelo. "
+            "Las pestañas 1–6 tienen gráficos Plotly con hover, nombres y valores. "
+            "El PDF sigue siendo estático (con títulos y cifras anotadas)."
         )
         if st.button("Generar informe y PDF", type="primary", key="btn7"):
             with st.spinner("Informe…"):
