@@ -846,7 +846,7 @@ def _show_df(df, label=None):
         st.write(df)
 
 
-def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · original vs normalizado"):
+def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · original vs normalizado", chart_key=None):
     """
     Gráficos Plotly (mismo estilo que fan chart) para drivers:
     línea original + normalizada + atípicos marcados, con hover.
@@ -994,7 +994,7 @@ def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · origi
                 )
             fig.update_yaxes(title_text="", row=row, col=col)
 
-        _finish_plotly(fig, title=title, height=max(360, 280 * nrows))
+        _finish_plotly(fig, title=title, height=max(360, 280 * nrows), key=chart_key)
         st.caption(
             "Azul = dato real · teal punteado = suavizado (sin picos extremos) · cruz roja = año atípico. "
             "Pasa el cursor: cada punto te explica en lenguaje simple qué estás viendo."
@@ -1010,8 +1010,11 @@ def _plotly_atipicos(df_hist, title="Comparación de drivers · original vs norm
     return _plotly_comparacion_drivers(df_hist, title=title)
 
 
-def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
-    """Panel 2×2 en Plotly a partir de resultados de sesión."""
+def _plotly_informe_panel(resultados, title="Resumen gráfico del informe", chart_key=None, tab7_payload=None):
+    """Panel 2×2 Plotly con hover (misma estética que el resto).
+    Usa datos de sesión (tabs 1/2/5/6) si existen; no modifica esas pestañas.
+    Solo cambia la presentación visual del informe.
+    """
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
@@ -1022,47 +1025,83 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
     t2 = res.get("tab2")
     t5 = res.get("tab5")
     t6 = res.get("tab6")
+    # Si el informe trae dataframes útiles en el payload, se pueden aprovechar sin tocar otras pestañas
+    # (estructura típica tab7: html, kpis_df, fig_mpl, pdf_path — no sustituye series temporales)
+
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=(
-            "A) FCFF historia y proyección",
-            "B) Escenarios EV / Equity",
-            "C) Flujos del proyecto",
+            "A) FCFF · historia y proyección",
+            "B) Escenarios · EV vs Equity",
+            "C) Flujos del proyecto · VPN",
             "D) Ranking sectorial",
         ),
-        vertical_spacing=0.14,
-        horizontal_spacing=0.10,
+        vertical_spacing=0.16,
+        horizontal_spacing=0.12,
     )
     any_ok = False
+
+    # A) FCFF — estilo fan chart (líneas + valores + banda + hover)
     if t1 and isinstance(t1, (list, tuple)) and len(t1) > 2:
         df_h, df_p = t1[1], t1[2]
         c_h, c_p = _col_fcff(df_h), _col_fcff(df_p)
         xh = yh = []
         if c_h and df_h is not None:
-            xh, yh = _years_from_df(df_h), [float(v) for v in df_h[c_h].values]
+            xh = _years_from_df(df_h)
+            yh = [float(v) for v in df_h[c_h].values]
             fig.add_trace(go.Scatter(
-                x=xh, y=yh, mode="lines+markers", name="Histórico",
-                line=dict(color="#38BDF8", width=2.5), marker=dict(size=7),
+                x=xh, y=yh, mode="lines+markers+text", name="FCFF histórico",
+                line=dict(color="#38BDF8", width=3),
+                marker=dict(size=9, color="#38BDF8"),
+                text=[f"{v:,.0f}" for v in yh],
+                textposition="top center",
+                textfont=dict(size=9, color="#E0F2FE"),
                 hovertemplate=(
-                    "<b>Histórico %{x}</b><br>FCFF: <b>%{y:,.0f}</b><br>"
-                    "<i>Dinero libre ya observado.</i><extra></extra>"
+                    "<b>Lo que ya pasó · Año %{x}</b><br>"
+                    "Dinero libre (FCFF): <b>%{y:,.1f}</b><br>"
+                    "<i>Efectivo que sobró después de operar e invertir.</i>"
+                    "<extra></extra>"
                 ),
             ), row=1, col=1)
             any_ok = True
         if c_p and df_p is not None:
-            xp, yp = _years_from_df(df_p), [float(v) for v in df_p[c_p].values]
+            xp = _years_from_df(df_p)
+            yp = [float(v) for v in df_p[c_p].values]
+            lo = [v * 0.88 for v in yp]
+            hi = [v * 1.12 for v in yp]
             fig.add_trace(go.Scatter(
-                x=xp, y=yp, mode="lines+markers", name="Proyectado",
-                line=dict(color="#2DD4BF", width=2.5, dash="dash"), marker=dict(size=7),
+                x=xp + xp[::-1], y=hi + lo[::-1],
+                fill="toself", fillcolor="rgba(45,212,191,0.22)",
+                line=dict(color="rgba(0,0,0,0)"),
+                name="Banda ≈ ±12%",
+                hoverinfo="skip",
+                showlegend=True,
+            ), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=xp, y=yp, mode="lines+markers+text", name="FCFF proyectado",
+                line=dict(color="#2DD4BF", width=3, dash="dash"),
+                marker=dict(size=9, color="#2DD4BF"),
+                text=[f"{v:,.0f}" for v in yp],
+                textposition="top center",
+                textfont=dict(size=9, color="#CCFBF1"),
                 hovertemplate=(
-                    "<b>Proyectado %{x}</b><br>FCFF: <b>%{y:,.0f}</b><br>"
-                    "<i>Estimación a futuro del efectivo libre.</i><extra></extra>"
+                    "<b>Proyección · Año %{x}</b><br>"
+                    "FCFF esperado: <b>%{y:,.1f}</b><br>"
+                    "<i>Caso típico. La zona sombreada es un rango probable (±12%).</i>"
+                    "<extra></extra>"
                 ),
             ), row=1, col=1)
             xs = (xh or []) + (xp or [])
             if xs:
-                fig.update_xaxes(range=[min(xs) - 0.4, max(xs) + 0.4], dtick=1, row=1, col=1)
+                fig.update_xaxes(
+                    range=[min(xs) - 0.4, max(xs) + 0.4],
+                    dtick=1, tickmode="linear", title_text="Año",
+                    row=1, col=1,
+                )
+            fig.update_yaxes(title_text="FCFF", row=1, col=1)
             any_ok = True
+
+    # B) Escenarios
     if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
         df = t2[1]
         cols = {str(c).lower(): c for c in df.columns}
@@ -1074,21 +1113,36 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
                 continue
             if "ev" in cl and "ebitda" not in cl:
                 y = pd.to_numeric(df[c], errors="coerce").fillna(0).tolist()
-                fig.add_trace(go.Bar(name="EV", x=x, y=y, marker_color="#14B8A6",
+                fig.add_trace(go.Bar(
+                    name="EV (negocio)", x=x, y=y, marker_color="#14B8A6",
                     text=[f"{v:,.0f}" for v in y], textposition="outside",
+                    textfont=dict(size=11, color="#F8FAFC"),
                     hovertemplate=(
-                        "<b>%{x}</b><br>Valor negocio (EV): <b>%{y:,.0f}</b><br>"
-                        "<i>Precio de toda la empresa.</i><extra></extra>"
-                    )), row=1, col=2)
+                        "<b>Escenario: %{x}</b><br>"
+                        "Valor del negocio (EV): <b>%{y:,.1f}</b><br>"
+                        "<i>Precio de toda la empresa, antes de restar deudas.</i>"
+                        "<extra></extra>"
+                    ),
+                ), row=1, col=2)
                 any_ok = True
             elif "equity" in cl:
                 y = pd.to_numeric(df[c], errors="coerce").fillna(0).tolist()
-                fig.add_trace(go.Bar(name="Equity", x=x, y=y, marker_color="#38BDF8",
+                fig.add_trace(go.Bar(
+                    name="Equity (dueños)", x=x, y=y, marker_color="#38BDF8",
                     text=[f"{v:,.0f}" for v in y], textposition="outside",
+                    textfont=dict(size=11, color="#F8FAFC"),
                     hovertemplate=(
-                        "<b>%{x}</b><br>Valor dueños: <b>%{y:,.0f}</b><br>"
-                        "<i>Lo que queda tras restar deudas.</i><extra></extra>"
-                    )), row=1, col=2)
+                        "<b>Escenario: %{x}</b><br>"
+                        "Valor para dueños (Equity): <b>%{y:,.1f}</b><br>"
+                        "<i>Lo que quedaría a los accionistas tras pagar deudas.</i>"
+                        "<extra></extra>"
+                    ),
+                ), row=1, col=2)
+                any_ok = True
+        fig.update_xaxes(title_text="Escenario", row=1, col=2)
+        fig.update_yaxes(title_text="Valor", row=1, col=2)
+
+    # C) Flujos
     if t5 and isinstance(t5, (list, tuple)) and len(t5) > 1 and hasattr(t5[1], "columns"):
         df = t5[1]
         xcol = df.columns[0]
@@ -1099,16 +1153,29 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             x = [str(v) for v in df[xcol].tolist()]
             y = pd.to_numeric(df[ycol], errors="coerce").fillna(0).tolist()
             colors = ["#F87171" if v < 0 else "#34D399" for v in y]
-            fig.add_trace(go.Bar(name="Flujos", x=x, y=y, marker_color=colors,
+            fig.add_trace(go.Bar(
+                name="Flujos", x=x, y=y, marker_color=colors,
                 text=[f"{v:,.0f}" for v in y], textposition="outside",
+                textfont=dict(size=10, color="#F8FAFC"),
                 hovertemplate=(
-                    "<b>%{x}</b><br>Flujo: <b>%{y:,.0f}</b><br>"
-                    "<i>Verde entra · rojo sale.</i><extra></extra>"
-                )), row=2, col=1)
+                    "<b>Periodo %{x}</b><br>"
+                    "Flujo de caja: <b>%{y:,.1f}</b><br>"
+                    "<i>Verde = entra · Rojo = sale (inversión).</i>"
+                    "<extra></extra>"
+                ),
+            ), row=2, col=1)
+            try:
+                fig.add_hline(y=0, line_color="#94A3B8", line_width=1, line_dash="dot", row=2, col=1)
+            except Exception:
+                pass
+            fig.update_xaxes(title_text="Periodo", row=2, col=1)
+            fig.update_yaxes(title_text="Flujo / VPN", row=2, col=1)
             any_ok = True
+
+    # D) Sector
     if t6 and isinstance(t6, (list, tuple)) and len(t6) > 1 and hasattr(t6[1], "columns"):
         df = t6[1]
-        name_c = next((c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker")), df.columns[0])
+        name_c = next((c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker", "emisor")), df.columns[0])
         num_c = None
         for c in df.columns:
             if c == name_c:
@@ -1125,21 +1192,34 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
         if num_c is not None:
             labels = df[name_c].astype(str).str.slice(0, 22).tolist()[:12]
             yv = pd.to_numeric(df[num_c], errors="coerce").fillna(0).tolist()[:12]
-            fig.add_trace(go.Bar(name=str(num_c)[:20], y=labels, x=yv, orientation="h",
+            fig.add_trace(go.Bar(
+                name=str(num_c)[:22], y=labels, x=yv, orientation="h",
                 marker_color="#14B8A6",
+                text=[f"{v:.2f}" if abs(v) < 100 else f"{v:,.0f}" for v in yv],
+                textposition="outside",
+                textfont=dict(size=10, color="#F8FAFC"),
                 hovertemplate=(
                     "<b>%{y}</b><br>Indicador: <b>%{x:.2f}</b><br>"
-                    "<i>Comparación con pares del sector.</i><extra></extra>"
-                )), row=2, col=2)
+                    "<i>Comparación con pares del sector.</i>"
+                    "<extra></extra>"
+                ),
+            ), row=2, col=2)
+            fig.update_xaxes(title_text=str(num_c)[:28], row=2, col=2)
             any_ok = True
+
     if not any_ok:
         return False
-    ok = _finish_plotly(fig, title=title, height=740, barmode="group")
+
+    ok = _finish_plotly(
+        fig, title=title, height=780, key=chart_key or "tab7_informe_panel",
+        barmode="group", uniformtext_minsize=9, uniformtext_mode="hide",
+    )
     st.caption(
-        "Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. "
-        "Pasa el cursor: cada punto o barra te explica el resultado en lenguaje simple."
+        "Resumen comparativo en Plotly · pasa el cursor para ver burbujas explicativas. "
+        "Misma estética (colores, tipografía, hover) que el resto de gráficas de la app."
     )
     return ok
+
 
 
 def _plotly_layout(title="", height=520, legend_bottom=True):
@@ -1203,12 +1283,13 @@ def _plotly_layout(title="", height=520, legend_bottom=True):
     )
 
 
-def _finish_plotly(fig, title="", height=520, **extra):
-    """Aplica chrome unificado + subtítulos alineados + render."""
+def _finish_plotly(fig, title="", height=520, key=None, **extra):
+    """Aplica chrome unificado + subtítulos alineados + render.
+    `key` evita StreamlitDuplicateElementId si la gráfica se muestra más de una vez.
+    """
     layout = _plotly_layout(title, height=height, legend_bottom=True)
     layout.update(extra)
     fig.update_layout(**layout)
-    # Subtítulos de make_subplots (anotaciones)
     try:
         fig.update_annotations(
             font=dict(size=13, color="#E2E8F0", family="IBM Plex Sans"),
@@ -1216,7 +1297,6 @@ def _finish_plotly(fig, title="", height=520, **extra):
         )
     except Exception:
         pass
-    # Ejes secundarios en subplots
     try:
         fig.update_xaxes(
             gridcolor="#475569",
@@ -1234,7 +1314,10 @@ def _finish_plotly(fig, title="", height=520, **extra):
         )
     except Exception:
         pass
-    st.plotly_chart(fig, use_container_width=True)
+    kwargs = dict(use_container_width=True)
+    if key is not None:
+        kwargs["key"] = key
+    st.plotly_chart(fig, **kwargs)
     return True
 
 
@@ -1262,7 +1345,7 @@ def _col_fcff(df):
     return None
 
 
-def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
+def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF", chart_key=None):
     """Gráfico nativo: histórico + proyección + banda simple. Eje = años reales."""
     try:
         import plotly.graph_objects as go
@@ -1334,10 +1417,10 @@ def _plotly_fan_fcff(df_hist, df_proj, title="Fan chart · FCFF"):
         autorange=False,
     )
     fig.update_yaxes(title="FCFF (miles de millones)")
-    return _finish_plotly(fig, title=title, height=540)
+    return _finish_plotly(fig, title=title, height=540, key=chart_key)
 
 
-def _plotly_escenarios(df):
+def _plotly_escenarios(df, chart_key=None):
     """Barras EV vs Equity con nombres y valores."""
     try:
         import plotly.graph_objects as go
@@ -1403,11 +1486,11 @@ def _plotly_escenarios(df):
         return False
     fig.update_xaxes(title="Escenario")
     fig.update_yaxes(title="Valor (miles de millones)")
-    return _finish_plotly(fig, title="Escenarios · EV vs Equity", height=480, barmode="group",
+    return _finish_plotly(fig, title="Escenarios · EV vs Equity", height=480, key=chart_key, barmode="group",
                           uniformtext_minsize=10, uniformtext_mode="hide")
 
 
-def _plotly_vpn_flows(df):
+def _plotly_vpn_flows(df, chart_key=None):
     """Flujos del proyecto con valores."""
     try:
         import plotly.graph_objects as go
@@ -1449,10 +1532,10 @@ def _plotly_vpn_flows(df):
     fig.add_hline(y=0, line_color="#94A3B8", line_width=1, line_dash="dot")
     fig.update_xaxes(title="Periodo")
     fig.update_yaxes(title="Flujo / VPN")
-    return _finish_plotly(fig, title="Flujos del proyecto · VPN / recuperación", height=480)
+    return _finish_plotly(fig, title="Flujos del proyecto · VPN / recuperación", height=480, key=chart_key)
 
 
-def _plotly_sector(df):
+def _plotly_sector(df, chart_key=None):
     """Ranking sectorial horizontal con hover."""
     try:
         import plotly.graph_objects as go
@@ -1481,7 +1564,7 @@ def _plotly_sector(df):
             ),
         ))
         fig.update_xaxes(title="Score")
-        return _finish_plotly(fig, title="Ranking sectorial", height=max(400, 40 * len(labels) + 120))
+        return _finish_plotly(fig, title="Ranking sectorial", height=max(400, 40 * len(labels) + 120), key=chart_key)
 
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Margen EBITDA %", "EV/EBITDA (x)"))
     if margen_c is not None:
@@ -1510,7 +1593,7 @@ def _plotly_sector(df):
     if not fig.data:
         return False
     return _finish_plotly(fig, title="Comparables del sector",
-                          height=max(420, 36 * len(labels) + 140), showlegend=False)
+                          height=max(420, 36 * len(labels) + 140), key=chart_key, showlegend=False)
 
 
 def _show_fig(fig, caption=None):
@@ -2309,11 +2392,11 @@ def main():
             # Fan chart Plotly nativo (histórico + proyección + banda)
             df_h = r[1] if len(r) > 1 else None
             df_p = r[2] if len(r) > 2 else None
-            if not _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)"):
+            if not _plotly_fan_fcff(df_h, df_p, title="Fan chart · FCFF (historia → proyección)", chart_key="tab1_fan_fcff"):
                 if len(r) > 3:
                     _show_fig(r[3], "Fan chart FCFF")
             # Comparación drivers / atípicos — mismo estilo Plotly
-            if not _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado"):
+            if not _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado", chart_key="tab1_drivers"):
                 if len(r) > 4 and r[4] is not None:
                     _show_fig(r[4], "Atípicos (respaldo estático)")
             else:
@@ -2355,7 +2438,7 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Por escenario")
-                if not _plotly_escenarios(r[1]):
+                if not _plotly_escenarios(r[1], chart_key="tab2_escenarios"):
                     if len(r) > 2:
                         _show_fig(r[2], "EV vs Equity")
             elif len(r) > 2:
@@ -2454,7 +2537,7 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Flujos")
-                if not _plotly_vpn_flows(r[1]):
+                if not _plotly_vpn_flows(r[1], chart_key="tab5_vpn"):
                     if len(r) > 2:
                         _show_fig(r[2], "Recuperación")
             elif len(r) > 2:
@@ -2485,7 +2568,7 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "Comparables")
-                if not _plotly_sector(r[1]):
+                if not _plotly_sector(r[1], chart_key="tab6_sector"):
                     if len(r) > 2:
                         _show_fig(r[2], "Sector")
             elif len(r) > 2:
@@ -2504,9 +2587,10 @@ def main():
     with tab7:
         st.markdown("##### Informe ejecutivo")
         st.caption(
-            "En pantalla el panel usa el gráfico generado por el modelo. "
-            "Las pestañas 1–6 tienen gráficos Plotly con hover, nombres y valores. "
-            "El PDF sigue siendo estático (con títulos y cifras anotadas)."
+            "Las gráficas comparativas de esta pestaña se muestran en Plotly con burbujas (hover), "
+            "con la misma estética visual que el resto de la app. "
+            "Solo cambia la presentación: el contenido de las pestañas 1–6 no se modifica. "
+            "El PDF sigue siendo estático."
         )
         if st.button("Generar informe y PDF", type="primary", key="btn7"):
             with st.spinner("Informe…"):
@@ -2525,19 +2609,31 @@ def main():
                 _html(r[0])
             if len(r) > 1:
                 _show_df(r[1], "KPIs del informe")
-            # Panel resumen en Plotly (misma estética); requiere corridas previas
-            if not _plotly_informe_panel(st.session_state.get("resultados") or {}, title="Resumen gráfico · informe"):
-                if len(r) > 2:
-                    _show_fig(r[2], "Panel (respaldo estático)")
-            else:
+            # Solo presentación visual Plotly + hover (key única; no reutiliza widgets de otras pestañas)
+            plot_ok = _plotly_informe_panel(
+                st.session_state.get("resultados") or {},
+                title="Resumen gráfico · informe",
+                chart_key="tab7_informe_panel_plotly",
+                tab7_payload=r,
+            )
+            if plot_ok:
                 _chart_tip(
-                    "Cuatro vistas en una: (A) dinero libre pasado y futuro, (B) valor en escenarios, "
-                    "(C) flujos del proyecto, (D) posición frente al sector. Pasa el cursor para leer cada cifra en simple."
+                    "Pasa el cursor sobre puntos o barras: verás burbujas con la lectura en lenguaje simple. "
+                    "A) FCFF  B) Escenarios  C) Flujos  D) Sector — misma línea visual que el resto de la app."
                 )
                 _explain(
-                    "<b>Burbuja de lectura · Informe:</b> este panel resume la historia del análisis. "
-                    "Úsalo para el comité: primero mira si el FCFF tiene sentido, luego si el valor se sostiene en más de un escenario, "
-                    "si el proyecto recupera la inversión y cómo se ve la empresa frente a sus pares."
+                    "<b>Burbuja de lectura · Informe:</b> resumen visual del análisis para el comité. "
+                    "Primero el dinero libre (FCFF), luego si el valor se sostiene en escenarios, "
+                    "si el proyecto recupera la inversión y cómo se ve frente a pares del sector."
+                )
+            else:
+                # Respaldo estático del modelo solo si no hay series para Plotly
+                if len(r) > 2 and r[2] is not None:
+                    _show_fig(r[2], "Panel (respaldo estático)")
+                st.info(
+                    "Para llenar el panel comparativo Plotly, genera antes los resultados de las pestañas "
+                    "1 (pronóstico), 2 (escenarios), 5 (VPN) y 6 (sector). "
+                    "El texto y KPIs del informe no dependen de esas gráficas."
                 )
             if len(r) > 3 and r[3]:
                 pdf_path = r[3]
