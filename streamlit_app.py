@@ -728,7 +728,7 @@ def _html(x, max_chars=120000):
 
 
 def _plotly_table(df, title="Tabla"):
-    """Tabla interactiva estilo FinTech (Plotly) con hover en celdas."""
+    """Tabla Plotly con anchos de columna adaptados (evita index enorme y celdas cortadas)."""
     try:
         import plotly.graph_objects as go
     except ImportError:
@@ -737,59 +737,82 @@ def _plotly_table(df, title="Tabla"):
         return False
     try:
         d = df.copy()
-        # índice a columna si tiene nombre de año
-        if d.index.name or (hasattr(d.index, "dtype") and str(d.index.dtype).startswith("int")):
+        # Convertir índice en columna compacta
+        if not isinstance(d.index, pd.RangeIndex) or d.index.name:
             try:
+                name = d.index.name or "Año"
                 d = d.reset_index()
+                # Renombrar index feo
+                if "index" in d.columns:
+                    d = d.rename(columns={"index": name if name != "index" else "Año"})
             except Exception:
                 pass
-        d = d.head(40)
+        d = d.head(50)
         cols = [str(c) for c in d.columns]
-        # valores como texto legible
+
+        def _fmt(v, colname):
+            if v is None or (isinstance(v, float) and v != v):
+                return "—"
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                fv = float(v)
+                # años
+                if colname.lower() in ("año", "ano", "year", "index") and 1900 <= fv <= 2100 and abs(fv - round(fv)) < 1e-9:
+                    return str(int(round(fv)))
+                if abs(fv) >= 100:
+                    return f"{fv:,.1f}"
+                if abs(fv) >= 1:
+                    return f"{fv:,.2f}"
+                return f"{fv:.4g}"
+            return str(v)[:64]
+
         cell_vals = []
         for c in d.columns:
-            col = d[c]
-            vals = []
-            for v in col.tolist():
-                if v is None or (isinstance(v, float) and (v != v)):
-                    vals.append("—")
-                elif isinstance(v, (int, float)) and not isinstance(v, bool):
-                    if abs(float(v)) >= 100:
-                        vals.append(f"{float(v):,.1f}")
-                    else:
-                        vals.append(f"{float(v):.4g}")
-                else:
-                    vals.append(str(v)[:48])
-            cell_vals.append(vals)
+            cell_vals.append([_fmt(v, str(c)) for v in d[c].tolist()])
+
+        # Anchos: año/index estrecho; texto medio; números proporcionales
+        widths = []
+        for c, vals in zip(cols, cell_vals):
+            cl = c.lower()
+            if cl in ("año", "ano", "year", "index", "t", "periodo"):
+                widths.append(55)
+            elif cl in ("escenario", "nombre", "empresa", "ticker", "prueba", "indicador", "estado"):
+                widths.append(140)
+            else:
+                maxlen = max((len(x) for x in vals), default=6)
+                widths.append(int(min(120, max(70, maxlen * 8))))
+
+        n_rows = len(d)
+        # Filas alternadas por columna
+        fill = []
+        for _ in cols:
+            fill.append(["#1E293B" if i % 2 == 0 else "#151C2C" for i in range(n_rows)])
+
         fig = go.Figure(data=[go.Table(
+            columnwidth=widths,
             header=dict(
                 values=[f"<b>{c}</b>" for c in cols],
                 fill_color="#0F766E",
                 font=dict(color="#ECFDF5", size=12, family="IBM Plex Sans"),
-                align="left",
-                height=32,
+                align=["center" if str(c).lower() in ("año", "ano", "year") else "left" for c in cols],
+                height=34,
             ),
             cells=dict(
                 values=cell_vals,
-                fill_color=[["#1E293B", "#151C2C"] * (len(d) // 2 + 1)][:len(d)],
+                fill_color=fill,
                 font=dict(color="#F1F5F9", size=12, family="IBM Plex Mono"),
-                align="left",
+                align=["center" if str(c).lower() in ("año", "ano", "year") else "right"
+                       if str(c).lower() not in ("escenario", "nombre", "empresa", "prueba", "indicador", "estado")
+                       else "left" for c in cols],
                 height=28,
             ),
-            hoverinfo="text",
         )])
-        # hover text matrix
-        hover = []
-        for i, c in enumerate(cols):
-            hover.append([f"<b>{c}</b><br>{cell_vals[i][r]}" for r in range(len(d))])
-        fig.data[0].cells.font = dict(color="#F1F5F9", size=12, family="IBM Plex Mono")
         fig.update_layout(
             title=dict(text=title, font=dict(size=14, color="#F8FAFC")),
             paper_bgcolor="#0F172A",
-            margin=dict(l=10, r=10, t=40, b=10),
-            height=min(120 + 28 * len(d), 520),
+            margin=dict(l=8, r=8, t=42, b=8),
+            height=min(140 + 30 * n_rows, 560),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         return True
     except Exception as e:
         st.caption(f"Tabla Plotly: {e}")
@@ -811,8 +834,12 @@ def _show_df(df, label=None):
         st.write(df)
 
 
-def _plotly_atipicos(df_hist, title="Comparación de drivers · original vs normalizado"):
-    """Misma estética Plotly que el fan chart: drivers con atípicos marcados."""
+def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · original vs normalizado"):
+    """
+    Gráficos Plotly (mismo estilo que fan chart) para drivers:
+    línea original + normalizada + atípicos marcados, con hover.
+    Siempre muestra al menos FCFF / Ingresos / EBITDA si existen.
+    """
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
@@ -820,101 +847,146 @@ def _plotly_atipicos(df_hist, title="Comparación de drivers · original vs norm
         return False
     if df_hist is None or not hasattr(df_hist, "columns"):
         return False
-    # Reconstruir histórico indexado por año si viene como tabla resumen
+
     try:
         d = df_hist.copy()
         if "Año" in d.columns:
             d = d.set_index("Año")
-        # Intentar detección de atípicos en lógica
-        detectados = {}
-        if hasattr(L, "detectar_atipicos_drivers"):
-            detectados = L.detectar_atipicos_drivers(d) or {}
-        if not detectados:
-            # Fallback: series FCFF / Ingresos originales vs suavizado simple
-            for col in ("FCFF", "Ingresos", "EBITDA"):
-                if col not in d.columns:
-                    continue
-                s = pd.to_numeric(d[col], errors="coerce")
-                med = float(s.median())
-                mad = float((s - med).abs().median()) or 1.0
-                mask = (s - med).abs() > 3.5 * 1.4826 * mad
-                if mask.any():
-                    s_n = s.copy()
-                    lo, hi = med - 3.5 * 1.4826 * mad, med + 3.5 * 1.4826 * mad
-                    s_n = s_n.clip(lo, hi)
-                    detectados[col] = {
-                        "serie_orig": s, "serie_norm": s_n, "mask": mask,
-                        "anios": [int(i) for i in s.index[mask]],
-                    }
-        if not detectados:
-            st.caption("Sin atípicos relevantes en drivers para esta serie.")
-            return True
+        # Asegurar índice numérico de años
+        try:
+            d.index = d.index.astype(int)
+        except Exception:
+            pass
 
-        n = len(detectados)
-        fig = make_subplots(
-            rows=n, cols=2,
-            subplot_titles=[t for clave in detectados for t in (f"{clave} · original", f"{clave} · normalizado")],
-            vertical_spacing=0.12 / max(n, 1),
-        )
-        for i, (clave, info) in enumerate(detectados.items(), start=1):
-            s = info.get("serie_orig")
-            s_n = info.get("serie_norm")
-            mask = info.get("mask")
-            if s is None:
+        series_map = {}  # nombre -> (y_orig, y_norm, mask, years)
+
+        def _hampel_pair(s):
+            s = pd.to_numeric(s, errors="coerce")
+            med = float(s.median()) if s.notna().any() else 0.0
+            mad = float((s - med).abs().median()) or 1e-9
+            thr = 3.5 * 1.4826 * mad
+            mask = (s - med).abs() > thr
+            lo, hi = med - thr, med + thr
+            s_n = s.clip(lower=lo, upper=hi)
+            return s, s_n, mask
+
+        # 1) Intentar detección formal (puede fallar si faltan columnas)
+        try:
+            if hasattr(L, "detectar_atipicos_drivers"):
+                det = L.detectar_atipicos_drivers(d) or {}
+                for clave, info in det.items():
+                    s = info.get("serie_orig")
+                    s_n = info.get("serie_norm")
+                    mask = info.get("mask")
+                    if s is None:
+                        continue
+                    years = [int(i) for i in (s.index.tolist() if hasattr(s, "index") else range(len(s)))]
+                    series_map[str(clave)] = (s, s_n, mask, years)
+        except Exception:
+            pass
+
+        # 2) Siempre añadir series contables disponibles (comparación visual)
+        for col in ("FCFF", "Ingresos", "EBITDA", "CAPEX", "EBIT"):
+            if col not in d.columns:
+                continue
+            if col in series_map:
                 continue
             try:
-                x = [int(v) for v in s.index.tolist()]
+                s, s_n, mask = _hampel_pair(d[col])
+                years = [int(i) for i in s.index.tolist()]
+                series_map[col] = (s, s_n, mask, years)
             except Exception:
-                x = list(range(len(s)))
+                continue
+
+        if not series_map:
+            return False
+
+        # Limitar a 4 paneles para legibilidad
+        items = list(series_map.items())[:4]
+        n = len(items)
+        fig = make_subplots(
+            rows=n, cols=1,
+            subplot_titles=[f"{k}: original vs normalizado (hover = valor)" for k, _ in items],
+            vertical_spacing=0.08 if n > 1 else 0.12,
+        )
+
+        for i, (clave, (s, s_n, mask, years)) in enumerate(items, start=1):
             y0 = [float(v) if v == v else None for v in s.tolist()]
             y1 = [float(v) if v == v else None for v in s_n.tolist()] if s_n is not None else y0
-            # original
+            x = years
+
             fig.add_trace(go.Scatter(
-                x=x, y=y0, mode="lines+markers", name=f"{clave} orig",
-                line=dict(color="#38BDF8", width=2.5), marker=dict(size=8),
-                hovertemplate=f"<b>{clave} original</b><br>Año %{{x}}<br>%{{y:,.3g}}<extra></extra>",
-                showlegend=(i == 1),
+                x=x, y=y0, mode="lines+markers",
+                name=f"{clave} original",
+                line=dict(color="#38BDF8", width=2.8),
+                marker=dict(size=9),
+                hovertemplate=f"<b>{clave} original</b><br>Año %{{x}}<br>Valor: %{{y:,.2f}}<extra></extra>",
+                legendgroup=clave,
+                showlegend=True,
             ), row=i, col=1)
-            # marcar atípicos
-            if mask is not None:
-                try:
-                    msk = list(mask) if not hasattr(mask, "tolist") else mask.tolist()
-                    xa = [x[j] for j, f in enumerate(msk) if f and j < len(x)]
-                    ya = [y0[j] for j, f in enumerate(msk) if f and j < len(y0)]
-                    if xa:
-                        fig.add_trace(go.Scatter(
-                            x=xa, y=ya, mode="markers", name="Atípico",
-                            marker=dict(size=14, color="#F87171", symbol="x", line=dict(width=2)),
-                            hovertemplate="<b>Atípico</b><br>Año %{x}<br>%{y:,.3g}<extra></extra>",
-                            showlegend=(i == 1),
-                        ), row=i, col=1)
-                except Exception:
-                    pass
-            # normalizado
+
             fig.add_trace(go.Scatter(
-                x=x, y=y1, mode="lines+markers+text", name=f"{clave} norm",
-                line=dict(color="#2DD4BF", width=2.5), marker=dict(size=8),
-                text=[f"{v:.2g}" if v is not None else "" for v in y1],
+                x=x, y=y1, mode="lines+markers+text",
+                name=f"{clave} normalizado",
+                line=dict(color="#2DD4BF", width=2.8, dash="dash"),
+                marker=dict(size=9),
+                text=[f"{v:,.0f}" if v is not None and abs(v) >= 10 else (f"{v:.2f}" if v is not None else "") for v in y1],
                 textposition="top center",
                 textfont=dict(size=9, color="#CCFBF1"),
-                hovertemplate=f"<b>{clave} normalizado</b><br>Año %{{x}}<br>%{{y:,.3g}}<extra></extra>",
-                showlegend=(i == 1),
-            ), row=i, col=2)
-            for col in (1, 2):
-                if x:
-                    fig.update_xaxes(range=[min(x) - 0.4, max(x) + 0.4], dtick=1, row=i, col=col)
+                hovertemplate=f"<b>{clave} normalizado</b><br>Año %{{x}}<br>Valor: %{{y:,.2f}}<extra></extra>",
+                legendgroup=clave,
+                showlegend=True,
+            ), row=i, col=1)
 
-        fig.update_layout(**_plotly_layout(title, height=max(320, 260 * n)))
-        fig.update_layout(legend=dict(orientation="h", y=1.08))
+            # Atípicos
+            try:
+                msk = mask.tolist() if hasattr(mask, "tolist") else list(mask)
+                xa = [x[j] for j, f in enumerate(msk) if f and j < len(x)]
+                ya = [y0[j] for j, f in enumerate(msk) if f and j < len(y0)]
+                if xa:
+                    fig.add_trace(go.Scatter(
+                        x=xa, y=ya, mode="markers",
+                        name=f"Atípico {clave}",
+                        marker=dict(size=14, color="#F87171", symbol="x", line=dict(width=2, color="#FECACA")),
+                        hovertemplate=f"<b>Atípico · {clave}</b><br>Año %{{x}}<br>%{{y:,.2f}}<extra></extra>",
+                        legendgroup=clave,
+                        showlegend=True,
+                    ), row=i, col=1)
+            except Exception:
+                pass
+
+            if x:
+                fig.update_xaxes(
+                    title_text="Año" if i == n else "",
+                    range=[min(x) - 0.4, max(x) + 0.4],
+                    dtick=1, tickmode="linear",
+                    row=i, col=1,
+                )
+            fig.update_yaxes(title_text=str(clave)[:18], row=i, col=1)
+
+        fig.update_layout(**_plotly_layout(title, height=max(380, 280 * n)))
+        fig.update_layout(
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(size=11, color="#F8FAFC")),
+            hovermode="x unified",
+        )
         st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            "Línea azul = dato original · línea teal punteada = tras filtro Hampel/winsor · "
+            "cruz roja = atípico. Pasa el cursor para ver el valor exacto."
+        )
         return True
     except Exception as e:
-        st.caption(f"Atípicos Plotly: {e}")
+        st.caption(f"Comparación drivers Plotly: {e}")
         return False
 
 
+# Alias para llamadas antiguas
+def _plotly_atipicos(df_hist, title="Comparación de drivers · original vs normalizado"):
+    return _plotly_comparacion_drivers(df_hist, title=title)
+
+
 def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
-    """Panel 2×2 en Plotly (misma estética que fan chart) a partir de resultados de sesión."""
+    """Panel 2×2 en Plotly a partir de resultados de sesión."""
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
@@ -937,10 +1009,10 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
         horizontal_spacing=0.10,
     )
     any_ok = False
-    # A) FCFF
     if t1 and isinstance(t1, (list, tuple)) and len(t1) > 2:
         df_h, df_p = t1[1], t1[2]
         c_h, c_p = _col_fcff(df_h), _col_fcff(df_p)
+        xh = yh = []
         if c_h and df_h is not None:
             xh, yh = _years_from_df(df_h), [float(v) for v in df_h[c_h].values]
             fig.add_trace(go.Scatter(
@@ -956,9 +1028,10 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
                 line=dict(color="#2DD4BF", width=2.5, dash="dash"), marker=dict(size=7),
                 hovertemplate="Proy %{x}: %{y:,.0f}<extra></extra>",
             ), row=1, col=1)
-            if xp:
-                fig.update_xaxes(range=[min(xh+xp)-0.4 if xh else min(xp)-0.4, max(xh+xp)+0.4 if xh else max(xp)+0.4], dtick=1, row=1, col=1)
-    # B) Escenarios
+            xs = (xh or []) + (xp or [])
+            if xs:
+                fig.update_xaxes(range=[min(xs) - 0.4, max(xs) + 0.4], dtick=1, row=1, col=1)
+            any_ok = True
     if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
         df = t2[1]
         cols = {str(c).lower(): c for c in df.columns}
@@ -979,7 +1052,6 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
                 fig.add_trace(go.Bar(name="Equity", x=x, y=y, marker_color="#38BDF8",
                     text=[f"{v:,.0f}" for v in y], textposition="outside",
                     hovertemplate="Equity %{x}: %{y:,.0f}<extra></extra>"), row=1, col=2)
-    # C) VPN flows
     if t5 and isinstance(t5, (list, tuple)) and len(t5) > 1 and hasattr(t5[1], "columns"):
         df = t5[1]
         xcol = df.columns[0]
@@ -994,20 +1066,22 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
                 text=[f"{v:,.0f}" for v in y], textposition="outside",
                 hovertemplate="%{x}: %{y:,.0f}<extra></extra>"), row=2, col=1)
             any_ok = True
-    # D) Sector score or first numeric
     if t6 and isinstance(t6, (list, tuple)) and len(t6) > 1 and hasattr(t6[1], "columns"):
         df = t6[1]
         name_c = next((c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker")), df.columns[0])
-        num_c = next((c for c in df.columns if c != name_c and pd.api.types.is_numeric_dtype(df[c])), None)
-        if num_c is None:
-            for c in df.columns:
-                if c != name_c:
-                    try:
-                        pd.to_numeric(df[c], errors="raise")
-                        num_c = c
-                        break
-                    except Exception:
-                        continue
+        num_c = None
+        for c in df.columns:
+            if c == name_c:
+                continue
+            if pd.api.types.is_numeric_dtype(df[c]):
+                num_c = c
+                break
+            try:
+                pd.to_numeric(df[c], errors="raise")
+                num_c = c
+                break
+            except Exception:
+                continue
         if num_c is not None:
             labels = df[name_c].astype(str).str.slice(0, 22).tolist()[:12]
             yv = pd.to_numeric(df[num_c], errors="coerce").fillna(0).tolist()[:12]
@@ -1015,7 +1089,6 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
                 marker_color="#14B8A6",
                 hovertemplate="<b>%{y}</b><br>%{x:.2f}<extra></extra>"), row=2, col=2)
             any_ok = True
-
     if not any_ok:
         return False
     fig.update_layout(**_plotly_layout(title, height=720))
@@ -1023,7 +1096,6 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
     st.plotly_chart(fig, use_container_width=True)
     st.caption("Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. Hover para ver valores.")
     return True
-
 
 
 def _plotly_layout(title="", height=520):
@@ -2154,7 +2226,7 @@ def main():
                 if len(r) > 3:
                     _show_fig(r[3], "Fan chart FCFF")
             # Comparación drivers / atípicos — mismo estilo Plotly
-            if not _plotly_atipicos(df_h, title="Comparación de drivers · original vs normalizado"):
+            if not _plotly_comparacion_drivers(df_h, title="Comparación de drivers · original vs normalizado"):
                 if len(r) > 4 and r[4] is not None:
                     _show_fig(r[4], "Atípicos (respaldo estático)")
             if len(r) > 5 and r[5]:
