@@ -689,25 +689,6 @@ html[data-theme="light"] [data-testid="stAppViewContainer"] {
   background: linear-gradient(135deg, #14B8A6 0%, #2DD4BF 100%) !important;
   color: #042F2E !important;
 }
-.tf-ficha-box {
-  background: #1A2336;
-  border: 1px solid #14B8A6;
-  border-radius: 12px;
-  padding: 0.85rem 1rem;
-  margin: 0.5rem 0 1rem 0;
-}
-.tf-ficha-box .ttl {
-  color: #5EEAD4;
-  font-weight: 700;
-  font-size: 0.85rem;
-  margin-bottom: 0.35rem;
-}
-.tf-ficha-box .dsc {
-  color: #CBD5E1;
-  font-size: 0.8rem;
-  margin-bottom: 0.5rem;
-  line-height: 1.4;
-}
 
 </style>
 """
@@ -1753,30 +1734,6 @@ def _glosario_chips():
         _analogy(term)
 
 
-def _ficha_una_pagina(empresa, moneda, w, g, horizonte, sector, resultados):
-    """Texto plano didáctico para descargar."""
-    lines = [
-        f"FICHA RÁPIDA (1 página) — {empresa}",
-        f"Moneda del modelo: {moneda} · Sector: {sector}",
-        f"WACC: {w['wacc']*100:.2f}% · Ke: {w['ke']*100:.2f}% · βL: {w['beta_l']:.2f}",
-        f"g terminal: {g*100:.2f}% · Horizonte: {horizonte} años",
-        "",
-        "EN PALABRAS SIMPLES",
-        f"- WACC: {ANALOGIAS['WACC']}",
-        f"- FCFF: {ANALOGIAS['FCFF']}",
-        f"- Equity: {ANALOGIAS['Equity']}",
-        "",
-        "QUÉ HACER AHORA",
-        "1) Genera el Pronóstico (pestaña 1).",
-        "2) Mira Escenarios (pestaña 2): ¿el equity se mantiene en el caso pesimista?",
-        "3) Revisa el semáforo de Auditoría (pestaña 3).",
-        "4) Lee la Recomendación (pestaña 4) sin tomarla como orden de compra.",
-        "",
-        "Aviso: herramienta pedagógica. No es asesoría de inversión.",
-    ]
-    return "\n".join(lines)
-
-
 
 def _init_state():
     defaults = {
@@ -2129,7 +2086,7 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # Semáforo en vivo (supuestos) + ficha 1 página
+    # Semáforo en vivo (supuestos)
     try:
         n_hist = 0
         emp_o = None
@@ -2149,24 +2106,6 @@ def main():
     except Exception:
         pass
 
-    ficha_txt = _ficha_una_pagina(empresa, moneda, w, g, horizonte, sector, st.session_state.get("resultados") or {})
-    st.markdown(
-        '<div class="tf-ficha-box">'
-        '<div class="ttl">📄 Ficha simple (1 página)</div>'
-        '<div class="dsc">Resumen en lenguaje cotidiano para compartir con alguien no financiero. '
-        'No reemplaza el informe PDF de la pestaña 7: es un “elevator pitch” del caso.</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-    st.download_button(
-        "Descargar ficha simple (.txt)",
-        data=ficha_txt.encode("utf-8"),
-        file_name=f"ficha_{empresa.split('—')[0].strip().replace(' ', '_')[:24]}.txt",
-        mime="text/plain",
-        key="dl_ficha",
-        type="primary",
-        use_container_width=False,
-    )
 
     # ----- Tools strip: Sensibilidad + Glosario en fila; Consulta IA a ancho completo debajo -----
     t1, t2 = st.columns(2)
