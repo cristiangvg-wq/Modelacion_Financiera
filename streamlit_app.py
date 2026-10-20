@@ -48,9 +48,9 @@ FINTECH_CSS = """
   --bg-elevated: #1A2336;
   --border: #243044;
   --border-soft: rgba(36, 48, 68, 0.85);
-  --text: #E8EEF7;
-  --text-muted: #94A3B8;
-  --text-dim: #64748B;
+  --text: #F1F5F9;
+  --text-muted: #CBD5E1;
+  --text-dim: #94A3B8;
   --accent: #14B8A6;
   --accent-soft: rgba(20, 184, 166, 0.15);
   --accent-hover: #2DD4BF;
@@ -85,9 +85,14 @@ section[data-testid="stSidebar"] * {
   color: var(--text) !important;
 }
 section[data-testid="stSidebar"] .stMarkdown p,
-section[data-testid="stSidebar"] label {
-  color: var(--text-muted) !important;
-  font-size: 0.82rem !important;
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+  color: #E2E8F0 !important;
+  font-size: 0.84rem !important;
+  font-weight: 500 !important;
+}
+section[data-testid="stSidebar"] .stCaption, section[data-testid="stSidebar"] small {
+  color: #94A3B8 !important;
 }
 section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
   padding-top: 0.75rem;
@@ -345,12 +350,38 @@ hr {
   padding: 1.5rem 0 0.5rem 0;
 }
 .tf-sidebar-label {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #64748B !important;
+  color: #94A3B8 !important;
   font-weight: 700;
   margin: 1rem 0 0.4rem 0;
+}
+
+/* Mejor contraste en captions y placeholders del main */
+.stCaption, [data-testid="stCaptionContainer"] {
+  color: #CBD5E1 !important;
+}
+/* No forzar color en todos los span (rompe widgets); solo markdown del main */
+.main .stMarkdown p, .main .stMarkdown li {
+  color: #E8EEF7 !important;
+}
+.main [data-testid="stWidgetLabel"] p {
+  color: #E2E8F0 !important;
+}
+/* File uploader / botones claros en sidebar */
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] section {
+  background: #1A2336 !important;
+  border: 1px dashed #475569 !important;
+  border-radius: 10px !important;
+}
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] section * {
+  color: #E2E8F0 !important;
+}
+section[data-testid="stSidebar"] .stDownloadButton > button {
+  background: #1A2336 !important;
+  color: #F1F5F9 !important;
+  border: 1px solid #334155 !important;
 }
 
 /* Hide Streamlit chrome */
@@ -387,6 +418,7 @@ def _show_df(df, label=None):
 
 
 def _show_fig(fig, caption=None):
+    """Renderiza figura con fondo legible (no demasiado oscuro) sobre el tema FinTech."""
     if fig is None:
         return
     if not HAS_MPL:
@@ -394,23 +426,30 @@ def _show_fig(fig, caption=None):
         return
     if caption:
         st.caption(caption)
-    # Dark axes for FinTech look
+    # Fondo claro-gris azulado: contraste alto con líneas y texto
     try:
+        fig.patch.set_facecolor("#F1F5F9")
         for ax in fig.get_axes():
-            ax.set_facecolor("#151C2C")
-            fig.patch.set_facecolor("#111827")
-            ax.tick_params(colors="#94A3B8")
-            ax.xaxis.label.set_color("#94A3B8")
-            ax.yaxis.label.set_color("#94A3B8")
-            ax.title.set_color("#E8EEF7")
+            ax.set_facecolor("#FFFFFF")
+            ax.tick_params(colors="#334155", labelsize=9)
+            ax.xaxis.label.set_color("#1E293B")
+            ax.yaxis.label.set_color("#1E293B")
+            ax.title.set_color("#0F172A")
             for spine in ax.spines.values():
-                spine.set_color("#243044")
+                spine.set_color("#CBD5E1")
+            ax.grid(True, color="#E2E8F0", alpha=0.9, linestyle="-", linewidth=0.6)
             legend = ax.get_legend()
             if legend:
-                legend.get_frame().set_facecolor("#1A2336")
-                legend.get_frame().set_edgecolor("#243044")
+                legend.get_frame().set_facecolor("#FFFFFF")
+                legend.get_frame().set_edgecolor("#CBD5E1")
                 for t in legend.get_texts():
-                    t.set_color("#E8EEF7")
+                    t.set_color("#1E293B")
+            # Reforzar color de líneas/barras si quedaron demasiado tenues
+            for line in ax.get_lines():
+                c = line.get_color()
+                if isinstance(c, str) and c.lower() in ("#0a2540", "#0b1220", "black", "#000000"):
+                    line.set_color("#0F766E")
+                    line.set_linewidth(max(line.get_linewidth(), 1.8))
     except Exception:
         pass
     st.pyplot(fig, clear_figure=False)
@@ -639,9 +678,12 @@ def main():
         if st.session_state.get("params") is None:
             _cargar_params_empresa(empresa)
 
-        if st.session_state.get("ficha_html"):
-            with st.expander("Ficha", expanded=False):
+        # Ficha siempre visible como acordeón abierto por defecto
+        with st.expander("Ficha", expanded=True):
+            if st.session_state.get("ficha_html"):
                 _html(st.session_state["ficha_html"])
+            else:
+                st.caption("Selecciona o descarga una empresa para ver la ficha.")
 
         st.markdown('<p class="tf-sidebar-label">Estados financieros</p>', unsafe_allow_html=True)
         up = st.file_uploader("Excel / CSV", type=["xlsx", "xls", "csv"], label_visibility="collapsed")
@@ -666,24 +708,25 @@ def main():
         except Exception:
             pass
 
-        st.markdown('<p class="tf-sidebar-label">Parámetros</p>', unsafe_allow_html=True)
         ek = str(empresa)[:48]
         p = st.session_state.get("params") or {}
 
-        horizonte = st.slider("Horizonte (años)", 3, 10, 5, key=f"hor_{ek}")
-        de_ratio = st.slider("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.2) or 1.2), 0.01, key=f"de_{ek}")
-        kd = st.slider("Kd", 0.0, 0.25, float(p.get("kd", 0.08) or 0.08), 0.005, key=f"kd_{ek}")
-        tax = st.slider("Tax", 0.0, 0.50, float(p.get("tax", 0.35) or 0.35), 0.01, key=f"tax_{ek}")
-        g = st.slider("g terminal", 0.0, 0.08, float(p.get("g", 0.03) or 0.03), 0.005, key=f"g_{ek}")
-        capex_extra = st.slider("CAPEX extra", 0, 8000, 0, 50, key=f"cx_{ek}")
-        beta_u = st.slider("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5) or 0.5), 0.05, key=f"bu_{ek}")
+        # Parámetros en acordeón cerrado por defecto (menos ruido en el sidebar)
+        with st.expander("Parámetros del modelo", expanded=False):
+            horizonte = st.slider("Horizonte (años)", 3, 10, 5, key=f"hor_{ek}")
+            de_ratio = st.slider("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.2) or 1.2), 0.01, key=f"de_{ek}")
+            kd = st.slider("Kd", 0.0, 0.25, float(p.get("kd", 0.08) or 0.08), 0.005, key=f"kd_{ek}")
+            tax = st.slider("Tax", 0.0, 0.50, float(p.get("tax", 0.35) or 0.35), 0.01, key=f"tax_{ek}")
+            g = st.slider("g terminal", 0.0, 0.08, float(p.get("g", 0.03) or 0.03), 0.005, key=f"g_{ek}")
+            capex_extra = st.slider("CAPEX extra", 0, 8000, 0, 50, key=f"cx_{ek}")
+            beta_u = st.slider("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5) or 0.5), 0.05, key=f"bu_{ek}")
 
-        with st.expander("CAPM", expanded=True):
+            st.markdown("**CAPM**")
             rf = st.slider("rf", 0.02, 0.16, float(st.session_state.get("rf", 0.12)), 0.005, key=f"rf_{ek}")
             erp = st.slider("ERP", 0.03, 0.10, float(st.session_state.get("erp", 0.055)), 0.005, key=f"erp_{ek}")
             crp = st.slider("CRP", 0.0, 0.05, float(st.session_state.get("crp", 0.0)), 0.005, key=f"crp_{ek}")
 
-        with st.expander("Puente a equity", expanded=False):
+            st.markdown("**Puente a equity**")
             capital_invertido = st.number_input(
                 "Capital invertido", value=float(p.get("capital_invertido", 0) or 0), step=100.0, key=f"ci_{ek}"
             )
@@ -755,8 +798,8 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # ----- Tools strip -----
-    t1, t2, t3 = st.columns(3)
+    # ----- Tools strip: Sensibilidad + Glosario en fila; Consulta IA a ancho completo debajo -----
+    t1, t2 = st.columns(2)
     with t1:
         with st.expander("⚡ Sensibilidad WACC · g", expanded=False):
             sw = st.slider("WACC", 0.06, 0.18, float(w["wacc"]), 0.0025, key="sens_wacc")
@@ -778,17 +821,31 @@ def main():
                 _html(L.glosario_html())
             except Exception:
                 st.caption("FCFF · WACC · ROIC · EV · Equity · VPN · TIR · g · Beta")
-    with t3:
-        with st.expander("🤖 Consulta IA", expanded=False):
-            pregunta = st.text_area("Pregunta", height=70, placeholder="¿WACC? · upside · resumen comité")
+
+    with st.expander("🤖 Consulta IA", expanded=False):
+        st.caption("Pregunta en lenguaje natural sobre el modelo, el emisor o definiciones. Opcional: API key de sesión.")
+        c_q, c_p = st.columns([3, 1])
+        with c_q:
+            pregunta = st.text_area(
+                "Pregunta",
+                height=88,
+                placeholder="¿Qué es el WACC? · ¿Precio y upside? · Resumen para el comité",
+                label_visibility="collapsed",
+            )
+        with c_p:
             cprov = st.selectbox("Proveedor", ["gemini", "xai", "openai"], key="iaprov")
             ckey = st.text_input("API key", type="password", key="iakey")
-            if st.button("Consultar", key="btn_ia", use_container_width=True):
-                with st.spinner("…"):
-                    try:
-                        _html(L.asistente_consulta_financiera(pregunta, empresa, api_key=ckey or None, proveedor=cprov))
-                    except Exception as e:
-                        st.error(str(e))
+            consultar = st.button("Consultar", type="primary", key="btn_ia", use_container_width=True)
+        if consultar:
+            with st.spinner("Consultando…"):
+                try:
+                    _html(
+                        L.asistente_consulta_financiera(
+                            pregunta, empresa, api_key=ckey or None, proveedor=cprov
+                        )
+                    )
+                except Exception as e:
+                    st.error(str(e))
 
     # ----- 7 TABS -----
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
