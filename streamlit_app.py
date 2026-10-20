@@ -841,7 +841,7 @@ def _mpl_to_plotly(fig, title=""):
                         mode="lines+markers",
                         name=str(lab)[:40],
                         line=dict(color=color, width=2),
-                        marker=dict(size=6),
+                        marker=dict(size=8),
                         hovertemplate="<b>%{fullData.name}</b><br>x=%{x}<br>y=%{y:,.2f}<extra></extra>",
                     ),
                     **add_kw,
@@ -893,7 +893,7 @@ def _mpl_to_plotly(fig, title=""):
             try:
                 ttl = ax.get_title() or title
                 if n == 1 and ttl:
-                    target.update_layout(title=dict(text=str(ttl)[:80], font=dict(size=14, color="#E8EEF7")))
+                    target.update_layout(title=dict(text=str(ttl)[:80], font=dict(size=16, color="#F8FAFC")))
             except Exception:
                 pass
 
@@ -901,16 +901,36 @@ def _mpl_to_plotly(fig, title=""):
             return False
 
         layout = _plotly_layout(title or "")
-        layout["height"] = 380 if n == 1 else min(320 * (1 if n <= 3 else 2), 720)
+        # Más alto: un eje ~520px; varios ejes apilados
+        layout["height"] = 520 if n == 1 else min(280 * n + 80, 900)
         if n == 1:
             pfig.update_layout(**layout)
         else:
             pfig.update_layout(**{k: v for k, v in layout.items() if k != "title"})
             if title:
-                pfig.update_layout(title=dict(text=title, font=dict(size=14, color="#E8EEF7")))
-        pfig.update_xaxes(gridcolor="#243044", color="#CBD5E1")
-        pfig.update_yaxes(gridcolor="#243044", color="#CBD5E1")
-        st.plotly_chart(pfig, use_container_width=True)
+                pfig.update_layout(title=dict(text=title, font=dict(size=16, color="#F8FAFC")))
+        pfig.update_xaxes(
+            gridcolor="#334155",
+            color="#E2E8F0",
+            tickfont=dict(size=12, color="#E2E8F0"),
+            title_font=dict(size=13, color="#F1F5F9"),
+        )
+        pfig.update_yaxes(
+            gridcolor="#334155",
+            color="#E2E8F0",
+            tickfont=dict(size=12, color="#E2E8F0"),
+            title_font=dict(size=13, color="#F1F5F9"),
+            automargin=True,
+        )
+        pfig.update_layout(
+            legend=dict(
+                font=dict(size=13, color="#F8FAFC"),
+                bgcolor="rgba(15,23,42,0.95)",
+                bordercolor="#64748B",
+                borderwidth=1,
+            )
+        )
+        st.plotly_chart(pfig, use_container_width=True, config={"displayModeBar": True, "responsive": True})
         return True
     except Exception:
         return False
@@ -965,16 +985,44 @@ def _show_fig(fig, caption=None):
 
 def _plotly_layout(title=""):
     return dict(
-        title=dict(text=title, font=dict(size=14, color="#E8EEF7")),
-        paper_bgcolor="#111827",
-        plot_bgcolor="#151C2C",
-        font=dict(color="#E8EEF7", size=12),
-        margin=dict(l=48, r=24, t=48, b=40),
-        height=360,
-        legend=dict(bgcolor="rgba(26,35,54,0.9)", bordercolor="#334155"),
-        xaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
-        yaxis=dict(gridcolor="#243044", zerolinecolor="#334155"),
+        title=dict(text=title, font=dict(size=16, color="#F8FAFC")),
+        paper_bgcolor="#0F172A",
+        plot_bgcolor="#1E293B",
+        font=dict(color="#F1F5F9", size=13, family="IBM Plex Sans, system-ui, sans-serif"),
+        margin=dict(l=64, r=120, t=56, b=56),
+        height=520,
+        legend=dict(
+            bgcolor="rgba(15,23,42,0.98)",
+            bordercolor="#94A3B8",
+            borderwidth=1,
+            font=dict(size=13, color="#F8FAFC"),
+            orientation="v",
+            yanchor="top",
+            y=0.98,
+            xanchor="left",
+            x=1.01,
+        ),
+        xaxis=dict(
+            gridcolor="#334155",
+            zerolinecolor="#475569",
+            tickfont=dict(size=12, color="#E2E8F0"),
+            title_font=dict(size=13, color="#F1F5F9"),
+            color="#E2E8F0",
+        ),
+        yaxis=dict(
+            gridcolor="#334155",
+            zerolinecolor="#475569",
+            tickfont=dict(size=12, color="#E2E8F0"),
+            title_font=dict(size=13, color="#F1F5F9"),
+            color="#E2E8F0",
+            automargin=True,
+        ),
         hovermode="closest",
+        hoverlabel=dict(
+            bgcolor="#0F172A",
+            bordercolor="#14B8A6",
+            font=dict(size=13, color="#F8FAFC"),
+        ),
     )
 
 
@@ -1095,7 +1143,7 @@ def _plotly_sector(df):
                 name="Múltiplo",
             ), row=1, col=2)
         fig.update_layout(**_plotly_layout("Comparables del sector (pasa el cursor)"))
-        fig.update_layout(height=420, showlegend=False)
+        fig.update_layout(height=520, showlegend=False)
         fig.update_xaxes(gridcolor="#243044")
         fig.update_yaxes(gridcolor="#243044")
         st.plotly_chart(fig, use_container_width=True)
@@ -1925,14 +1973,8 @@ def main():
                         line=dict(color="#14B8A6", width=2),
                         hovertemplate="Año %{x}<br>FCFF: %{y:.1f}<extra></extra>",
                     ))
-                    fig_p.update_layout(
-                        title="FCFF interactivo (pasa el cursor)",
-                        paper_bgcolor="#111827",
-                        plot_bgcolor="#151C2C",
-                        font=dict(color="#E8EEF7"),
-                        margin=dict(l=40, r=20, t=40, b=40),
-                        height=320,
-                    )
+                    fig_p.update_layout(**_plotly_layout("FCFF interactivo (pasa el cursor)"))
+                    fig_p.update_layout(height=520)
                     st.plotly_chart(fig_p, use_container_width=True)
             except Exception:
                 pass
