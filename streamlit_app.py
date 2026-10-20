@@ -195,19 +195,49 @@ h3 { font-weight: 600 !important; font-size: 1.05rem !important; color: #CBD5E1 
   background: var(--accent) !important;
 }
 
-/* Expanders */
-.streamlit-expanderHeader {
-  background: var(--bg-card) !important;
+/* Expanders — contraste alto (cabecera y contenido) */
+.streamlit-expanderHeader,
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] details summary,
+div[data-testid="stExpander"] > details > summary {
+  background: #1A2336 !important;
   border-radius: 10px !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text) !important;
-  font-weight: 500 !important;
+  border: 1px solid #334155 !important;
+  color: #F1F5F9 !important;
+  font-weight: 600 !important;
 }
-.streamlit-expanderContent {
-  background: var(--bg-panel) !important;
-  border: 1px solid var(--border-soft) !important;
+.streamlit-expanderHeader p,
+.streamlit-expanderHeader span,
+[data-testid="stExpander"] summary p,
+[data-testid="stExpander"] summary span,
+div[data-testid="stExpander"] summary svg {
+  color: #F1F5F9 !important;
+  fill: #F1F5F9 !important;
+}
+.streamlit-expanderContent,
+[data-testid="stExpanderDetails"],
+div[data-testid="stExpander"] > details > div {
+  background: #111827 !important;
+  border: 1px solid #334155 !important;
   border-top: none !important;
   border-radius: 0 0 10px 10px !important;
+  color: #E8EEF7 !important;
+}
+/* Sidebar: expanders aún más legibles */
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+section[data-testid="stSidebar"] .streamlit-expanderHeader {
+  background: #1E293B !important;
+  border-color: #475569 !important;
+  color: #F8FAFC !important;
+}
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary span {
+  color: #F8FAFC !important;
+}
+section[data-testid="stSidebar"] [data-testid="stExpanderDetails"],
+section[data-testid="stSidebar"] .streamlit-expanderContent {
+  background: #0F172A !important;
+  border-color: #334155 !important;
 }
 
 /* Dataframes */
@@ -369,20 +399,64 @@ hr {
 .main [data-testid="stWidgetLabel"] p {
   color: #E2E8F0 !important;
 }
-/* File uploader / botones claros en sidebar */
-section[data-testid="stSidebar"] [data-testid="stFileUploader"] section {
-  background: #1A2336 !important;
-  border: 1px dashed #475569 !important;
-  border-radius: 10px !important;
+/* File uploader — sin botón blanco ilegible */
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] {
+  background: transparent !important;
 }
-section[data-testid="stSidebar"] [data-testid="stFileUploader"] section * {
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] section,
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] > div > div {
+  background: #1A2336 !important;
+  border: 1px dashed #64748B !important;
+  border-radius: 12px !important;
+  padding: 0.75rem !important;
+}
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] section *,
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] small,
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] span,
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] p {
   color: #E2E8F0 !important;
 }
-section[data-testid="stSidebar"] .stDownloadButton > button {
-  background: #1A2336 !important;
-  color: #F1F5F9 !important;
-  border: 1px solid #334155 !important;
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] button,
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] [data-testid="baseButton-secondary"] {
+  background: #0F766E !important;
+  color: #ECFDF5 !important;
+  border: 1px solid #14B8A6 !important;
+  border-radius: 10px !important;
+  font-weight: 600 !important;
 }
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] button:hover {
+  background: #14B8A6 !important;
+  color: #042F2E !important;
+}
+section[data-testid="stSidebar"] [data-testid="stFileUploader"] svg {
+  fill: #ECFDF5 !important;
+  color: #ECFDF5 !important;
+}
+/* Download / secondary buttons en sidebar */
+section[data-testid="stSidebar"] .stDownloadButton > button,
+section[data-testid="stSidebar"] .stButton > button {
+  background: #1E293B !important;
+  color: #F1F5F9 !important;
+  border: 1px solid #475569 !important;
+  font-weight: 600 !important;
+}
+section[data-testid="stSidebar"] .stDownloadButton > button:hover,
+section[data-testid="stSidebar"] .stButton > button:hover {
+  border-color: #14B8A6 !important;
+  color: #5EEAD4 !important;
+}
+section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] {
+  background: linear-gradient(135deg, #0F766E 0%, #14B8A6 100%) !important;
+  color: #042F2E !important;
+  border: none !important;
+}
+/* Checkbox label legible */
+section[data-testid="stSidebar"] [data-testid="stCheckbox"] label p,
+section[data-testid="stSidebar"] [data-testid="stCheckbox"] span {
+  color: #E2E8F0 !important;
+}
+
 
 /* Hide Streamlit chrome */
 #MainMenu { visibility: hidden; }
