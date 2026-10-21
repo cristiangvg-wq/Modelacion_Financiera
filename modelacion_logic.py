@@ -240,6 +240,94 @@ EMPRESAS = {
 EMPRESAS_RUNTIME = {}  # nombre_display -> mismo shape que EMPRESAS[k]
 
 # ---------------------------------------------------------------------------
+# Tickers BVC → Yahoo Finance exige el sufijo .CL
+# ---------------------------------------------------------------------------
+_TICKERS_BVC_EXTRA = {
+    "ISA", "GEB", "CELSIA", "EPM", "ENELAM", "BVC", "ECOPETROL", "EC",
+    "PFBCOLOM", "GRUPOSURA", "PFGRUPSURA", "NUTRESA", "CEMARGOS", "CLH",
+    "CORFICOLCF", "PFDAVVNDA", "BANCOLOMBIA", "EXITO", "ETB",
+    "TERPEL", "PROMIGAS", "CNEC", "CONCONCRET", "BOGOTA", "OCCIDENTE",
+    "PREVER", "MINEROS", "FABRICATO", "TABLEMAC", "ELCONDOR",
+}
+
+
+def _tickers_bvc_conocidos():
+    """Símbolos BVC (sin sufijo) del catálogo + lista de referencia."""
+    s = set(_TICKERS_BVC_EXTRA)
+    for emp in list(EMPRESAS.values()) + list(EMPRESAS_RUNTIME.values()):
+        tb = emp.get("ticker_bvc")
+        if tb:
+            s.add(str(tb).upper().split(".")[0].strip())
+        ty = emp.get("ticker_yf")
+        if ty and str(ty).upper().endswith(".CL"):
+            s.add(str(ty).upper().split(".")[0].strip())
+    return s
+
+
+def es_ticker_bvc(ticker):
+    """True si el símbolo pertenece (o es muy probable que pertenezca) a la BVC."""
+    if not ticker:
+        return False
+    t = str(ticker).strip().upper()
+    if t.endswith(".CL"):
+        return True
+    base = t.split(".")[0]
+    return base in _tickers_bvc_conocidos()
+
+
+def asegurar_sufijo_cl_bvc(ticker, forzar_si_bvc=True):
+    """
+    Normaliza tickers de la Bolsa de Valores de Colombia para Yahoo Finance.
+
+    Yahoo usa el sufijo .CL (ej. ISA.CL, ECOPETROL.CL, BVC.CL).
+    - Si ya tiene sufijo de bolsa (.CL, .MX, .SA, …) se respeta.
+    - Si es un ticker BVC conocido sin sufijo → se añade .CL.
+    """
+    if ticker is None:
+        return None
+    t = str(ticker).strip().upper().replace(" ", "")
+    if not t:
+        return t
+    _SUFIJOS = (
+        ".CL", ".MX", ".SA", ".BA", ".L", ".T", ".HK", ".TO", ".PA", ".DE",
+        ".SW", ".MI", ".AS", ".BR", ".OL", ".ST", ".CO", ".HE", ".LS", ".AT",
+        ".VI", ".AX", ".SI", ".KS", ".KQ", ".TW", ".JK", ".NS", ".BO",
+    )
+    if any(t.endswith(s) for s in _SUFIJOS):
+        return t
+    base = t.split(".")[0]
+    if forzar_si_bvc and base in _tickers_bvc_conocidos():
+        return f"{base}.CL"
+    return t
+
+
+def candidatos_ticker_yf(query):
+    """
+    Lista ordenada de candidatos Yahoo a partir de un query de usuario.
+    Para símbolos BVC pone SYMBOL.CL primero (y el bare como respaldo).
+    """
+    q = (query or "").strip().upper().replace(" ", "")
+    if not q:
+        return []
+    _SUFIJOS = (".CL", ".MX", ".SA", ".BA", ".L", ".T", ".HK", ".TO")
+    if any(q.endswith(s) for s in _SUFIJOS):
+        return [q]
+    base = q.split(".")[0]
+    cands = []
+    if base in _tickers_bvc_conocidos():
+        cands.append(f"{base}.CL")
+        cands.append(base)
+    else:
+        cands.append(q)
+    seen, out = set(), []
+    for c in cands:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Resultados de pestañas en la sesión (consulta asistida + reset al cambiar empresa)
 # ---------------------------------------------------------------------------
 RESULTADOS_SESION = {
@@ -557,12 +645,8 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
     if not q:
         return False, "<div class='result-note'>Escribe un ticker (ej. <code>AAPL</code>, <code>EC</code>, <code>ISA.CL</code>) o un nombre.</div>", None, None
 
-    # Intentar como ticker directo
-    ticker_candidates = [q.upper().replace(" ", "")]
-    # Sufijos frecuentes Colombia
-    if not any(q.upper().endswith(s) for s in (".CL", ".MX", ".SA", ".BA", ".L", ".T")):
-        if q.upper() in ("ISA", "GEB", "CELSIA", "ENELAM", "BVC", "PFBCOLOM", "GRUPOSURA"):
-            ticker_candidates.append(q.upper() + ".CL")
+    # Candidatos Yahoo: tickers BVC llevan automáticamente el sufijo .CL
+    ticker_candidates = candidatos_ticker_yf(q)
 
     info = None
     used_ticker = None
@@ -933,6 +1017,7 @@ def _finite_or_none(x):
 
 def _proveedor_yahoo(ticker_yf):
     """Capa 1 (default): Yahoo Finance para tickers BVC vía sufijo .CL"""
+    ticker_yf = asegurar_sufijo_cl_bvc(ticker_yf)
     if not HAS_YF or not ticker_yf:
         return _respuesta_mercado_vacia(
             "Sin datos Yahoo: falta yfinance o ticker .CL.",
@@ -1033,7 +1118,7 @@ def _proveedor_api_key(ticker_yf, ticker_bvc=None):
             proveedor="api_key",
         )
 
-    symbol = ticker_yf or ticker_bvc
+    symbol = asegurar_sufijo_cl_bvc(ticker_yf) or asegurar_sufijo_cl_bvc(ticker_bvc)
     if not symbol:
         return _respuesta_mercado_vacia("Sin símbolo para consultar al vendor.", proveedor="api_key")
 
@@ -1131,7 +1216,12 @@ def obtener_datos_mercado_bvc(ticker_yf, ticker_bvc=None, proveedor=None):
       - manual:  no red
 
     No afirma ser 'BVC oficial'. Etiqueta siempre el proveedor real usado.
+    Tickers BVC sin sufijo se normalizan a SYMBOL.CL para Yahoo.
     """
+    if not ticker_yf and ticker_bvc:
+        ticker_yf = asegurar_sufijo_cl_bvc(ticker_bvc)
+    else:
+        ticker_yf = asegurar_sufijo_cl_bvc(ticker_yf)
     prov = (proveedor or MERCADO_CONFIG.get("proveedor") or "yahoo").strip().lower()
 
     if prov == "manual":
@@ -1303,6 +1393,7 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
       - Preferir CAPEX real del cashflow cuando exista.
     Retorna DataFrame indexado por año o None, y mensaje de procedencia.
     """
+    ticker_yf = asegurar_sufijo_cl_bvc(ticker_yf)
     if not HAS_YF or not ticker_yf:
         return None, "yfinance no disponible o sin ticker"
     try:
@@ -1800,24 +1891,28 @@ def _codigo_mercado(country, currency=None, ticker_yf=None):
 
 
 def ticker_yf_empresa(nombre_empresa):
-    """Ticker Yahoo de catálogo o runtime (empresas no predefinidas)."""
+    """Ticker Yahoo de catálogo o runtime (empresas no predefinidas).
+    Tickers BVC se normalizan automáticamente con sufijo .CL.
+    """
     emp = resolver_empresa(nombre_empresa) or {}
     tk = emp.get("ticker_yf")
+    if not tk and emp.get("ticker_bvc"):
+        tk = emp.get("ticker_bvc")
     if tk:
-        return tk
-    # Fallback: "Apple Inc. — AAPL" / "Microsoft — MSFT"
+        return asegurar_sufijo_cl_bvc(tk)
+    # Fallback: "Apple Inc. — AAPL" / "Microsoft — MSFT" / "ISA — Interconexión"
     s = str(nombre_empresa or "").strip()
     if "—" in s:
         part = s.split("—")[-1].strip().upper().replace(" ", "")
         if 1 <= len(part) <= 12 and part.replace(".", "").isalnum():
-            return part
+            return asegurar_sufijo_cl_bvc(part)
     if " - " in s:
         part = s.split(" - ")[-1].strip().upper().replace(" ", "")
         if 1 <= len(part) <= 12 and part.replace(".", "").isalnum():
-            return part
-    # Nombre corto tipo AAPL
+            return asegurar_sufijo_cl_bvc(part)
+    # Nombre corto tipo AAPL o ISA
     if s and len(s) <= 12 and s.replace(".", "").isalnum():
-        return s.upper()
+        return asegurar_sufijo_cl_bvc(s.upper())
     return None
 
 

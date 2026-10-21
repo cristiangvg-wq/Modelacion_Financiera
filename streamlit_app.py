@@ -2265,34 +2265,49 @@ def _init_state():
 
 
 def _inferir_ticker_yf(nombre, p=None):
-    """Obtiene ticker Yahoo a partir de params, nombre o catálogo."""
+    """Obtiene ticker Yahoo a partir de params, nombre o catálogo.
+    Tickers BVC se normalizan con sufijo .CL vía modelacion_logic.
+    """
+    def _norm(t):
+        t = str(t).strip().upper()
+        if hasattr(L, "asegurar_sufijo_cl_bvc"):
+            return L.asegurar_sufijo_cl_bvc(t)
+        return t
+
     p = p or {}
     for k in ("ticker_yf", "ticker", "symbol"):
         t = p.get(k)
         if t and str(t).strip():
-            return str(t).strip().upper()
+            return _norm(t)
+    try:
+        if hasattr(L, "ticker_yf_empresa"):
+            tk = L.ticker_yf_empresa(nombre)
+            if tk:
+                return _norm(tk)
+    except Exception:
+        pass
     try:
         if hasattr(L, "params_empresa"):
             pf = L.params_empresa(nombre) or {}
-            for k in ("ticker_yf", "ticker", "symbol"):
+            for k in ("ticker_yf", "ticker", "symbol", "ticker_bvc"):
                 t = pf.get(k)
                 if t and str(t).strip():
-                    return str(t).strip().upper()
+                    return _norm(t)
     except Exception:
         pass
     try:
         emp = L.resolver_empresa(nombre) if hasattr(L, "resolver_empresa") else None
         if emp:
-            for k in ("ticker_yf", "ticker", "symbol"):
+            for k in ("ticker_yf", "ticker", "symbol", "ticker_bvc"):
                 t = (emp.get("params") or {}).get(k) or emp.get(k)
                 if t and str(t).strip():
-                    return str(t).strip().upper()
+                    return _norm(t)
     except Exception:
         pass
-    # Heurística: "AAPL — Apple" → AAPL; nombres con .CL / .NYSE
+    # Heurística: "AAPL — Apple" → AAPL; "ISA" → ISA.CL si es BVC
     base = str(nombre or "").split("—")[0].split("-")[0].strip().upper()
     if base and 1 <= len(base) <= 12 and " " not in base:
-        return base
+        return _norm(base)
     return None
 
 
