@@ -24,9 +24,11 @@ except ImportError:
     HAS_MPL = False
     plt = None
 
-# API key Gemini: solo Secrets / env / input UI (sin clave embebida).
+# API key Gemini: UI → Secrets → env → fallback prestablecido.
+_DEFAULT_GEMINI_API_KEY = "AQ.Ab8RN6Lq_5w77l3GlbR4hlmYW9vFRDZjPxv5wn8Iaw4WluWMUA"
+
 def _resolve_gemini_key(ui_key=None):
-    """Orden: input UI → st.secrets → env."""
+    """Orden: input UI → st.secrets → env → clave prestablecida."""
     if ui_key and str(ui_key).strip():
         return str(ui_key).strip()
     try:
@@ -34,7 +36,10 @@ def _resolve_gemini_key(ui_key=None):
             return str(st.secrets["GEMINI_API_KEY"]).strip()
     except Exception:
         pass
-    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip() or None
+    env = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+    if env:
+        return env
+    return _DEFAULT_GEMINI_API_KEY
 
 
 
@@ -1894,7 +1899,11 @@ def _chart_tip(text: str) -> None:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _market_tape_quotes():
-    """Cinta de mercado: tickers globales + Colombia. Cache 5 min."""
+    """Cinta de mercado: tickers globales + Colombia.
+
+    `chg` siempre en **puntos porcentuales del día** (ej. -0.31 = −0,31 %).
+    Nunca se devuelve fracción para evitar doble escalado en el render.
+    """
     symbols = [
         ("AAPL", "Apple"),
         ("MSFT", "Microsoft"),
@@ -1915,34 +1924,86 @@ def _market_tape_quotes():
     except ImportError:
         return [{"sym": s, "name": n, "px": None, "chg": None} for s, n in symbols]
 
+    def _f(x):
+        try:
+            if x is None:
+                return None
+            v = float(x)
+            if v != v or abs(v) == float("inf"):
+                return None
+            return v
+        except Exception:
+            return None
+
+    blue_chips = {"AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "JPM", "XOM", "SPY"}
+
     for sym, name in symbols:
         try:
             t = yf.Ticker(sym)
-            hist = t.history(period="5d")
-            if hist is None or len(hist) < 2:
+            px = None
+            chg = None
+
+            info = {}
+            try:
                 info = getattr(t, "info", {}) or {}
-                px = info.get("regularMarketPrice") or info.get("currentPrice")
-                chg = info.get("regularMarketChangePercent")
+            except Exception:
+                info = {}
+
+            try:
+                fi = getattr(t, "fast_info", None)
+                if fi is not None:
+                    px = _f(getattr(fi, "last_price", None) or (fi.get("last_price") if hasattr(fi, "get") else None))
+                    prev_fi = _f(getattr(fi, "previous_close", None) or (fi.get("previous_close") if hasattr(fi, "get") else None))
+                    if px is not None and prev_fi is not None and prev_fi != 0:
+                        chg = 100.0 * (px - prev_fi) / prev_fi
+            except Exception:
+                pass
+
+            if px is None:
+                px = _f(info.get("regularMarketPrice") or info.get("currentPrice"))
+
+            prev = _f(info.get("regularMarketPreviousClose") or info.get("previousClose"))
+            if chg is None and px is not None and prev is not None and prev != 0:
+                chg = 100.0 * (px - prev) / prev
+
+            # yfinance: regularMarketChangePercent ya en puntos % (ej. -0.31)
+            if chg is None:
+                chg = _f(info.get("regularMarketChangePercent"))
+
+            if chg is None:
+                delta = _f(info.get("regularMarketChange"))
+                if delta is not None and prev is not None and prev != 0:
+                    chg = 100.0 * delta / prev
+
+            if px is None or chg is None:
                 try:
-                    px = float(px) if px is not None else None
-                    if px is not None and (px != px):
-                        px = None
+                    hist = t.history(period="10d", auto_adjust=True)
+                    if hist is not None and len(hist) >= 2:
+                        closes = [_f(v) for v in hist["Close"].tolist()]
+                        closes = [c for c in closes if c is not None]
+                        if len(closes) >= 2:
+                            if px is None:
+                                px = closes[-1]
+                            if chg is None and closes[-2] != 0:
+                                chg = 100.0 * (closes[-1] - closes[-2]) / closes[-2]
                 except Exception:
-                    px = None
+                    pass
+
+            if chg is not None and abs(chg) > 25.0 and sym.split(".")[0] in blue_chips:
                 try:
-                    chg = float(chg) if chg is not None else None
-                    if chg is not None and (chg != chg):
-                        chg = None
+                    hist = t.history(period="5d", auto_adjust=True)
+                    if hist is not None and len(hist) >= 2:
+                        c0 = _f(hist["Close"].iloc[-1])
+                        c1 = _f(hist["Close"].iloc[-2])
+                        if c0 is not None and c1 is not None and c1 != 0:
+                            chg2 = 100.0 * (c0 - c1) / c1
+                            if abs(chg2) <= 25.0:
+                                chg = chg2
+                                if px is None:
+                                    px = c0
                 except Exception:
-                    chg = None
-                rows.append({"sym": sym.split(".")[0], "name": name, "px": px, "chg": chg})
-                continue
-            px = float(hist["Close"].iloc[-1])
-            prev = float(hist["Close"].iloc[-2])
-            if px != px or prev != prev or prev == 0:  # NaN check
-                rows.append({"sym": sym.split(".")[0], "name": name, "px": None, "chg": None})
-                continue
-            chg = 100.0 * (px - prev) / prev
+                    pass
+
             rows.append({"sym": sym.split(".")[0], "name": name, "px": px, "chg": chg})
         except Exception:
             rows.append({"sym": sym.split(".")[0], "name": name, "px": None, "chg": None})
@@ -1965,16 +2026,14 @@ def _render_market_tape() -> None:
     for d in data:
         chg = d.get("chg")
         px = d.get("px")
+        # `chg` ya viene en puntos porcentuales (NO multiplicar otra vez).
         if not _finite(chg):
             cls, chg_txt = "tf-flat", "—"
         else:
             chg = float(chg)
-            # Yahoo a veces devuelve fraction (0.012) y a veces % (1.2)
-            if abs(chg) < 0.5:
-                chg = chg * 100.0
-            if chg > 0.05:
+            if chg > 0.02:
                 cls, chg_txt = "tf-up", f"+{chg:.2f}%"
-            elif chg < -0.05:
+            elif chg < -0.02:
                 cls, chg_txt = "tf-down", f"{chg:.2f}%"
             else:
                 cls, chg_txt = "tf-flat", f"{chg:.2f}%"
@@ -1983,7 +2042,6 @@ def _render_market_tape() -> None:
             f'<span class="tf-tick"><b>{d["sym"]}</b> {d["name"]} '
             f'{px_txt} <span class="{cls}">{chg_txt}</span></span>'
         )
-    # Duplicar para loop infinito suave
     inner = " ".join(parts + parts)
     st.markdown(
         f'<div class="tf-tape-wrap"><div class="tf-tape">{inner}</div></div>',
