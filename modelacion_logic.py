@@ -1132,8 +1132,42 @@ def _finite_or_none(x):
     return v
 
 
+def _yf_info_dict(t):
+    """Obtiene el dict info de yfinance con varios fallbacks (info a menudo vacío en .CL)."""
+    info = {}
+    for getter in (
+        lambda: getattr(t, "info", None),
+        lambda: t.get_info() if hasattr(t, "get_info") else None,
+    ):
+        try:
+            d = getter()
+            if isinstance(d, dict) and d:
+                info = d
+                break
+        except Exception:
+            continue
+    return info or {}
+
+
+def _yf_fast_get(fi, *keys):
+    if fi is None:
+        return None
+    for k in keys:
+        try:
+            if hasattr(fi, "get"):
+                v = fi.get(k)
+            else:
+                v = getattr(fi, k, None)
+            v = _finite_or_none(v)
+            if v is not None:
+                return v
+        except Exception:
+            continue
+    return None
+
+
 def _proveedor_yahoo(ticker_yf):
-    """Yahoo Finance. .CL solo BVC."""
+    """Yahoo Finance. .CL solo BVC. Métricas con cascada (info / fast_info / cálculo)."""
     ticker_yf = asegurar_sufijo_cl_bvc(ticker_yf)
     if not HAS_YF or not ticker_yf:
         return _respuesta_mercado_vacia(
@@ -1142,11 +1176,20 @@ def _proveedor_yahoo(ticker_yf):
         )
     try:
         t = yf.Ticker(ticker_yf)
-        info = t.info or {}
-        hist = t.history(period="10d")
+        info = _yf_info_dict(t)
+        fi = None
+        try:
+            fi = getattr(t, "fast_info", None)
+        except Exception:
+            fi = None
+
         precio = None
         cambio_pct = None
-        # Último cierre VÁLIDO (Yahoo a veces deja NaN en la fila del día en curso / feriado)
+        # 1) Histórico de cierres
+        try:
+            hist = t.history(period="15d", auto_adjust=True)
+        except Exception:
+            hist = None
         if hist is not None and len(hist) > 0 and "Close" in hist.columns:
             closes = [_finite_or_none(v) for v in hist["Close"].tolist()]
             closes_ok = [c for c in closes if c is not None and c > 0]
@@ -1154,37 +1197,78 @@ def _proveedor_yahoo(ticker_yf):
                 precio = closes_ok[-1]
                 if len(closes_ok) > 1 and closes_ok[-2]:
                     cambio_pct = (precio / closes_ok[-2] - 1.0) * 100.0
-        # Cascada de fallbacks si el histórico no trae precio usable
+        # 2) info / fast_info
         if precio is None:
-            for key in ("currentPrice", "regularMarketPrice", "fulldayPrice", "previousClose",
-                        "regularMarketPreviousClose"):
+            for key in (
+                "currentPrice", "regularMarketPrice", "fulldayPrice",
+                "previousClose", "regularMarketPreviousClose", "postMarketPrice",
+            ):
                 precio = _finite_or_none(info.get(key))
                 if precio is not None and precio > 0:
                     break
         if precio is None:
-            try:
-                fi = getattr(t, "fast_info", None)
-                if fi is not None:
-                    for attr in ("last_price", "previous_close", "regular_market_previous_close"):
-                        precio = _finite_or_none(getattr(fi, attr, None))
-                        if precio is not None and precio > 0:
-                            break
-            except Exception:
-                pass
+            precio = _yf_fast_get(
+                fi, "last_price", "lastPrice", "regular_market_price",
+                "previous_close", "regular_market_previous_close",
+            )
+
         if cambio_pct is None:
             ch = _finite_or_none(info.get("regularMarketChangePercent"))
+            if ch is None:
+                ch = _yf_fast_get(fi, "regular_market_change_percent", "change_percent")
             if ch is not None:
-                # Yahoo a veces ya trae el % (ej. -0.34); otras veces fracción
                 cambio_pct = ch * 100.0 if abs(ch) < 1.0 else ch
-        mcap = _finite_or_none(info.get("marketCap"))
-        beta = _finite_or_none(info.get("beta"))
-        pe = _finite_or_none(info.get("trailingPE")) or _finite_or_none(info.get("forwardPE"))
+
+        # --- Capitalización ---
+        mcap = _finite_or_none(info.get("marketCap")) or _finite_or_none(info.get("enterpriseValue"))
+        if mcap is None:
+            mcap = _yf_fast_get(fi, "market_cap", "marketCap")
+        if mcap is None and precio and precio > 0:
+            shares = (
+                _finite_or_none(info.get("sharesOutstanding"))
+                or _finite_or_none(info.get("impliedSharesOutstanding"))
+                or _yf_fast_get(fi, "shares", "shares_outstanding")
+            )
+            if shares and shares > 0:
+                mcap = shares * precio
+
+        # --- Beta ---
+        beta = (
+            _finite_or_none(info.get("beta"))
+            or _finite_or_none(info.get("beta3Year"))
+            or _finite_or_none((info.get("defaultKeyStatistics") or {}).get("beta") if isinstance(info.get("defaultKeyStatistics"), dict) else None)
+        )
+
+        # --- P/E ---
+        pe = (
+            _finite_or_none(info.get("trailingPE"))
+            or _finite_or_none(info.get("forwardPE"))
+            or _finite_or_none(info.get("pegRatio"))
+        )
+        if pe is None and precio and precio > 0:
+            eps = (
+                _finite_or_none(info.get("trailingEps"))
+                or _finite_or_none(info.get("epsTrailingTwelveMonths"))
+                or _finite_or_none(info.get("epsCurrentYear"))
+            )
+            if eps and eps > 0:
+                pe = precio / eps
+
         ev_ebitda = _finite_or_none(info.get("enterpriseToEbitda"))
-        ok = precio is not None
+
+        ok = precio is not None and precio > 0
+        extras = []
+        if mcap:
+            extras.append("cap")
+        if beta is not None:
+            extras.append("β")
+        if pe is not None:
+            extras.append("P/E")
+        detalle = (" · " + ", ".join(extras)) if extras else ""
         return {
             "ok": ok,
             "mensaje": (
-                f"Yahoo Finance ({ticker_yf}) · precio en vivo / retrasado según Yahoo."
+                f"Yahoo Finance ({ticker_yf}) · precio en vivo / retrasado según Yahoo{detalle}."
                 if ok else f"Yahoo no devolvió precio usable para {ticker_yf}."
             ),
             "precio": precio,
@@ -1199,6 +1283,7 @@ def _proveedor_yahoo(ticker_yf):
             "enterprise_to_ebitda": ev_ebitda,
             "proveedor": "yahoo",
             "fuente": f"yahoo:{ticker_yf}",
+            "ticker": ticker_yf,
         }
     except Exception as e:
         return _respuesta_mercado_vacia(f"Error Yahoo ({ticker_yf}): {e}", proveedor="yahoo")
@@ -1873,9 +1958,34 @@ def card_empresa_seleccionada(nombre_empresa):
         cambio_txt = '<span style="color:#94A3B8">—</span>'
     _beta = _finite_or_none(mkt.get("beta"))
     _pe = _finite_or_none(mkt.get("pe"))
+    _mcap = _finite_or_none(mkt.get("market_cap"))
+    # Si Yahoo no trajo métricas, reintento dedicado (info a veces llega en 2ª llamada)
+    if (_beta is None or _pe is None or _mcap is None) and _tk_card and HAS_YF:
+        try:
+            _m2 = _metrics_mercado_yahoo(_tk_card)
+            if _m2 and _m2.get("ok"):
+                if _beta is None:
+                    _beta = _finite_or_none(_m2.get("beta"))
+                if _pe is None:
+                    _pe = _finite_or_none(_m2.get("pe"))
+                if _mcap is None:
+                    _mcap = _finite_or_none(_m2.get("market_cap"))
+                if _mcap is None and _finite_or_none(_m2.get("precio")) and _finite_or_none(mkt.get("precio")):
+                    pass
+        except Exception:
+            pass
+    # Capitalización aproximada: acciones del catálogo (millones) × precio
+    if _mcap is None:
+        try:
+            acc_m = _finite_or_none((emp.get("params") or {}).get("acciones"))
+            px = _finite_or_none(mkt.get("precio"))
+            if acc_m and px and acc_m > 0 and px > 0:
+                _mcap = acc_m * 1e6 * px  # acciones en millones → unidades
+        except Exception:
+            pass
     beta_txt = f"{_beta:.2f}" if _beta is not None else "N/D"
     pe_txt = f"{_pe:.1f}x" if _pe is not None else "N/D"
-    mc_txt = formatear_market_cap(mkt.get("market_cap"), mon)
+    mc_txt = formatear_market_cap(_mcap, mon)
 
     ticker = _tk_card or emp.get("ticker_yf") or emp.get("ticker_bvc") or "—"
     es_bvc = bool(str(ticker).upper().endswith(".CL") or (
@@ -3505,34 +3615,43 @@ def motor_decision_institucional(
 
 
 def _metrics_mercado_yahoo(ticker_yf):
-    """Snapshot de mercado para contraste con el modelo (best-effort)."""
+    """Snapshot de mercado (best-effort). Reutiliza el proveedor Yahoo enriquecido."""
     out = {"ok": False, "ticker": ticker_yf}
     if not ticker_yf or not HAS_YF:
         return out
     try:
-        t = yf.Ticker(ticker_yf)
-        info = t.info or {}
-        price = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose"))
-        mcap = _safe_float(info.get("marketCap"))
-        pe = _safe_float(info.get("trailingPE") or info.get("forwardPE"))
-        ev_ebitda = _safe_float(info.get("enterpriseToEbitda"))
-        beta = _safe_float(info.get("beta"))
-        div_y = _normalizar_yield(_safe_float(info.get("dividendYield")))
-        currency = info.get("currency") or ""
-        target = _safe_float(info.get("targetMeanPrice") or info.get("targetMedianPrice"))
-        rec = info.get("recommendationKey") or info.get("averageAnalystRating") or ""
+        ticker_yf = asegurar_sufijo_cl_bvc(ticker_yf) or ticker_yf
+        m = _proveedor_yahoo(ticker_yf)
+        if not m or not m.get("ok"):
+            # último intento directo
+            t = yf.Ticker(ticker_yf)
+            info = _yf_info_dict(t)
+            price = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose"))
+            mcap = _safe_float(info.get("marketCap"))
+            pe = _safe_float(info.get("trailingPE") or info.get("forwardPE"))
+            beta = _safe_float(info.get("beta"))
+            out.update({
+                "ok": price is not None or mcap is not None,
+                "precio": price,
+                "market_cap": mcap,
+                "pe": pe,
+                "beta": beta,
+                "currency": info.get("currency") or "",
+                "nombre": info.get("shortName") or info.get("longName") or ticker_yf,
+            })
+            return out
         out.update({
-            "ok": price is not None or mcap is not None,
-            "precio": price,
-            "market_cap": mcap,
-            "pe": pe,
-            "ev_ebitda": ev_ebitda,
-            "beta": beta,
-            "div_yield": div_y,
-            "currency": currency,
-            "target": target,
-            "rec_yahoo": str(rec),
-            "nombre": info.get("shortName") or info.get("longName") or ticker_yf,
+            "ok": True,
+            "precio": m.get("precio"),
+            "market_cap": m.get("market_cap"),
+            "pe": m.get("pe"),
+            "ev_ebitda": m.get("enterprise_to_ebitda"),
+            "beta": m.get("beta"),
+            "currency": m.get("moneda") or "",
+            "nombre": ticker_yf,
+            "div_yield": None,
+            "target": None,
+            "rec_yahoo": "",
         })
     except Exception as e:
         out["error"] = str(e)
