@@ -1809,7 +1809,7 @@ def normalizar_serie_robusta(serie, metodo="hampel", k=3.5):
 
 
 def card_empresa_seleccionada(nombre_empresa):
-    """Ficha de empresa en español (catálogo, runtime Yahoo o nombre libre)."""
+    """Ficha de empresa en español. Precio y métricas SOLO del emisor `nombre_empresa`."""
     from html import escape
     emp = resolver_empresa(nombre_empresa)
     if emp is None:
@@ -1820,7 +1820,12 @@ def card_empresa_seleccionada(nombre_empresa):
         y calibra los parámetros con datos de <b>esta</b> empresa.</div>"""
 
     emp = aplicar_monedas_a_empresa(nombre_empresa, emp)
-    _tk_card = asegurar_sufijo_cl_bvc(emp.get("ticker_yf") or emp.get("ticker_bvc"))
+    # Ticker canónico de ESTA empresa (no de session de otra)
+    _tk_card = ticker_yf_empresa(nombre_empresa) or asegurar_sufijo_cl_bvc(
+        emp.get("ticker_yf") or emp.get("ticker_bvc")
+    )
+    if _tk_card:
+        emp["ticker_yf"] = _tk_card
     mkt = obtener_datos_mercado_bvc(_tk_card, ticker_bvc=emp.get("ticker_bvc"))
     _px = _finite_or_none(mkt.get("precio"))
     mon = mkt.get("moneda") or emp.get("moneda_precio") or emp.get("moneda") or "COP"
@@ -7723,7 +7728,21 @@ def _capm_para_ui(p):
 
 
 def al_cambiar_empresa(nombre_empresa):
+    emp = resolver_empresa(nombre_empresa)
+    if emp:
+        aplicar_monedas_a_empresa(nombre_empresa, emp)
+        tk = ticker_yf_empresa(nombre_empresa)
+        if tk:
+            emp["ticker_yf"] = tk
     p = params_empresa(nombre_empresa)
+    # Garantizar ticker de esta empresa en params
+    tk = ticker_yf_empresa(nombre_empresa)
+    if tk:
+        p = dict(p)
+        p["ticker_yf"] = tk
+        mm, mp = monedas_alineadas_por_ticker(tk, nombre_empresa, emp or {})
+        p["moneda"] = mm
+        p["precio_moneda"] = mp
     card = card_empresa_seleccionada(nombre_empresa)
     # Si es catálogo y no trae rf, anotar mercado CO en params para UI
     if p.get("origen_params") == "catalogo" or (nombre_empresa in EMPRESAS and "rf" not in p):

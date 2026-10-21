@@ -2265,42 +2265,72 @@ def _init_state():
 
 
 def _inferir_ticker_yf(nombre, p=None):
-    """Ticker Yahoo normalizado (BVC→.CL, US sin .CL)."""
+    """
+    Ticker Yahoo de LA empresa `nombre` (nunca el de otra empresa en session).
+    Orden: catálogo/runtime por nombre → heurística del nombre → params solo si
+    el ticker de params es coherente con esa empresa.
+    """
     def _norm(t):
+        if t is None:
+            return None
         t = str(t).strip().upper()
         if hasattr(L, "asegurar_sufijo_cl_bvc"):
             return L.asegurar_sufijo_cl_bvc(t)
         return t
+
+    def _base(t):
+        t = str(t or "").upper()
+        if t.endswith(".CL"):
+            return t[:-3]
+        return t.split(".")[0]
+
+    nombre = str(nombre or "").strip()
+    tk_nombre = None
+
+    # 1) Fuente de verdad: lógica / catálogo de ESTA empresa
+    try:
+        if hasattr(L, "ticker_yf_empresa"):
+            tk_nombre = L.ticker_yf_empresa(nombre)
+    except Exception:
+        tk_nombre = None
+    if not tk_nombre:
+        try:
+            emp = L.resolver_empresa(nombre) if hasattr(L, "resolver_empresa") else None
+            if emp:
+                tk_nombre = emp.get("ticker_yf") or emp.get("ticker_bvc")
+        except Exception:
+            pass
+
+    # 2) Heurística desde el nombre visible ("ISA — Interconexión", "Apple Inc. — AAPL")
+    if not tk_nombre and nombre:
+        if "—" in nombre:
+            part = nombre.split("—")[-1].strip().upper().replace(" ", "")
+            if 1 <= len(part) <= 12 and part.replace(".", "").replace("-", "").isalnum():
+                tk_nombre = part
+        if not tk_nombre:
+            head = nombre.split("—")[0].strip().upper()
+            if head in ("ISA", "GEB", "CELSIA", "ECOPETROL", "EPM", "BVC", "ENELAM",
+                        "PFBCOLOM", "GRUPOSURA", "NUTRESA"):
+                tk_nombre = head
+
+    tk_nombre = _norm(tk_nombre) if tk_nombre else None
+
+    # 3) Params de sesión: solo si coinciden con el ticker de esta empresa
     p = p or {}
+    tk_params = None
     for k in ("ticker_yf", "ticker_bvc", "ticker", "symbol"):
         t = p.get(k)
         if t and str(t).strip():
-            return _norm(t)
-    try:
-        if hasattr(L, "ticker_yf_empresa"):
-            tk = L.ticker_yf_empresa(nombre)
-            if tk:
-                return _norm(tk)
-    except Exception:
-        pass
-    try:
-        emp = L.resolver_empresa(nombre) if hasattr(L, "resolver_empresa") else None
-        if emp:
-            for k in ("ticker_yf", "ticker_bvc", "ticker", "symbol"):
-                t = emp.get(k) or (emp.get("params") or {}).get(k)
-                if t and str(t).strip():
-                    return _norm(t)
-    except Exception:
-        pass
-    s = str(nombre or "")
-    if "—" in s:
-        part = s.split("—")[-1].strip().upper().replace(" ", "")
-        if 1 <= len(part) <= 12 and part.replace(".", "").replace("-", "").isalnum():
-            return _norm(part)
-    head = s.split("—")[0].strip().upper()
-    if head in ("ISA", "GEB", "CELSIA", "ECOPETROL", "EPM", "BVC", "ENELAM"):
-        return _norm(head)
-    return None
+            tk_params = _norm(t)
+            break
+    if tk_nombre and tk_params:
+        if _base(tk_nombre) == _base(tk_params):
+            return tk_nombre
+        # Params de OTRA empresa (p.ej. AAPL tras elegir ISA) → ignorar
+        return tk_nombre
+    if tk_nombre:
+        return tk_nombre
+    return tk_params
 
 
 def _es_mercado_us(moneda=None, mercado=None, ticker=None, nombre=None):
@@ -2321,16 +2351,39 @@ def _es_mercado_us(moneda=None, mercado=None, ticker=None, nombre=None):
 
 def _alinear_moneda_y_precio(nombre):
     """
-    Alinea moneda del modelo y del precio.
-    BVC/.CL → COP/COP. US (AAPL, MSFT…) → USD/USD.
-    Nunca deja modelo USD con precio COP en el mismo emisor.
+    Alinea moneda/precio de LA empresa `nombre`.
+    No reutiliza ticker ni precio de otra empresa (p.ej. AAPL tras elegir ISA).
     """
-    p = dict(st.session_state.get("params") or {})
-    ticker = _inferir_ticker_yf(nombre, p)
+    # Ticker siempre desde el nombre (ignora params de otra empresa)
+    ticker = _inferir_ticker_yf(nombre, {})
     if hasattr(L, "asegurar_sufijo_cl_bvc") and ticker:
         ticker = L.asegurar_sufijo_cl_bvc(ticker) or ticker
 
-    # Fuente de verdad de monedas en la lógica
+    # Params base: catálogo de ESTA empresa, no el session completo de otra
+    p = {}
+    try:
+        if hasattr(L, "params_empresa"):
+            p = dict(L.params_empresa(nombre) or {})
+    except Exception:
+        p = {}
+    # Conservar overrides del usuario solo si son de la misma empresa
+    prev = dict(st.session_state.get("params") or {})
+    prev_tk = str(prev.get("ticker_yf") or prev.get("ticker") or "").upper()
+    same = False
+    if ticker and prev_tk:
+        b1 = prev_tk[:-3] if prev_tk.endswith(".CL") else prev_tk.split(".")[0]
+        b2 = str(ticker).upper()
+        b2 = b2[:-3] if b2.endswith(".CL") else b2.split(".")[0]
+        same = (b1 == b2)
+    if same:
+        # mismos overrides de valoración del usuario
+        for k in ("de_ratio", "kd", "tax", "g", "capex_extra", "beta_u", "capital_invertido",
+                  "deuda_neta", "caja", "nci", "otros_claims", "asociados", "acciones",
+                  "exit_multiple", "horizonte"):
+            if k in prev and prev[k] is not None:
+                p[k] = prev[k]
+    # else: partimos limpio del catálogo de la empresa actual
+
     mm, mp = "COP", "COP"
     try:
         if hasattr(L, "monedas_alineadas_por_ticker"):
@@ -2346,11 +2399,14 @@ def _alinear_moneda_y_precio(nombre):
         else:
             mm, mp = "USD", "USD"
 
+    # Precio fresco SOLO del ticker de esta empresa
     precio = None
     try:
-        if ticker:
+        if hasattr(L, "resolver_precio_mercado"):
+            precio = L.resolver_precio_mercado(nombre)
+        if (precio is None or float(precio) <= 0) and ticker:
             import yfinance as yf
-            t = yf.Ticker(ticker)
+            t = yf.Ticker(str(ticker))
             info = {}
             try:
                 info = getattr(t, "info", None) or {}
@@ -2373,13 +2429,22 @@ def _alinear_moneda_y_precio(nombre):
                     pass
     except Exception:
         pass
+    try:
+        precio = float(precio) if precio is not None else None
+        if precio is not None and precio <= 0:
+            precio = None
+    except Exception:
+        precio = None
 
     p["moneda"] = mm
     p["precio_moneda"] = mp
     p["moneda_precio"] = mp
     if ticker:
         p["ticker_yf"] = ticker
-    if precio is not None and precio > 0:
+    # Borrar precio ajeno; solo guardar el de este ticker
+    p.pop("precio", None)
+    p.pop("precio_mercado", None)
+    if precio is not None:
         p["precio"] = precio
         p["precio_mercado"] = precio
 
@@ -2558,6 +2623,14 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
     """Programa cambio de empresa para el próximo run (no mutar keys de widgets ya creados)."""
     st.session_state["_pending_empresa"] = display_name
     st.session_state["empresa_sel"] = display_name
+    # Limpiar datos de la empresa anterior (evita precio/ticker AAPL en ficha ISA)
+    for _k in (
+        "precio_mercado_alineado", "moneda_precio_alineada", "fx_mismatch",
+        "tab4_comite_ia_html", "tab4_comite_empresa", "resultados",
+    ):
+        st.session_state.pop(_k, None)
+    st.session_state["resultados"] = {}
+    st.session_state["params"] = {}
     if params_tuple is not None and len(params_tuple) >= 14:
         keys = [
             "de_ratio", "kd", "tax", "g", "beta_u",
@@ -3255,6 +3328,7 @@ def main():
                 return default
 
         def _extraer_kpis_comite():
+            """KPIs y precio de la empresa actualmente seleccionada (sidebar), no de otra."""
             res = st.session_state.get("resultados") or {}
             wacc_calc = float(w.get("wacc", 0.10) if isinstance(w, dict) else 0.10)
             ke_calc = float(w.get("ke", 0.12) if isinstance(w, dict) else 0.12)
@@ -3262,7 +3336,19 @@ def main():
             val_ev = 0.0
             val_equity = 0.0
             vps_modelo = 0.0
-            precio_mercado = _safe_float(st.session_state.get("precio_mercado_alineado"), 0.0)
+            # Precio y ticker de ESTA empresa (nunca session de AAPL si estamos en ISA)
+            try:
+                _alinear_moneda_y_precio(empresa)
+            except Exception:
+                pass
+            precio_mercado = 0.0
+            try:
+                if hasattr(L, "resolver_precio_mercado"):
+                    precio_mercado = _safe_float(L.resolver_precio_mercado(empresa), 0.0)
+            except Exception:
+                precio_mercado = 0.0
+            if precio_mercado <= 0:
+                precio_mercado = _safe_float(st.session_state.get("precio_mercado_alineado"), 0.0)
             upside = 0.0
             mon_m = str((st.session_state.get("params") or {}).get("moneda") or moneda or "COP").upper()
 
@@ -3363,8 +3449,10 @@ def main():
                                 break
                 except Exception:
                     pass
+            ticker_ctx = _inferir_ticker_yf(empresa, {}) or "—"
             return {
                 "empresa": empresa,
+                "ticker": ticker_ctx,
                 "moneda": mon_m,
                 "moneda_precio": mon_px,
                 "monedas_alineadas": monedas_ok,
@@ -3392,7 +3480,7 @@ def main():
                 "apalancamiento D/E), análisis de sensibilidad, valoración de escenarios y detección de eventos atípicos.\n"
                 "---\n"
                 "### CONTEXTO DE ENTRADA (Calculado por el Modelo Cuantitativo)\n"
-                f"- **Empresa Objetivo / Ticker:** {ctx['empresa']}\n"
+                f"- **Empresa Objetivo:** {ctx['empresa']} · **Ticker:** {ctx.get('ticker', '—')}\n"
                 f"- **Moneda del modelo (EEFF):** {ctx.get('moneda', 'USD')} | "
                 f"**Moneda de cotización:** {ctx.get('moneda_precio', ctx.get('moneda', 'USD'))} | "
                 f"**Alineadas:** {'SÍ' if ctx.get('monedas_alineadas', True) else 'NO — no uses upside sin FX'}\n"
