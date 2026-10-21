@@ -2481,8 +2481,15 @@ def main():
             asociados = st.number_input(
                 "Asociados", value=float(p.get("asociados", 0) or 0), step=50.0, key=f"as_{ek}"
             )
+            _acc0 = p.get("acciones")
+            if _acc0 is None or float(_acc0 or 0) <= 0:
+                try:
+                    _acc0 = L.resolver_acciones_millones(empresa, None)
+                except Exception:
+                    _acc0 = 0
             acciones = st.number_input(
-                "Acciones (M)", value=float(p.get("acciones") or 0), step=1.0, key=f"acc_{ek}"
+                "Acciones (M)", value=float(_acc0 or 0), step=1.0, key=f"acc_{ek}",
+                help="Millones de acciones diluidas. Si queda en 0, el modelo intenta obtenerlas de Yahoo.",
             )
             exit_multiple = st.slider(
                 "Exit EV/EBITDA", 0.0, 40.0, float(p.get("exit_multiple", 9) or 9), 0.5, key=f"em_{ek}"
@@ -2523,6 +2530,15 @@ def main():
     # Streamlit widgets already wrote to session; read explicit values we set above in this run
     archivo = _archivo_para_logic()
     usar_publicos = st.session_state.get("usar_publicos", True)
+
+    # Resolver acciones/precio si el slider quedó en 0 (empresas Yahoo recién cargadas)
+    try:
+        if acciones is None or float(acciones or 0) <= 0:
+            acciones = L.resolver_acciones_millones(empresa, acciones) or 0.0
+            if acciones and acciones > 0:
+                st.session_state.setdefault("params", {})["acciones"] = float(acciones)
+    except Exception:
+        pass
 
     w = _wacc_quick(de_ratio, kd, tax, beta_u, rf, erp, crp)
     moneda = (st.session_state.get("params") or {}).get("moneda", "COP")
