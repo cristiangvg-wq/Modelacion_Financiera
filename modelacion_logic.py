@@ -2673,6 +2673,25 @@ def costo_equity_capm(beta_l, rf=0.09, erp=0.06, crp=0.0):
     return float(rf) + float(beta_l) * float(erp) + float(crp or 0.0)
 
 
+
+def _normalizar_yield(y):
+    """Yahoo: yield como fracción (0.03) o como % (3.0). Devuelve fracción 0-1 o None."""
+    if y is None:
+        return None
+    try:
+        v = float(y)
+    except Exception:
+        return None
+    if not np.isfinite(v) or v < 0:
+        return None
+    if v > 1.0:
+        v = v / 100.0
+    if v > 0.25:
+        return None
+    return v
+
+
+
 def procedencia_datos(mensaje_carga, ticker_yf=None, mkt=None):
     """Clasifica la calidad/origen de los datos para gobernanza."""
     msg = (mensaje_carga or "").lower()
@@ -2880,9 +2899,7 @@ def _metrics_mercado_yahoo(ticker_yf):
         pe = _safe_float(info.get("trailingPE") or info.get("forwardPE"))
         ev_ebitda = _safe_float(info.get("enterpriseToEbitda"))
         beta = _safe_float(info.get("beta"))
-        div_y = _safe_float(info.get("dividendYield"))
-        if div_y is not None and div_y > 1:  # a veces viene en %
-            div_y = div_y / 100.0
+        div_y = _normalizar_yield(_safe_float(info.get("dividendYield")))
         currency = info.get("currency") or ""
         target = _safe_float(info.get("targetMeanPrice") or info.get("targetMedianPrice"))
         rec = info.get("recommendationKey") or info.get("averageAnalystRating") or ""
@@ -3417,7 +3434,6 @@ def valoracion_dcf(
     bridge = {
         "Enterprise Value": ev,
         "(-) Deuda neta": -deuda_neta,
-        "(+) Caja y equivalentes": caja,
         "(-) Interés minoritario (NCI)": -nci,
         "(-) Otros claims": -otros_claims,
         "(+) Asociados / JV": asociados,
@@ -3428,7 +3444,29 @@ def valoracion_dcf(
         "% del EV en valor terminal": (tv_pct_ev * 100 if tv_pct_ev is not None else 0.0),
         "g_terminal_usada": g_use,
         "WACC": wacc,
+        "deuda_es_bruta": bool(deuda_es_bruta),
     }
+    # Solo listar caja en el puente si se sumó (deuda bruta). Si deuda ya es neta, anotar.
+    if deuda_es_bruta:
+        # Insertar caja después de deuda neta en el dict ordenado
+        bridge = {
+            "Enterprise Value": ev,
+            "(-) Deuda bruta": -deuda_neta,
+            "(+) Caja y equivalentes": caja,
+            "(-) Interés minoritario (NCI)": -nci,
+            "(-) Otros claims": -otros_claims,
+            "(+) Asociados / JV": asociados,
+            "Equity atribuible": equity,
+            "FCFF usado en TV" + (" (normalizado N+1)" if reinv_term is not None else " (último año)"): (
+                float(nopat_final) * (1 + g_use) * (1 - reinv_term) if reinv_term is not None else fcff_tv),
+            "Reinversión terminal (% NOPAT)": (reinv_term * 100 if reinv_term is not None else 0.0),
+            "% del EV en valor terminal": (tv_pct_ev * 100 if tv_pct_ev is not None else 0.0),
+            "g_terminal_usada": g_use,
+            "WACC": wacc,
+            "deuda_es_bruta": True,
+        }
+    else:
+        bridge["Nota puente"] = "Deuda ya neta de caja; la caja no se suma otra vez."
     if nota_tv:
         bridge["Nota TV"] = nota_tv
 

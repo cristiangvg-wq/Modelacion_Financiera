@@ -2844,8 +2844,13 @@ def main():
             c4.metric("Upside", _k("Upside %", _k("Upside")))
 
             c5, c6, c7, c8 = st.columns(4)
-            c5.metric("WACC", f"{_k('WACC %')}%")
-            c6.metric("ROIC", f"{_k('ROIC %')}%")
+            def _pct_label(raw):
+                s = str(raw).strip()
+                if not s or s == "—":
+                    return "—"
+                return s if s.endswith("%") else f"{s}%"
+            c5.metric("WACC", _pct_label(_k("WACC %")))
+            c6.metric("ROIC", _pct_label(_k("ROIC %")))
             c7.metric("VPN proyecto", _k("VPN proyecto", _k("VPN")))
             c8.metric("TIR / Payback", f"{_k('TIR')} · {_k('Payback')}")
 
