@@ -2365,8 +2365,45 @@ def _wacc_quick(de_ratio, kd, tax, beta_u, rf, erp, crp):
 # =============================================================================
 # MAIN
 # =============================================================================
+def _aplicar_empresa_pendiente():
+    """Aplica cambio de empresa ANTES de crear widgets (evita StreamlitWidgetAlreadyInstantiatedError)."""
+    pend = st.session_state.pop("_pending_empresa", None)
+    if not pend:
+        return
+    st.session_state["empresa_sel"] = pend
+    # Solo tocar keys de widgets si aún no se instanciaron en este run (estamos al inicio)
+    st.session_state["select_empresa"] = pend
+    st.session_state["mobile_select_empresa"] = pend
+
+
+def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=True):
+    """Programa cambio de empresa para el próximo run (no mutar keys de widgets ya creados)."""
+    st.session_state["_pending_empresa"] = display_name
+    st.session_state["empresa_sel"] = display_name
+    if params_tuple is not None and len(params_tuple) >= 14:
+        keys = [
+            "de_ratio", "kd", "tax", "g", "beta_u",
+            "capital_invertido", "deuda_neta", "inversion_inicial",
+            "caja", "nci", "otros_claims", "asociados",
+            "acciones", "exit_multiple",
+        ]
+        st.session_state["params"] = {k: params_tuple[i] for i, k in enumerate(keys)}
+    if cargar_params:
+        try:
+            _cargar_params_empresa(display_name)
+        except Exception:
+            pass
+    st.session_state["resultados"] = {}
+    try:
+        L.reset_resultados_sesion(display_name)
+    except Exception:
+        pass
+    st.rerun()
+
+
 def main():
     _init_state()
+    _aplicar_empresa_pendiente()
 
     # ----- Hero -----
     st.markdown(
@@ -2410,20 +2447,8 @@ def main():
                     except Exception as e:
                         ok, html, display_name, params_tuple = False, str(e), None, None
                 if ok and display_name:
-                    st.session_state["empresa_sel"] = display_name
-                    st.session_state["select_empresa"] = display_name
-                    if params_tuple and len(params_tuple) >= 14:
-                        keys = [
-                            "de_ratio", "kd", "tax", "g", "beta_u",
-                            "capital_invertido", "deuda_neta", "inversion_inicial",
-                            "caja", "nci", "otros_claims", "asociados",
-                            "acciones", "exit_multiple",
-                        ]
-                        st.session_state["params"] = {k: params_tuple[i] for i, k in enumerate(keys)}
-                    _cargar_params_empresa(display_name)
-                    st.session_state["resultados"] = {}
                     st.success("Cargada")
-                    st.rerun()
+                    _solicitar_cambio_empresa(display_name, params_tuple=params_tuple)
                 else:
                     st.error("Sin datos")
                     _html(html)
@@ -2436,6 +2461,7 @@ def main():
 
         empresa = st.selectbox("Emisor", options=catalogo, key="select_empresa", label_visibility="collapsed")
         if empresa != st.session_state.get("empresa_sel"):
+            # No asignar select_empresa aquí (el widget ya existe). Solo sincronizar estado y recargar.
             st.session_state["empresa_sel"] = empresa
             _cargar_params_empresa(empresa)
             st.session_state["resultados"] = {}
@@ -2597,22 +2623,16 @@ def main():
     with st.expander("☰ Empresa y datos (abrir aquí en el celular)", expanded=False):
         st.caption("Mismos controles que la barra izquierda. En pantallas pequeñas el menú lateral a veces queda oculto.")
         _cats_m = _listar_empresas()
+        # Sincronizar valor del select móvil sin pisar select_empresa (widget ya creado en sidebar)
+        if "mobile_select_empresa" not in st.session_state or st.session_state.get("mobile_select_empresa") not in _cats_m:
+            st.session_state["mobile_select_empresa"] = empresa if empresa in _cats_m else (_cats_m[0] if _cats_m else "")
         _emp_m = st.selectbox(
             "Empresa / emisor",
             options=_cats_m,
-            index=_cats_m.index(empresa) if empresa in _cats_m else 0,
             key="mobile_select_empresa",
         )
-        if _emp_m != empresa:
-            st.session_state["empresa_sel"] = _emp_m
-            st.session_state["select_empresa"] = _emp_m
-            _cargar_params_empresa(_emp_m)
-            st.session_state["resultados"] = {}
-            try:
-                L.reset_resultados_sesion(_emp_m)
-            except Exception:
-                pass
-            st.rerun()
+        if _emp_m and _emp_m != st.session_state.get("empresa_sel"):
+            _solicitar_cambio_empresa(_emp_m)
         _tq_m = st.text_input("Descargar ticker Yahoo", placeholder="AAPL", key="mobile_ticker")
         if st.button("Descargar ticker", key="mobile_dl", type="primary"):
             with st.spinner("Yahoo…"):
@@ -2621,20 +2641,8 @@ def main():
                 except Exception as e:
                     ok, html, display_name, params_tuple = False, str(e), None, None
             if ok and display_name:
-                st.session_state["empresa_sel"] = display_name
-                st.session_state["select_empresa"] = display_name
-                if params_tuple and len(params_tuple) >= 14:
-                    keys = [
-                        "de_ratio", "kd", "tax", "g", "beta_u",
-                        "capital_invertido", "deuda_neta", "inversion_inicial",
-                        "caja", "nci", "otros_claims", "asociados",
-                        "acciones", "exit_multiple",
-                    ]
-                    st.session_state["params"] = {k: params_tuple[i] for i, k in enumerate(keys)}
-                _cargar_params_empresa(display_name)
-                st.session_state["resultados"] = {}
                 st.success(f"Cargada: {display_name}")
-                st.rerun()
+                _solicitar_cambio_empresa(display_name, params_tuple=params_tuple)
             else:
                 st.error("No se pudo descargar")
                 _html(html)
