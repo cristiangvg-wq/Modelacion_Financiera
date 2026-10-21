@@ -1925,6 +1925,96 @@ def normalizar_serie_robusta(serie, metodo="hampel", k=3.5):
 
 
 
+
+def enriquecer_metricas_ficha(nombre_empresa=None, emp=None, ticker=None, mkt=None, precio=None, mon="COP"):
+    """
+    Completa market_cap / beta / P/E para la ficha.
+    Orden: Yahoo (mkt) → segundo fetch → acciones×precio → beta del catálogo (apalancada).
+    """
+    emp = emp or {}
+    mkt = mkt or {}
+    out = {
+        "market_cap": _finite_or_none(mkt.get("market_cap")),
+        "beta": _finite_or_none(mkt.get("beta")),
+        "pe": _finite_or_none(mkt.get("pe")),
+        "beta_nota": "",
+        "pe_nota": "",
+        "mcap_nota": "",
+    }
+    precio = _finite_or_none(precio if precio is not None else mkt.get("precio"))
+    ticker = ticker or emp.get("ticker_yf") or emp.get("ticker_bvc")
+    if ticker:
+        try:
+            ticker = asegurar_sufijo_cl_bvc(ticker)
+        except Exception:
+            pass
+
+    # 2º intento Yahoo
+    if (out["market_cap"] is None or out["beta"] is None or out["pe"] is None) and ticker and HAS_YF:
+        try:
+            m2 = _proveedor_yahoo(ticker)
+            if m2 and m2.get("ok"):
+                if out["market_cap"] is None:
+                    out["market_cap"] = _finite_or_none(m2.get("market_cap"))
+                if out["beta"] is None:
+                    out["beta"] = _finite_or_none(m2.get("beta"))
+                if out["pe"] is None:
+                    out["pe"] = _finite_or_none(m2.get("pe"))
+                if precio is None:
+                    precio = _finite_or_none(m2.get("precio"))
+        except Exception:
+            pass
+
+    # Capitalización = acciones (millones en catálogo) × 1e6 × precio
+    if out["market_cap"] is None and precio and precio > 0:
+        acc_m = None
+        params = emp.get("params") or {}
+        acc_m = _finite_or_none(params.get("acciones"))
+        if acc_m is None and nombre_empresa:
+            try:
+                if nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
+                    acc_m = _finite_or_none(
+                        (_EMPRESAS_CATALOGO_INMUTABLE[nombre_empresa].get("params") or {}).get("acciones")
+                    )
+            except Exception:
+                pass
+        if acc_m is None and nombre_empresa:
+            try:
+                p = params_empresa(nombre_empresa) or {}
+                acc_m = _finite_or_none(p.get("acciones"))
+            except Exception:
+                pass
+        if acc_m and acc_m > 0:
+            # Si acciones ya parecen unidades (>> 1e5), no multiplicar por 1e6
+            if acc_m >= 1e5:
+                out["market_cap"] = acc_m * precio
+            else:
+                out["market_cap"] = acc_m * 1e6 * precio
+            out["mcap_nota"] = " ≈"
+
+    # Beta: Yahoo o β apalancada del catálogo (βu·(1+(1-t)·D/E))
+    if out["beta"] is None:
+        try:
+            params = emp.get("params") or {}
+            if nombre_empresa and nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
+                params = {**(_EMPRESAS_CATALOGO_INMUTABLE[nombre_empresa].get("params") or {}), **params}
+            bu = _finite_or_none(params.get("beta_u"))
+            de = _finite_or_none(params.get("de_ratio"))
+            tax = _finite_or_none(params.get("tax")) or 0.35
+            if bu is not None:
+                if de is not None and de >= 0:
+                    out["beta"] = bu * (1.0 + (1.0 - tax) * de)
+                else:
+                    out["beta"] = bu
+                out["beta_nota"] = " *"  # indica estimado de modelo
+        except Exception:
+            pass
+
+    # P/E: si hay EPS en un fetch previo no lo tenemos; dejar N/D si no hay
+    # (no inventar P/E del DCF)
+    return out
+
+
 def card_empresa_seleccionada(nombre_empresa):
     """Ficha de empresa en español. Precio y métricas SOLO del emisor `nombre_empresa`."""
     from html import escape
@@ -1948,6 +2038,8 @@ def card_empresa_seleccionada(nombre_empresa):
     mkt = obtener_datos_mercado_bvc(_tk_card, ticker_bvc=emp.get("ticker_bvc"))
     _px = _finite_or_none(mkt.get("precio"))
     mon = mkt.get("moneda") or emp.get("moneda_precio") or emp.get("moneda") or "COP"
+    if str(_tk_card or "").upper().endswith(".CL"):
+        mon = "COP"
     precio_txt = f"{_px:,.2f} {mon}" if _px is not None else "No disponible"
     _ch = _finite_or_none(mkt.get("cambio_pct"))
     if _ch is not None:
@@ -1956,36 +2048,27 @@ def card_empresa_seleccionada(nombre_empresa):
         cambio_txt = f'<span style="color:{color};font-weight:700">{signo}{_ch:.2f}%</span>'
     else:
         cambio_txt = '<span style="color:#94A3B8">—</span>'
-    _beta = _finite_or_none(mkt.get("beta"))
-    _pe = _finite_or_none(mkt.get("pe"))
-    _mcap = _finite_or_none(mkt.get("market_cap"))
-    # Si Yahoo no trajo métricas, reintento dedicado (info a veces llega en 2ª llamada)
-    if (_beta is None or _pe is None or _mcap is None) and _tk_card and HAS_YF:
-        try:
-            _m2 = _metrics_mercado_yahoo(_tk_card)
-            if _m2 and _m2.get("ok"):
-                if _beta is None:
-                    _beta = _finite_or_none(_m2.get("beta"))
-                if _pe is None:
-                    _pe = _finite_or_none(_m2.get("pe"))
-                if _mcap is None:
-                    _mcap = _finite_or_none(_m2.get("market_cap"))
-                if _mcap is None and _finite_or_none(_m2.get("precio")) and _finite_or_none(mkt.get("precio")):
-                    pass
-        except Exception:
-            pass
-    # Capitalización aproximada: acciones del catálogo (millones) × precio
-    if _mcap is None:
-        try:
-            acc_m = _finite_or_none((emp.get("params") or {}).get("acciones"))
-            px = _finite_or_none(mkt.get("precio"))
-            if acc_m and px and acc_m > 0 and px > 0:
-                _mcap = acc_m * 1e6 * px  # acciones en millones → unidades
-        except Exception:
-            pass
-    beta_txt = f"{_beta:.2f}" if _beta is not None else "N/D"
-    pe_txt = f"{_pe:.1f}x" if _pe is not None else "N/D"
+
+    # --- Métricas de ficha (Yahoo + cálculos locales; nunca dejar todo en N/D sin intentar) ---
+    met = enriquecer_metricas_ficha(
+        nombre_empresa=nombre_empresa,
+        emp=emp,
+        ticker=_tk_card,
+        mkt=mkt,
+        precio=_px,
+        mon=mon,
+    )
+    _beta = met.get("beta")
+    _pe = met.get("pe")
+    _mcap = met.get("market_cap")
+    beta_nota = met.get("beta_nota") or ""
+    pe_nota = met.get("pe_nota") or ""
+    mcap_nota = met.get("mcap_nota") or ""
+    beta_txt = f"{_beta:.2f}{beta_nota}" if _beta is not None else "N/D"
+    pe_txt = f"{_pe:.1f}x{pe_nota}" if _pe is not None else "N/D"
     mc_txt = formatear_market_cap(_mcap, mon)
+    if _mcap is not None and mcap_nota:
+        mc_txt = f"{mc_txt}{mcap_nota}"
 
     ticker = _tk_card or emp.get("ticker_yf") or emp.get("ticker_bvc") or "—"
     es_bvc = bool(str(ticker).upper().endswith(".CL") or (
