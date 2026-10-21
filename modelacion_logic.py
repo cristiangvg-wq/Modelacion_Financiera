@@ -651,17 +651,21 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
         display_name = f"{name} — {used_ticker}"
 
     # financialCurrency = moneda de los EEFF (modelo); currency = moneda del precio de cotización.
-    # En ADRs (ej. EC) pueden diferir: EEFF en COP, precio en USD → upside no comparable sin FX.
-    fin_cur = (info.get("financialCurrency") or info.get("currency") or "USD")
-    px_cur = (info.get("currency") or fin_cur)
-    if isinstance(fin_cur, str) and fin_cur.upper() in ("US$", "U$S"):
-        fin_cur = "USD"
-    if isinstance(px_cur, str) and px_cur.upper() in ("US$", "U$S"):
+    # En ADRs reales (ej. EC) pueden diferir: EEFF en COP, precio en USD → upside no comparable sin FX.
+    # Para AAPL/MSFT/etc. ambas deben ser USD (nunca default COP).
+    fin_cur = _inferir_moneda_ticker(
+        used_ticker,
+        info={"financialCurrency": info.get("financialCurrency"), "currency": info.get("currency")},
+        fallback="USD",
+    )
+    px_cur = (info.get("currency") or "").strip().upper() or fin_cur
+    if px_cur == "COP" and fin_cur == "USD" and not str(used_ticker).upper().endswith((".CL", ".CO")):
         px_cur = "USD"
-    # Propagar moneda también dentro de params (UI / CAPM / VPS)
-    params["moneda"] = fin_cur
-    params["moneda_precio"] = px_cur
-    params["currency"] = px_cur
+    if isinstance(params, dict):
+        params = dict(params)
+        params["moneda"] = fin_cur
+        params["precio_moneda"] = px_cur
+        params["ticker_yf"] = used_ticker
     EMPRESAS_RUNTIME[display_name] = {
         "ticker_bvc": used_ticker.split(".")[0],
         "ticker_yf": used_ticker,
@@ -986,7 +990,7 @@ def _proveedor_yahoo(ticker_yf):
                 if ok else f"Yahoo no devolvió precio usable para {ticker_yf}."
             ),
             "precio": precio,
-            "moneda": info.get("currency") or "COP",
+            "moneda": _inferir_moneda_ticker(ticker_yf, info=info, fallback="USD"),
             "cambio_pct": cambio_pct,
             "market_cap": mcap,
             "beta": beta,
@@ -1085,7 +1089,7 @@ def _proveedor_api_key(ticker_yf, ticker_bvc=None):
         beta = pick("beta")
         pe = pick("pe", "trailingPE", "forwardPE", "p_e")
         ev_ebitda = pick("enterpriseToEbitda", "ev_ebitda", "evEbitda", "EV_EBITDA")
-        moneda = pick("currency", "moneda") or "COP"
+        moneda = pick("currency", "moneda") or _inferir_moneda_ticker(ticker_yf, fallback="USD")
 
         try:
             precio = float(precio) if precio is not None else None
@@ -1548,52 +1552,87 @@ def formatear_market_cap(mc, moneda="COP"):
     return f"{mc:,.0f} {moneda}"
 
 
+def _inferir_moneda_ticker(ticker_yf=None, info=None, fallback=None):
+    """
+    Moneda coherente con el ticker / info Yahoo.
+    - Sufijos locales (.CL, .MX, …) → moneda local.
+    - Tickers US sin sufijo (AAPL, MSFT, …) → USD.
+    - Nunca default ciego a COP para un emisor US.
+    """
+    info = info or {}
+    for key in ("financialCurrency", "currency"):
+        c = (info.get(key) or "").strip().upper()
+        if c:
+            return c
+    tk = (ticker_yf or "").strip().upper()
+    if not tk:
+        return (fallback or "USD").upper()
+    _SUF = {
+        ".CL": "COP", ".CO": "COP",
+        ".MX": "MXN",
+        ".SA": "BRL",
+        ".BA": "ARS",
+        ".L": "GBP", ".IL": "GBP",
+        ".T": "JPY", ".PA": "EUR", ".DE": "EUR", ".AS": "EUR",
+        ".HK": "HKD", ".SS": "CNY", ".SZ": "CNY",
+        ".TO": "CAD", ".V": "CAD",
+        ".AX": "AUD", ".NZ": "NZD",
+    }
+    for suf, mon in _SUF.items():
+        if tk.endswith(suf):
+            return mon
+    base = tk.split(".")[0]
+    if base.isalpha() and 1 <= len(base) <= 5:
+        return "USD"
+    return (fallback or "USD").upper()
+
+
 def moneda_empresa(nombre_o_emp):
     """Moneda de los EEFF / modelo (catálogo COP; Yahoo = financialCurrency)."""
     if isinstance(nombre_o_emp, dict):
         emp = nombre_o_emp
     else:
         emp = resolver_empresa(nombre_o_emp) or {}
-    # params.moneda a veces guarda la divisa antes que emp["moneda"]
-    mon = (
-        (emp.get("moneda") or "")
-        or ((emp.get("params") or {}).get("moneda") or "")
-        or ((emp.get("params") or {}).get("currency") or "")
-    )
-    mon = str(mon).strip().upper()
-    if mon in ("US$", "U$S"):
-        mon = "USD"
-    if mon:
+    mon = (emp.get("moneda") or (emp.get("params") or {}).get("moneda") or "").strip().upper()
+    if mon and mon not in ("DEFINIR", "NONE", "N/A"):
         return mon
-    tk = str(emp.get("ticker_yf") or "")
+    tk = emp.get("ticker_yf") or (emp.get("params") or {}).get("ticker_yf") or ""
     if tk.endswith(".CL") or (emp.get("ticker_bvc") and not tk):
         return "COP"
-    # Tickers US sin sufijo (AAPL, MSFT) o .US → USD
-    if tk and not any(tk.endswith(s) for s in (".CL", ".MX", ".SA", ".BA", ".L", ".T", ".HK", ".TO")):
-        if "." not in tk or tk.endswith(".US"):
-            return "USD"
-    if tk.endswith((".MX",)):
-        return "MXN"
-    if tk.endswith((".SA",)):
-        return "BRL"
-    if tk.endswith((".L",)):
-        return "GBP"
-    return "USD" if emp.get("fuente", "").startswith("Yahoo") else "COP"
+    return _inferir_moneda_ticker(tk, fallback="COP" if emp.get("ticker_bvc") else "USD")
 
 
 def moneda_precio_empresa(nombre_o_emp, mkt=None):
     """Moneda del precio de cotización (puede diferir de la de EEFF en ADRs)."""
-    if mkt and mkt.get("moneda"):
-        return str(mkt["moneda"]).upper().replace("US$", "USD")
     if isinstance(nombre_o_emp, dict):
         emp = nombre_o_emp
     else:
         emp = resolver_empresa(nombre_o_emp) or {}
-    mon = (emp.get("moneda_precio") or emp.get("moneda") or (emp.get("params") or {}).get("currency") or "")
-    mon = str(mon).strip().upper().replace("US$", "USD")
-    if mon:
+    tk = emp.get("ticker_yf") or (emp.get("params") or {}).get("ticker_yf") or ""
+
+    if mkt and mkt.get("moneda"):
+        mp = str(mkt["moneda"]).upper().strip()
+        # Corregir default erróneo COP en tickers US (AAPL, MSFT, …)
+        if mp == "COP" and tk and not str(tk).upper().endswith((".CL", ".CO")):
+            inferred = _inferir_moneda_ticker(tk)
+            if inferred != "COP":
+                return inferred
+        return mp
+
+    mp = (emp.get("moneda_precio") or "").strip().upper()
+    if mp:
+        if mp == "COP" and tk and not str(tk).upper().endswith((".CL", ".CO")):
+            return _inferir_moneda_ticker(tk)
+        return mp
+
+    mon = (emp.get("moneda") or (emp.get("params") or {}).get("moneda") or "").strip().upper()
+    if mon and mon not in ("DEFINIR", "NONE", "N/A"):
         return mon
-    return moneda_empresa(emp)
+
+    return _inferir_moneda_ticker(
+        tk,
+        fallback="COP" if (emp.get("ticker_bvc") or str(tk).upper().endswith(".CL")) else "USD",
+    )
 
 
 def etiqueta_unidad(moneda=None, nombre_empresa=None):
@@ -1802,281 +1841,7 @@ def _codigo_mercado(country, currency=None, ticker_yf=None):
 def ticker_yf_empresa(nombre_empresa):
     """Ticker Yahoo de catálogo o runtime (empresas no predefinidas)."""
     emp = resolver_empresa(nombre_empresa) or {}
-    tk = emp.get("ticker_yf")
-    if tk:
-        return tk
-    # Fallback: "Apple Inc. — AAPL" / "Microsoft — MSFT"
-    s = str(nombre_empresa or "").strip()
-    if "—" in s:
-        part = s.split("—")[-1].strip().upper().replace(" ", "")
-        if 1 <= len(part) <= 12 and part.replace(".", "").isalnum():
-            return part
-    if " - " in s:
-        part = s.split(" - ")[-1].strip().upper().replace(" ", "")
-        if 1 <= len(part) <= 12 and part.replace(".", "").isalnum():
-            return part
-    # Nombre corto tipo AAPL
-    if s and len(s) <= 12 and s.replace(".", "").isalnum():
-        return s.upper()
-    return None
-
-
-def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None):
-    """Número de acciones en **millones** para VPS.
-
-    Prioridad: UI (>0) → params de la empresa → sharesOutstanding de Yahoo info → marketCap/precio.
-    """
-    # UI
-    try:
-        if acciones_ui is not None and str(acciones_ui).strip() not in ("", "None", "nan"):
-            a = float(acciones_ui)
-            if a > 0 and a == a:
-                return float(a)
-    except Exception:
-        pass
-    # Params empresa
-    try:
-        emp = resolver_empresa(nombre_empresa) if nombre_empresa else None
-        if emp:
-            a = (emp.get("params") or {}).get("acciones")
-            if a is not None and float(a) > 0:
-                return float(a)
-    except Exception:
-        emp = None
-    # Yahoo info
-    info = info or {}
-    try:
-        sh = _safe_float(info.get("sharesOutstanding") or info.get("impliedSharesOutstanding"))
-        if sh is not None and sh > 0:
-            if sh >= 1e6:
-                return round(sh / 1e6, 4)
-            if sh >= 1e3:
-                return round(sh / 1e3, 4)
-            return round(sh, 4)
-    except Exception:
-        pass
-    # marketCap / precio
-    try:
-        mcap = _safe_float(info.get("marketCap"))
-        px = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
-        if mcap and px and px > 0:
-            sh = mcap / px
-            return round(sh / 1e6, 4) if sh >= 1e6 else round(sh, 4)
-    except Exception:
-        pass
-    # Live Yahoo si hay ticker (incluye parseo de "Nombre — TICKER")
-    try:
-        tk = ticker_yf_empresa(nombre_empresa) if nombre_empresa else None
-        if tk and HAS_YF:
-            t_obj = yf.Ticker(tk)
-            inf = {}
-            try:
-                inf = t_obj.info or {}
-            except Exception:
-                inf = {}
-            sh = _safe_float(inf.get("sharesOutstanding") or inf.get("impliedSharesOutstanding"))
-            if sh is None:
-                try:
-                    fi = getattr(t_obj, "fast_info", None)
-                    if fi is not None:
-                        sh = _safe_float(getattr(fi, "shares", None) or (fi.get("shares") if hasattr(fi, "get") else None))
-                except Exception:
-                    pass
-            if sh is not None and sh > 0:
-                if sh >= 1e6:
-                    return round(sh / 1e6, 4)
-                if sh >= 1e3:
-                    return round(sh / 1e3, 4)
-                return round(float(sh), 4)
-            mcap = _safe_float(inf.get("marketCap"))
-            px = _safe_float(inf.get("regularMarketPrice") or inf.get("currentPrice"))
-            if (mcap is None or px is None):
-                try:
-                    fi = getattr(t_obj, "fast_info", None)
-                    if fi is not None:
-                        if mcap is None:
-                            mcap = _safe_float(getattr(fi, "market_cap", None) or (fi.get("market_cap") if hasattr(fi, "get") else None))
-                        if px is None:
-                            px = _safe_float(getattr(fi, "last_price", None) or (fi.get("last_price") if hasattr(fi, "get") else None))
-                except Exception:
-                    pass
-            if mcap and px and px > 0:
-                return round((mcap / px) / 1e6, 4)
-    except Exception:
-        pass
-    return None
-
-
-def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
-    """Precio de mercado en moneda de cotización. UI → conector Yahoo/runtime."""
-    try:
-        if precio_ui is not None and float(precio_ui) > 0:
-            return float(precio_ui)
-    except Exception:
-        pass
-    emp = resolver_empresa(nombre_empresa) if nombre_empresa else None
-    emp = emp or {}
-    tk = emp.get("ticker_yf") or (ticker_yf_empresa(nombre_empresa) if nombre_empresa else None)
-    if not tk:
-        return None
-    try:
-        mkt = obtener_datos_mercado_bvc(tk, ticker_bvc=emp.get("ticker_bvc"))
-        if mkt and mkt.get("ok") and mkt.get("precio") is not None:
-            return float(mkt["precio"])
-    except Exception:
-        pass
-    return None
-
-
-def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda_modelo=None, moneda_precio=None):
-    """VPS y upside con recalibración de unidades.
-
-    Convención:
-      equity          → miles de millones (moneda del modelo)
-      acciones_millones → millones de acciones
-      VPS = equity * 1e9 / (acciones * 1e6) = equity * 1000 / acciones
-
-    Si el VPS queda órdenes de magnitud lejos del precio, prueba reescalar acciones
-    (error típico: Yahoo en unidades vs ya-en-millones).
-    """
-    vps = None
-    upside = None
-    acciones_used = None
-    nota = None
-    try:
-        eq = float(equity)
-        if acciones_millones is None or float(acciones_millones) <= 0:
-            return {"value_per_share": None, "upside_pct": None, "acciones": None, "nota_vps": "Sin acciones: no se calcula VPS."}
-        acc = float(acciones_millones)
-        acciones_used = acc
-        vps = (eq * 1000.0) / acc
-
-        mm = (moneda_modelo or "").upper().strip()
-        mp = (moneda_precio or "").upper().strip()
-        monedas_ok = (not mm or not mp or mm == mp)
-
-        if precio_mercado is not None and float(precio_mercado) > 0:
-            px = float(precio_mercado)
-            # Recalibrar acciones si VPS está muy lejos del precio (error de escala)
-            if vps is not None and px > 0 and (vps < 0.01 * px or vps > 100.0 * px):
-                # Inferir acciones desde equity y precio: acc_mm = equity*1000/px
-                acc_alt = (eq * 1000.0) / px if px else None
-                if acc_alt and acc_alt > 0:
-                    # Probar factores comunes de error de escala en acciones
-                    candidatos = [acc, acc * 1000.0, acc / 1000.0, acc * 1e6, acc / 1e6, acc_alt]
-                    best = acc
-                    best_vps = vps
-                    best_score = abs(np.log(max(vps, 1e-12) / px))
-                    for a in candidatos:
-                        if a is None or a <= 0:
-                            continue
-                        v = (eq * 1000.0) / a
-                        if v <= 0:
-                            continue
-                        score = abs(np.log(max(v, 1e-12) / px))
-                        if score < best_score:
-                            best_score, best, best_vps = score, a, v
-                    if best != acc:
-                        nota = (
-                            f"Acciones recalibradas de {acc:,.2f} a {best:,.2f} M "
-                            f"(VPS alineado al orden del precio de mercado)."
-                        )
-                        acc = best
-                        acciones_used = best
-                        vps = best_vps
-
-            if monedas_ok and vps is not None and px > 0:
-                upside = (vps / px - 1.0) * 100.0
-                if not np.isfinite(upside):
-                    upside = None
-                # Solo anular upside en explosiones numéricas (> 1000 pp); mostrar el resto
-                elif abs(upside) > 1000.0:
-                    nota = (nota or "") + (
-                        f" Upside extremo ({upside:+.0f} pp): revisa WACC, g, bridge o escala de EEFF."
-                    )
-                    # Aún así devolver el número para transparencia (el UI puede matizarlo)
-            elif not monedas_ok:
-                nota = (nota or "") + (
-                    f" Moneda modelo ({mm}) ≠ cotización ({mp}): upside no comparable sin FX."
-                )
-                upside = None
-    except Exception as e:
-        nota = f"VPS no calculable: {e}"
-        vps, upside = None, None
-
-    return {
-        "value_per_share": float(vps) if vps is not None and np.isfinite(vps) else None,
-        "upside_pct": float(upside) if upside is not None and np.isfinite(upside) else None,
-        "acciones": acciones_used,
-        "nota_vps": nota,
-    }
-
-
-
-def forzar_vps_upside(val, nombre_empresa=None, acciones_ui=None, precio=None):
-    """Garantiza VPS/upside en el dict de valoración cuando hay equity.
-
-    Se usa al final de tab2/tab4/tab7 para no dejar N/D si faltó un eslabón intermedio.
-    """
-    if not isinstance(val, dict):
-        return val
-    eq = val.get("Equity_Value")
-    vps = val.get("value_per_share")
-    upside = val.get("upside_pct")
-    acc = val.get("acciones")
-    px = precio if precio is not None else val.get("precio_mercado")
-
-    try:
-        if acc is None or float(acc or 0) <= 0:
-            acc = resolver_acciones_millones(nombre_empresa, acciones_ui)
-    except Exception:
-        pass
-    try:
-        if px is None or float(px or 0) <= 0:
-            px = resolver_precio_mercado(nombre_empresa)
-    except Exception:
-        pass
-
-    mm = moneda_empresa(nombre_empresa) if nombre_empresa else None
-    mp = moneda_precio_empresa(nombre_empresa) if nombre_empresa else None
-
-    need = (
-        vps is None
-        or (isinstance(vps, float) and not np.isfinite(vps))
-        or (upside is None and px is not None)
-    )
-    if need and eq is not None and acc is not None and float(acc) > 0:
-        vu = calcular_vps_y_upside(
-            eq, acc, precio_mercado=px, moneda_modelo=mm, moneda_precio=mp
-        )
-        if vu.get("value_per_share") is not None:
-            val["value_per_share"] = vu["value_per_share"]
-            vps = vu["value_per_share"]
-        if vu.get("upside_pct") is not None:
-            val["upside_pct"] = vu["upside_pct"]
-            upside = vu["upside_pct"]
-        if vu.get("acciones") is not None:
-            val["acciones"] = vu["acciones"]
-        if vu.get("nota_vps"):
-            val["nota_vps"] = vu["nota_vps"]
-            br = val.get("bridge") or {}
-            br["Nota VPS"] = vu["nota_vps"]
-            val["bridge"] = br
-
-    # Último recurso: solo upside si ya hay VPS y precio
-    if (val.get("upside_pct") is None) and vps is not None and px is not None:
-        try:
-            px = float(px)
-            vps = float(vps)
-            if px > 0 and np.isfinite(vps):
-                # Solo si monedas alineadas o desconocidas
-                if (not mm or not mp or str(mm).upper() == str(mp).upper()):
-                    val["upside_pct"] = (vps / px - 1.0) * 100.0
-        except Exception:
-            pass
-    if px is not None:
-        val["precio_mercado"] = px
-    return val
+    return emp.get("ticker_yf")
 
 
 def params_en_blanco():
@@ -2169,38 +1934,16 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["deuda_es_bruta"] = False
         p["deuda_bruta"] = round(total_debt / 1e9, 4)
     if shares is not None and shares > 0:
-        # Yahoo sharesOutstanding casi siempre en unidades (AAPL ~1.5e10).
-        # Convertir siempre a **millones de acciones** para VPS = equity_mm * 1000 / acc_m.
+        # Yahoo suele dar unidades; si ya viene en millones (< 1e5) no dividir de nuevo
         sh = float(shares)
         if sh >= 1e6:
-            p["acciones"] = round(sh / 1e6, 4)  # unidades → millones
-        elif sh >= 100:  # ya parece millones (p.ej. 15100) o miles grandes
-            # Si marketCap/precio implica otro orden, confiar en mcap
-            px_tmp = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
-            if mcap is not None and px_tmp and px_tmp > 0:
-                implied_m = (mcap / px_tmp) / 1e6
-                # Si sh está cerca de implied en millones, usar sh; si no, implied
-                if implied_m > 0 and (sh / implied_m < 0.1 or sh / implied_m > 10):
-                    p["acciones"] = round(implied_m, 4)
-                else:
-                    p["acciones"] = round(sh, 4)
-            else:
-                p["acciones"] = round(sh, 4)
+            p["acciones"] = round(sh / 1e6, 4)  # → millones
+        elif sh >= 1e3:
+            p["acciones"] = round(sh / 1e3, 4)  # miles → millones
         else:
-            p["acciones"] = round(sh, 4)
-        # Cross-check con marketCap / precio (más fiable en mega-caps)
-        px_chk = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
-        if mcap is not None and px_chk and px_chk > 0:
-            implied = (mcap / px_chk) / 1e6  # millones
-            if implied > 0 and p.get("acciones"):
-                ratio = p["acciones"] / implied
-                if ratio < 0.05 or ratio > 20:
-                    p["acciones"] = round(implied, 4)
-                    p["acciones_fuente"] = "marketCap/precio"
-                else:
-                    p["acciones_fuente"] = "sharesOutstanding"
-        # Guardrail absurdo
-        if p.get("acciones") and p["acciones"] > 500_000:
+            p["acciones"] = round(sh, 4)  # ya en millones
+        # Guardrail: más de 100.000 millones de acciones es casi seguro error de escala
+        if p["acciones"] > 100_000:
             p["acciones"] = round(p["acciones"] / 1000.0, 4)
 
     # NCI (interés minoritario) y asociados: solo datos de ESTA empresa
@@ -3132,6 +2875,11 @@ def motor_decision_institucional(
     # Consistencia de moneda (evita tomar USD como COP o viceversa)
     mm = (moneda_modelo or "").upper().strip()
     mp = (moneda_precio or "").upper().strip()
+    # Auto-corrección: default COP erróneo frente a modelo USD (AAPL/MSFT cuando
+    # Yahoo no devolvió currency y el fallback antiguo era COP).
+    if mm == "USD" and mp == "COP":
+        mp = "USD"
+        moneda_precio = "USD"
     if mm and mp and mm != mp:
         alertas.append(
             f"Moneda del modelo ({mm}) distinta de la del precio de mercado ({mp}). "
@@ -3847,19 +3595,27 @@ def valoracion_dcf(
     if nota_tv:
         bridge["Nota TV"] = nota_tv
 
-    # VPS / upside (con recalibración de escala de acciones)
-    _vu = calcular_vps_y_upside(
-        equity,
-        acciones,
-        precio_mercado=precio_mercado,
-        moneda_modelo=None,
-        moneda_precio=None,
-    )
-    vps = _vu.get("value_per_share")
-    upside = _vu.get("upside_pct")
-    acciones_out = _vu.get("acciones") if _vu.get("acciones") is not None else acciones
-    if _vu.get("nota_vps"):
-        bridge["Nota VPS"] = _vu["nota_vps"]
+    vps = None
+    upside = None
+    if acciones is not None and float(acciones) > 0:
+        # Convención de unidades del modelo:
+        #   equity, EV  → miles de millones (moneda del emisor)
+        #   acciones    → millones de acciones
+        #   VPS         → moneda por acción (misma que el precio de mercado)
+        # VPS = equity * 1e9 / (acciones * 1e6) = equity * 1000 / acciones
+        acc = float(acciones)
+        vps = (float(equity) * 1000.0) / acc
+        if precio_mercado is not None and float(precio_mercado) > 0:
+            px = float(precio_mercado)
+            upside = (vps / px - 1.0) * 100.0
+            # Guardrail unidades: upside extremo o VPS/precio órdenes de magnitud aparte
+            if not np.isfinite(upside) or abs(upside) > 400.0:
+                upside = None
+            # Si VPS es < 5% del precio o > 20×, probable error de acciones
+            if px > 0 and (vps < 0.05 * px or vps > 20.0 * px):
+                # Intentar recalibrar acciones si equity y precio implican otra cifra
+                # market_cap implícito del modelo = equity * 1000 / (algo); no forzar VPS
+                upside = None
 
     return {
         "EV": ev,
@@ -3884,9 +3640,8 @@ def valoracion_dcf(
         "bridge": bridge,
         "value_per_share": vps,
         "upside_pct": upside,
-        "acciones": acciones_out,
+        "acciones": acciones,
         "precio_mercado": precio_mercado,
-        "nota_vps": _vu.get("nota_vps"),
     }
 
 
@@ -5374,19 +5129,11 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
             ("Base", 1.00, float(g), wacc),
             ("Optimista", 1.25, g_opt, max(wacc - 0.01, 0.06)),
         ]:
-            acc_res = resolver_acciones_millones(nombre_empresa, acciones)
-            bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res, exit_multiple)
-            # Propagar deuda_es_bruta desde params de la empresa si existe
-            try:
-                _emp2 = resolver_empresa(nombre_empresa) or {}
-                if (_emp2.get("params") or {}).get("deuda_es_bruta"):
-                    bp["deuda_es_bruta"] = True
-            except Exception:
-                pass
+            bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acciones, exit_multiple)
             ebitda_out = float(df_proj["EBITDA"].iloc[-1]) * fac if "EBITDA" in df_proj.columns else None
-            precio = resolver_precio_mercado(nombre_empresa)
+            mkt = obtener_datos_mercado_bvc(EMPRESAS.get(nombre_empresa, {}).get("ticker_yf"))
+            precio = mkt.get("precio") if mkt.get("ok") else None
             val = valorar_con_bridge(_escalar_fcff(df_proj["FCFF"].values, fac), w_adj, g_e, bp, ebitda_salida=ebitda_out, precio_mercado=precio, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj, fac))
-            val = forzar_vps_upside(val, nombre_empresa, acciones, precio=precio)
             escenarios[nombre] = val
             escenarios[nombre]["g"] = g_e
             escenarios[nombre]["WACC"] = w_adj
@@ -5650,18 +5397,11 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, _, _ = calcular_wacc(de_ratio, kd, ke, tax)
-        acc_res = resolver_acciones_millones(nombre_empresa, acciones)
-        bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res, exit_multiple)
-        try:
-            _emp4 = resolver_empresa(nombre_empresa) or {}
-            if (_emp4.get("params") or {}).get("deuda_es_bruta"):
-                bp["deuda_es_bruta"] = True
-        except Exception:
-            pass
-        precio_p = resolver_precio_mercado(nombre_empresa)
+        bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acciones, exit_multiple)
+        mkt_p = obtener_datos_mercado_bvc(ticker_yf_empresa(nombre_empresa))
+        precio_p = mkt_p.get("precio") if mkt_p.get("ok") else None
         ebitda_out = float(df_proj["EBITDA"].iloc[-1]) if "EBITDA" in df_proj.columns else None
         val_base = valorar_con_bridge(df_proj["FCFF"].values, wacc, g, bp, ebitda_salida=ebitda_out, precio_mercado=precio_p, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj))
-        val_base = forzar_vps_upside(val_base, nombre_empresa, acciones, precio=precio_p)
         df_ref = df_proj.copy()
         df_ref["CAPEX"] -= capex_extra
         df_ref["FCFF"] = df_ref["NOPAT"] + df_ref["Depreciacion"] - df_ref["CAPEX"] - df_ref["Delta_NWC"]
@@ -6702,17 +6442,11 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         escenarios = {}
         g_pes = max(0.005, float(g) - 0.01)
         g_opt = min(float(g) + 0.01, wacc - 0.005) if wacc > 0.02 else float(g)
-        acc_res = resolver_acciones_millones(nombre_empresa, acciones)
-        bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res, exit_multiple)
+        bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acciones, exit_multiple)
         emp_sel = resolver_empresa(nombre_empresa) or {}
-        try:
-            if (emp_sel.get("params") or {}).get("deuda_es_bruta"):
-                bp["deuda_es_bruta"] = True
-        except Exception:
-            pass
         tk = emp_sel.get("ticker_yf") or ticker_yf_empresa(nombre_empresa)
         mkt = obtener_datos_mercado_bvc(tk, ticker_bvc=emp_sel.get("ticker_bvc")) if tk else {"ok": False}
-        precio = mkt.get("precio") if mkt.get("ok") else resolver_precio_mercado(nombre_empresa)
+        precio = mkt.get("precio") if mkt.get("ok") else None
         for nombre, fac, g_e, w_adj in [
             ("Pesimista", 0.75, g_pes, wacc + 0.015),
             ("Base", 1.00, float(g), wacc),
@@ -6723,19 +6457,6 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             escenarios[nombre] = val
             escenarios[nombre]["g"] = g_e
             escenarios[nombre]["WACC"] = w_adj
-
-        # Asegurar VPS/upside en todos los escenarios (AAPL y cualquier Yahoo)
-        for _k in list(escenarios.keys()):
-            escenarios[_k] = forzar_vps_upside(
-                escenarios[_k], nombre_empresa, acciones, precio=precio
-            )
-        # Si aún no hay precio, reintentar
-        if precio is None:
-            precio = resolver_precio_mercado(nombre_empresa)
-            for _k in list(escenarios.keys()):
-                escenarios[_k] = forzar_vps_upside(
-                    escenarios[_k], nombre_empresa, acciones, precio=precio
-                )
 
         # ROIC / auditoría
         nopat_prom = df_proj["NOPAT"].mean()
