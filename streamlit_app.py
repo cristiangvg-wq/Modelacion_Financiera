@@ -2846,8 +2846,11 @@ def main():
         except Exception:
             pass
     elif moneda in ("COP", "COL") and moneda_precio in ("USD", "US$"):
-        # Mantener precio Yahoo en USD solo si el modelo está en USD; si modelo es COP, marcar inconsistencia
-        pass
+        # ADR / dual listing: EEFF en COP, cotización en USD → no forzar FX; anular upside implícito
+        st.session_state["fx_mismatch"] = True
+        st.session_state["moneda_precio_alineada"] = moneda_precio
+    else:
+        st.session_state["fx_mismatch"] = False
 
 
     # ----- KPI strip (con burbujas al pasar el cursor) -----
@@ -2887,10 +2890,16 @@ def main():
     _px = st.session_state.get("precio_mercado_alineado")
     _px_txt = f"{float(_px):,.2f} {moneda_precio}" if _px else "—"
     _align_ok = str(moneda).upper().replace("$", "") == str(moneda_precio).upper().replace("$", "")
+    _fx_flag = bool(st.session_state.get("fx_mismatch")) and not _align_ok
     _align_msg = (
         f"Moneda alineada · precio {_px_txt}"
         if _align_ok
-        else f"Revisar FX · modelo {moneda} vs precio {_px_txt}"
+        else (
+            f"Desalineación FX · modelo {moneda} vs cotización {_px_txt}. "
+            "El upside se anula hasta convertir al mismo numeraire."
+            if _fx_flag or not _align_ok
+            else f"Revisar FX · modelo {moneda} vs precio {_px_txt}"
+        )
     )
     st.markdown(
         f'<div class="tf-info"><b>{empresa}</b> · modelo en <b>{moneda}</b> '
@@ -2982,7 +2991,7 @@ def main():
         if consultar:
             with st.spinner("Consultando…"):
                 try:
-                    key_eff = _resolve_gemini_key(ckey) if (cprov or "gemini") == "gemini" else (ckey or None)
+                    key_eff = _resolve_gemini_key(ckey) if (cprov or "gemini") == "gemini" else ((ckey or "").strip() or None)
                     if cprov == "gemini" and not key_eff:
                         key_eff = _resolve_gemini_key(None)
                     _html(
@@ -3347,9 +3356,35 @@ def main():
             if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0:
                 upside = 100.0 * (vps_modelo - precio_mercado) / precio_mercado
 
+            mon_px = str(
+                st.session_state.get("moneda_precio_alineada")
+                or (st.session_state.get("params") or {}).get("precio_moneda")
+                or mon_m
+            ).upper()
+            monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
+            if not monedas_ok:
+                upside = 0.0  # no comparable sin FX
+            decision_modelo = "—"
+            t4 = res.get("tab4")
+            if t4 and isinstance(t4, (list, tuple)) and len(t4) > 0 and t4[0]:
+                # Extraer etiqueta cualitativa del HTML de tab4 si existe
+                decision_modelo = "Ver salida cuantitativa tab4"
+            t7 = res.get("tab7")
+            if t7 and isinstance(t7, (list, tuple)) and len(t7) > 1:
+                try:
+                    kdf = t7[1]
+                    if kdf is not None and hasattr(kdf, "columns") and "Indicador" in list(kdf.columns):
+                        for _, row in kdf.iterrows():
+                            if str(row.get("Indicador", "")).lower() in ("decisión", "decision"):
+                                decision_modelo = str(row.get("Valor", "—"))
+                                break
+                except Exception:
+                    pass
             return {
                 "empresa": empresa,
                 "moneda": mon_m,
+                "moneda_precio": mon_px,
+                "monedas_alineadas": monedas_ok,
                 "precio_mercado": precio_mercado,
                 "vps_modelo": vps_modelo,
                 "upside": upside,
@@ -3360,6 +3395,7 @@ def main():
                 "g": float(g),
                 "val_ev": val_ev,
                 "val_equity": val_equity,
+                "decision_modelo": decision_modelo,
             }
 
         def _prompt_comite_ia(ctx: dict) -> str:
@@ -3374,10 +3410,13 @@ def main():
                 "---\n"
                 "### CONTEXTO DE ENTRADA (Calculado por el Modelo Cuantitativo)\n"
                 f"- **Empresa Objetivo / Ticker:** {ctx['empresa']}\n"
-                f"- **Moneda del modelo y del precio:** {ctx.get('moneda', 'USD')} (unidades alineadas)\n"
+                f"- **Moneda del modelo (EEFF):** {ctx.get('moneda', 'USD')} | "
+                f"**Moneda de cotización:** {ctx.get('moneda_precio', ctx.get('moneda', 'USD'))} | "
+                f"**Alineadas:** {'SÍ' if ctx.get('monedas_alineadas', True) else 'NO — no uses upside sin FX'}\n"
+                f"- **Decisión cuantitativa del modelo (tab4/tab7):** {ctx.get('decision_modelo', '—')}\n"
                 f"- **Precio Actual de Mercado:** {ctx['precio_mercado']:,.2f}\n"
                 f"- **Valor por Acción Según el Modelo (VPS):** {ctx['vps_modelo']:,.2f} "
-                f"(Upside calculado: {ctx['upside']:+.2f}%)\n"
+                f"(Upside calculado: {ctx['upside']:+.2f}% — válido solo si monedas alineadas)\n"
                 f"- **WACC Calculado:** {ctx['wacc_calc']*100:.2f}% | **Ke (CAPM):** {ctx['ke_calc']*100:.2f}% | "
                 f"**ROIC:** {ctx['roic_calc']*100:.2f}%\n"
                 f"- **Estructura D/E:** {ctx['de_ratio']:.2f} | **Crecimiento Terminal (g):** {ctx['g']*100:.2f}%\n"
@@ -3437,7 +3476,7 @@ def main():
                 )
                 st.caption(
                     "Si dejas la API key vacía se usa la de **Consulta IA** (si la escribiste arriba) "
-                    "o la clave Gemini por defecto de la app."
+                    "o st.secrets / variable de entorno GEMINI_API_KEY."
                 )
 
             # Proveedor efectivo: tab4 si el usuario lo cambió; si no, el de Consulta IA
@@ -3446,13 +3485,18 @@ def main():
 
             if st.button("▶ Deliberar en el comité (IA)", type="primary", key="btn_tab4_comite_ia", use_container_width=True):
                 ctx = _extraer_kpis_comite()
+                if not ctx.get("monedas_alineadas", True):
+                    st.warning(
+                        f"Moneda del modelo ({ctx.get('moneda')}) ≠ cotización ({ctx.get('moneda_precio')}). "
+                        "El comité tratará el upside como no comparable hasta alinear FX."
+                    )
                 prompt = _prompt_comite_ia(ctx)
                 with st.spinner("El comité interdisciplinario está deliberando…"):
                     try:
                         key_eff = (
                             _resolve_gemini_key(key_ui)
                             if (prov_ia or "gemini") == "gemini"
-                            else (key_ui or None)
+                            else ((key_ui or "").strip() or None)
                         )
                         if prov_ia == "gemini" and not key_eff:
                             key_eff = _resolve_gemini_key(None)
