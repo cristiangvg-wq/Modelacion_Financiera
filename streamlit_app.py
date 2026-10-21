@@ -2500,7 +2500,7 @@ def _cargar_params_empresa(nombre):
     try:
         out = L.al_cambiar_empresa(nombre)
         if isinstance(out, (list, tuple)) and len(out) >= 15:
-            st.session_state["ficha_html"] = out[0]
+            st.session_state["ficha_html"] = out[0]  # se regenera en cada run en el panel
             st.session_state["params"] = {
                 "de_ratio": out[1],
                 "kd": out[2],
@@ -2733,10 +2733,16 @@ def main():
 
         # Ficha siempre visible como acordeón abierto por defecto
         with st.expander("Ficha", expanded=True):
-            if st.session_state.get("ficha_html"):
-                _html(st.session_state["ficha_html"])
-            else:
-                st.caption("Selecciona o descarga una empresa para ver la ficha.")
+            # Ficha SIEMPRE regenerada (no HTML cacheado con métricas N/D o ticker ajeno)
+            try:
+                _ficha_live = L.card_empresa_seleccionada(empresa)
+                st.session_state["ficha_html"] = _ficha_live
+                _html(_ficha_live)
+            except Exception as _e_ficha:
+                if st.session_state.get("ficha_html"):
+                    _html(st.session_state["ficha_html"])
+                else:
+                    st.caption(f"No se pudo generar la ficha: {_e_ficha}")
 
         st.markdown('<p class="tf-sidebar-label">Estados financieros</p>', unsafe_allow_html=True)
         up = st.file_uploader("Excel / CSV", type=["xlsx", "xls", "csv"], label_visibility="collapsed")
