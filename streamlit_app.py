@@ -3412,24 +3412,37 @@ def main():
             c_prev3.metric("Upside", f"{ctx_preview['upside']:+.1f}%")
             c_prev4.metric("EV / Equity", f"{ctx_preview['val_ev']:,.0f} / {ctx_preview['val_equity']:,.0f}")
 
-            prov_ia = st.session_state.get("iaprov") or "gemini"
-            key_ui = st.session_state.get("iakey") or ""
+            # Leer config de Consulta IA sin mutar keys de widgets ya creados (iaprov/iakey).
+            # Streamlit prohíbe asignar session_state[key] de un widget tras instanciarlo.
+            _opts = ["gemini", "xai", "openai"]
+            _prov_consulta = st.session_state.get("iaprov") or "gemini"
+            if _prov_consulta not in _opts:
+                _prov_consulta = "gemini"
+            # Inicializar tab4 solo si aún no existe (antes del widget)
+            if "tab4_iaprov" not in st.session_state:
+                st.session_state["tab4_iaprov"] = _prov_consulta
+
             with st.expander("Proveedor y API key (compartido con Consulta IA)", expanded=False):
-                _opts = ["gemini", "xai", "openai"]
-                if "tab4_iaprov" not in st.session_state:
-                    st.session_state["tab4_iaprov"] = prov_ia if prov_ia in _opts else "gemini"
-                prov_ia = st.selectbox("Proveedor", _opts, key="tab4_iaprov")
+                prov_ia = st.selectbox(
+                    "Proveedor",
+                    _opts,
+                    key="tab4_iaprov",
+                    help="Por defecto toma el proveedor de Consulta IA; no sobrescribe ese widget.",
+                )
                 key_ui = st.text_input(
                     "API key (opcional — vacío = Gemini por defecto / clave de Consulta IA)",
                     type="password",
                     key="tab4_iakey",
                     placeholder="Vacío = Gemini por defecto",
                 )
-                st.session_state["iaprov"] = prov_ia
-                if key_ui and str(key_ui).strip():
-                    st.session_state["iakey"] = str(key_ui).strip()
-                elif st.session_state.get("iakey"):
-                    key_ui = st.session_state.get("iakey")
+                st.caption(
+                    "Si dejas la API key vacía se usa la de **Consulta IA** (si la escribiste arriba) "
+                    "o la clave Gemini por defecto de la app."
+                )
+
+            # Proveedor efectivo: tab4 si el usuario lo cambió; si no, el de Consulta IA
+            prov_ia = st.session_state.get("tab4_iaprov") or st.session_state.get("iaprov") or "gemini"
+            key_ui = (st.session_state.get("tab4_iakey") or "").strip() or (st.session_state.get("iakey") or "")
 
             if st.button("▶ Deliberar en el comité (IA)", type="primary", key="btn_tab4_comite_ia", use_container_width=True):
                 ctx = _extraer_kpis_comite()
@@ -3437,9 +3450,9 @@ def main():
                 with st.spinner("El comité interdisciplinario está deliberando…"):
                     try:
                         key_eff = (
-                            _resolve_gemini_key(key_ui or st.session_state.get("iakey"))
+                            _resolve_gemini_key(key_ui)
                             if (prov_ia or "gemini") == "gemini"
-                            else (key_ui or st.session_state.get("iakey") or None)
+                            else (key_ui or None)
                         )
                         if prov_ia == "gemini" and not key_eff:
                             key_eff = _resolve_gemini_key(None)
