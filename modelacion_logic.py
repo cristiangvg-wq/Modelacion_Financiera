@@ -3672,14 +3672,27 @@ def _nopat_final(df, fac=1.0):
 
 def metricas_valor_firma(fcff_series, capital_invertido, val):
     """Métricas a nivel de FIRMA, consistentes con el DCF:
-      MVA = EV − capital invertido ;  TIR implícita = TIR de [−K, FCFF_1..FCFF_N + TV]."""
+      MVA = EV − capital invertido ;  TIR implícita = TIR de [−K, FCFF_1..FCFF_N + TV].
+
+    La TIR implícita de firma suele situarse cerca del WACC/ROIC cuando K y TV
+    están bien calibrados. Solo se anula si el solver no encuentra raíz finita.
+    (Antes se descartaba cualquier TIR > 80%, lo que ocultaba resultados válidos.)
+    """
     K = float(capital_invertido or 0)
     if K <= 0:
         return None, None
     f = [float(x) for x in list(fcff_series)]
+    if not f:
+        return float(val["EV"]) - K, None
+    tv = float(val.get("TV") or 0)
+    # Último flujo incluye valor terminal (Gordon / exit) del DCF
+    cfs = [-K] + list(f[:-1]) + [float(f[-1]) + tv]
     mva = float(val["EV"]) - K
-    tir = calcular_irr([-K] + f[:-1] + [f[-1] + float(val.get("TV") or 0)])
-    if tir is not None and (not np.isfinite(tir) or abs(tir) > 0.80):
+    tir = calcular_irr(cfs)
+    if tir is not None and (isinstance(tir, float) and (not np.isfinite(tir))):
+        tir = None
+    # Guardrail solo para explosiones numéricas (> 500 % anual no es interpretable)
+    if tir is not None and abs(float(tir)) > 5.0:
         tir = None
     return mva, tir
 
@@ -3695,14 +3708,67 @@ def tasa_reinversion(capex, dep, dnwc, nopat):
 
 
 def calcular_irr(cashflows):
+    """TIR (IRR) del vector de flujos. t=0 es el primer elemento (inversión).
+
+    Robusto frente a:
+      - ausencia de numpy_financial
+      - brackets donde NPV no cambia de signo
+      - flujos casi nulos / un solo signo (sin raíz real útil)
+    Devuelve float o np.nan (nunca lanza).
+    """
     try:
-        if HAS_NPF:
-            return npf.irr(cashflows)
-        def npv_func(r):
-            return sum(cf / (1 + r) ** i for i, cf in enumerate(cashflows))
-        return brentq(npv_func, -0.99, 5.0)
+        cfs = [float(x) for x in list(cashflows)]
     except Exception:
         return np.nan
+    if len(cfs) < 2:
+        return np.nan
+    if not any(cf < 0 for cf in cfs) or not any(cf > 0 for cf in cfs):
+        # Sin cambio de signo no hay TIR económica convencional
+        return np.nan
+
+    # Preferir numpy_financial si está disponible
+    if HAS_NPF:
+        try:
+            r = float(npf.irr(cfs))
+            if np.isfinite(r):
+                return r
+        except Exception:
+            pass
+
+    def npv_func(r):
+        # Evitar overflow en (1+r)**i con r extremo
+        total = 0.0
+        for i, cf in enumerate(cfs):
+            den = (1.0 + r) ** i
+            if den == 0 or not np.isfinite(den):
+                return np.inf if cf >= 0 else -np.inf
+            total += cf / den
+        return total
+
+    # Varios brackets: TIR de proyecto puede ser alta; también cubrir casos negativos
+    brackets = [
+        (-0.99, 0.0),
+        (0.0, 0.5),
+        (0.5, 1.5),
+        (1.5, 5.0),
+        (5.0, 20.0),
+        (-0.5, 2.0),
+        (-0.99, 10.0),
+    ]
+    for lo, hi in brackets:
+        try:
+            vlo, vhi = npv_func(lo), npv_func(hi)
+            if not (np.isfinite(vlo) and np.isfinite(vhi)):
+                continue
+            if vlo == 0:
+                return float(lo)
+            if vhi == 0:
+                return float(hi)
+            if vlo * vhi < 0:
+                return float(brentq(npv_func, lo, hi, maxiter=200))
+        except Exception:
+            continue
+    return np.nan
 
 
 def calcular_npv(rate, cashflows):
@@ -3718,40 +3784,72 @@ def metricas_proyecto_robustas(fcff_series, wacc, inversion_inicial=0.0, capital
     """VPN / TIR / payback de proyecto con guardrails de unidades.
 
     Problema frecuente: `inversion_inicial` del catálogo es ilustrativa y mucho menor
-    que el FCFF anual → TIR de decenas de miles de % (sin sentido económico).
+    que el FCFF anual de toda la firma → TIR artificialmente alta (p. ej. > 80–100 %).
 
-    Regla:
-      - Si la inversión es < 15% de la media |FCFF|, se usa como desembolso
-        max(inversión, 0.25 * |media FCFF| * horizonte_aprox) o capital*5% como piso.
-      - Si |TIR| > 150%, se reporta N/D (inversión/flujo incoherentes).
+    Reglas:
+      1) Si la inversión es pequeña frente al FCFF medio o al capital invertido,
+         se eleva a un piso económico (no se inventa un proyecto irreal).
+      2) La TIR se reporta siempre que el solver encuentre raíz finita.
+      3) Solo se anula si |TIR| > 500 % (explosión numérica) o no hay cambio de signo.
+      4) Si la TIR supera 100 %, se adjunta nota de interpretación (no se oculta el número).
     """
     f = [float(x) for x in list(fcff_series if fcff_series is not None else [])]
     n = max(len(f), 1)
     inv_in = abs(float(inversion_inicial or 0))
     mean_abs = float(np.mean([abs(x) for x in f])) if f else 0.0
+    sum_abs = float(np.sum([abs(x) for x in f])) if f else 0.0
     cap = abs(float(capital_invertido or 0))
 
     inv = inv_in
     nota = None
-    if mean_abs > 0 and (inv_in < 0.15 * mean_abs or inv_in <= 0):
-        # Piso: 25% del FCFF medio × años, o 5% del capital invertido
-        piso = max(0.25 * mean_abs * n, 0.05 * cap if cap > 0 else 0.0)
-        if piso > inv_in:
+
+    # Piso de inversión: evita TIR absurda cuando el catálogo pone un desembolso
+    # ilustrativo (p. ej. 5.000) frente a FCFF de firma (~3–5 mil M/año) o K enorme.
+    # Criterio: inv debe ser al menos ~1 año de |FCFF| medio, o 8 % del capital,
+    # o 20 % de la suma de |FCFF| del horizonte (lo que sea mayor y > inv_in).
+    if mean_abs > 0 or cap > 0:
+        piso_fcff = 1.0 * mean_abs if mean_abs > 0 else 0.0
+        piso_cap = 0.08 * cap if cap > 0 else 0.0
+        piso_sum = 0.20 * sum_abs if sum_abs > 0 else 0.0
+        piso = max(piso_fcff, piso_cap, piso_sum)
+        # No aplicar piso si el usuario ya puso una inversión >= 40 % del FCFF medio
+        # (proyecto acotado realista) y además >= 3 % del capital.
+        usuario_ok = (
+            inv_in > 0
+            and (mean_abs <= 0 or inv_in >= 0.40 * mean_abs)
+            and (cap <= 0 or inv_in >= 0.03 * cap)
+        )
+        if not usuario_ok and piso > inv_in:
             inv = piso
             nota = (
-                f"Inversión inicial ({inv_in:,.1f}) muy baja frente al FCFF medio "
-                f"({mean_abs:,.1f}); se usa piso {inv:,.1f} para VPN/TIR de proyecto."
+                f"Inversión inicial del catálogo ({inv_in:,.1f}) es baja frente al FCFF "
+                f"medio ({mean_abs:,.1f}) / capital ({cap:,.1f}); se usa piso {inv:,.1f} "
+                f"para que VPN/TIR del proyecto sean interpretables (no es CAPEX real auditado)."
             )
 
     cashflows = [-inv] + f
     vpn = calcular_npv(wacc, cashflows)
     tir = calcular_irr(cashflows)
-    if tir is not None and (isinstance(tir, float) and (np.isnan(tir) or abs(tir) > 0.80)):
-        tir = None  # >150% o inválida
-        if nota is None:
-            nota = "TIR no reportada: perfiles de flujo/inversión incoherentes (revisar inversión inicial)."
-        else:
-            nota += " TIR omitida por magnitud absurda."
+
+    # Invalidar solo NaN / no finito / explosión (> 500 % anual)
+    if tir is not None and isinstance(tir, float):
+        if (not np.isfinite(tir)) or abs(tir) > 5.0:
+            tir = None
+            if nota is None:
+                nota = (
+                    "TIR no reportada: no hay raíz económica estable "
+                    "(revisa signos de FCFF e inversión inicial)."
+                )
+            else:
+                nota += " TIR omitida por falta de raíz estable o magnitud > 500 %."
+        elif abs(tir) > 1.0:
+            # TIR > 100 %: se muestra, con advertencia de calibración
+            extra = (
+                f" TIR elevada ({tir*100:.1f} %): suele indicar inversión aún pequeña "
+                f"respecto a los FCFF del horizonte o un perfil muy front-loaded. "
+                f"Interpreta junto al VPN y al payback; no es una rentabilidad de mercado."
+            )
+            nota = (nota or "") + extra
 
     tir_str = f"{tir*100:.2f}%" if tir is not None else "N/D"
     payback = None
@@ -5418,6 +5516,7 @@ def tab5_vpn_tir(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex
         cashflows = mp5["cashflows"]
         vpn = mp5["vpn"]
         tir = mp5["tir"]
+        nota_mp5 = mp5.get("nota") or ""
         rows = []
         acumulado_no_desc = -inv_u
         acumulado_desc = -inv_u
@@ -5497,7 +5596,7 @@ def tab5_vpn_tir(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex
     <div style="font-size:12px;color:#FFFFFF !important">Años para recuperar</div>
   </div>
 </div>
-{tip("<b>VPN positivo</b> = después de devolver el costo del capital, el proyecto todavía deja ganancia en pesos de hoy. <b>TIR</b> = rentabilidad anual; si supera el WACC, rinde más que el costo del dinero. <b>Payback</b> = años para recuperar la inversión. Inversión inicial: <b>" + f"{inversion_inicial:,.0f}" + "</b> miles de millones (moneda del emisor).")}
+{tip("<b>VPN positivo</b> = después de devolver el costo del capital, el proyecto todavía deja ganancia en pesos de hoy. <b>TIR</b> = rentabilidad anual; si supera el WACC, rinde más que el costo del dinero. <b>Payback</b> = años para recuperar la inversión. Inversión usada en el cálculo: <b>" + f"{inv_u:,.0f}" + "</b> (catálogo: " + f"{float(inversion_inicial or 0):,.0f}" + ") miles de millones (moneda del emisor)." + ((" " + nota_mp5) if nota_mp5 else ""))}
 {result_note("Cómo leer la tabla año a año",
     "<b>FCFF</b> = flujo del año. <b>Factor de descuento</b> = cuánto 'vale' ese peso futuro en pesos de hoy. "
     "<b>PV(FCFF)</b> = flujo ya traído a valor presente. <b>VPN acumulado</b> = si ya recuperaste la inversión "
