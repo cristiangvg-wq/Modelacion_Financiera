@@ -693,23 +693,75 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
 }
 ::-webkit-scrollbar-thumb:hover { background: #14B8A6; }
 
-/* —— Móvil: sidebar y acceso a controles —— */
-@media (max-width: 768px) {
-  /* Asegurar que el botón de abrir sidebar sea visible */
+/* —— Móvil: forzar sidebar visible —— */
+@media (max-width: 991px) {
+  /* Contenedor del sidebar siempre en pantalla */
+  section[data-testid="stSidebar"] {
+    display: block !important;
+    visibility: visible !important;
+    transform: none !important;
+    translate: none !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: min(88vw, 320px) !important;
+    max-width: 320px !important;
+    z-index: 100002 !important;
+    overflow-y: auto !important;
+    box-shadow: 8px 0 28px rgba(0,0,0,0.45) !important;
+  }
+  /* Contenido del sidebar usable */
+  section[data-testid="stSidebar"] > div {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  /* Empujar el contenido principal para que no quede debajo */
+  [data-testid="stAppViewContainer"] > .main {
+    margin-left: min(88vw, 320px) !important;
+  }
+  .main .block-container {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    max-width: 100% !important;
+  }
+  /* Botón de colapsar / chevron siempre visible por si el usuario quiere cerrar */
   [data-testid="stSidebarCollapsedControl"],
+  [data-testid="collapsedControl"],
   button[kind="header"] {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
-    z-index: 100000 !important;
+    z-index: 100003 !important;
   }
-  /* Panel de empresa en main (no depende del sidebar) */
-  .tf-mobile-config {
-    display: block !important;
-    margin: 0 0 1rem 0;
+  /* Pantallas estrechas: sidebar a todo el ancho, encima del contenido (siempre visible) */
+  @media (max-width: 640px) {
+    section[data-testid="stSidebar"] {
+      position: relative !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 100% !important;
+      left: 0 !important;
+      top: auto !important;
+      bottom: auto !important;
+      height: auto !important;
+      max-height: none !important;
+      box-shadow: none !important;
+      border-bottom: 2px solid #14B8A6 !important;
+    }
+    [data-testid="stAppViewContainer"] > .main {
+      margin-left: 0 !important;
+    }
+    /* Orden visual: sidebar primero */
+    [data-testid="stAppViewContainer"] {
+      display: flex !important;
+      flex-direction: column !important;
+    }
   }
 }
-@media (min-width: 769px) {
+
+/* Panel auxiliar en main (respaldo si el CSS del sidebar falla en alguna versión) */
+@media (min-width: 992px) {
   .tf-mobile-config-hint { display: none !important; }
 }
 .tf-mobile-config {
@@ -800,6 +852,50 @@ div[role="radiogroup"] label:has(input:checked) {
 
 
 st.markdown(FINTECH_CSS, unsafe_allow_html=True)
+
+# Forzar apertura del sidebar en móvil (Streamlit lo colapsa por defecto)
+st.markdown(
+    """
+<script>
+(function () {
+  function forceSidebarOpen() {
+    try {
+      var doc = window.parent && window.parent.document ? window.parent.document : document;
+      var side = doc.querySelector('section[data-testid="stSidebar"]');
+      var btn = doc.querySelector('[data-testid="stSidebarCollapsedControl"]')
+            || doc.querySelector('[data-testid="collapsedControl"]')
+            || doc.querySelector('button[kind="header"]');
+      if (side) {
+        side.style.setProperty('display', 'block', 'important');
+        side.style.setProperty('visibility', 'visible', 'important');
+        side.style.setProperty('transform', 'none', 'important');
+        side.style.setProperty('translate', 'none', 'important');
+        side.style.setProperty('left', '0', 'important');
+        side.setAttribute('aria-expanded', 'true');
+        if (window.innerWidth <= 640) {
+          side.style.setProperty('position', 'relative', 'important');
+          side.style.setProperty('width', '100%', 'important');
+          side.style.setProperty('max-width', '100%', 'important');
+        }
+      }
+      if (btn && side) {
+        var w = side.getBoundingClientRect().width || 0;
+        if (w < 40) { try { btn.click(); } catch (e2) {} }
+      } else if (btn && window.innerWidth <= 991) {
+        try { btn.click(); } catch (e3) {}
+      }
+    } catch (e) {}
+  }
+  forceSidebarOpen();
+  setTimeout(forceSidebarOpen, 300);
+  setTimeout(forceSidebarOpen, 900);
+  setTimeout(forceSidebarOpen, 2000);
+  window.addEventListener('resize', forceSidebarOpen);
+})();
+</script>
+""",
+    unsafe_allow_html=True,
+)
 
 
 # =============================================================================
@@ -2620,7 +2716,7 @@ def main():
         "</div>",
         unsafe_allow_html=True,
     )
-    with st.expander("☰ Empresa y datos (abrir aquí en el celular)", expanded=False):
+    with st.expander("☰ Empresa y datos (abrir aquí en el celular)", expanded=True):
         st.caption("Mismos controles que la barra izquierda. En pantallas pequeñas el menú lateral a veces queda oculto.")
         _cats_m = _listar_empresas()
         # Sincronizar valor del select móvil sin pisar select_empresa (widget ya creado en sidebar)
