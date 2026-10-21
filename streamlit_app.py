@@ -1161,34 +1161,36 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe", char
                 )), row=2, col=1)
             any_ok = True
     if t6 and isinstance(t6, (list, tuple)) and len(t6) > 1 and hasattr(t6[1], "columns"):
-        df = t6[1]
+        df = t6[1].copy()
         name_c = next((c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker")), df.columns[0])
-        num_c = None
-        for c in df.columns:
-            if c == name_c:
-                continue
-            if pd.api.types.is_numeric_dtype(df[c]):
-                num_c = c
-                break
-            try:
-                pd.to_numeric(df[c], errors="raise")
-                num_c = c
-                break
-            except Exception:
-                continue
-        if num_c is not None:
-            labels = df[name_c].astype(str).str.slice(0, 22).tolist()[:12]
-            yv = pd.to_numeric(df[num_c], errors="coerce").fillna(0).tolist()[:12]
-            fig.add_trace(go.Bar(name=str(num_c)[:20], y=labels, x=yv, orientation="h",
+        # Preferir Score compuesto (no Ranking ni margen)
+        score_c = next((c for c in df.columns if str(c).lower() == "score" or str(c).lower() == "puntaje"), None)
+        if score_c is None:
+            score_c = next((c for c in df.columns if "score" in str(c).lower()), None)
+        rank_c = next((c for c in df.columns if str(c).lower() == "ranking"), None)
+        if score_c is not None:
+            df = df.assign(_sc=pd.to_numeric(df[score_c], errors="coerce")).dropna(subset=["_sc"])
+            df = df.sort_values("_sc", ascending=False).head(12)
+            labels = []
+            for i, row in df.iterrows():
+                emp = str(row[name_c])[:20]
+                rk = int(row[rank_c]) if rank_c and pd.notna(row.get(rank_c)) else None
+                labels.append(f"#{rk} · {emp}" if rk else emp)
+            yv = df["_sc"].tolist()
+            fig.add_trace(go.Bar(
+                name="Score", y=labels, x=yv, orientation="h",
                 marker_color="#14B8A6",
-                text=[f"{v:.2f}" if abs(v) < 100 else f"{v:,.0f}" for v in yv],
+                text=[f"{v:.2f}" for v in yv],
                 textposition="outside",
                 textfont=dict(size=10, color="#F8FAFC"),
                 hovertemplate=(
-                    "<b>%{y}</b><br>Indicador: <b>%{x:.2f}</b><br>"
-                    "<i>Comparación con pares del sector.</i>"
+                    "<b>%{y}</b><br>Score compuesto: <b>%{x:.2f}</b><br>"
+                    "<i>Mayor score = mejor posición relativa en el sector "
+                    "(margen, ROIC, WACC, crecimiento, múltiplo).</i>"
                     "<extra></extra>"
-                )), row=2, col=2)
+                ),
+            ), row=2, col=2)
+            fig.update_yaxes(autorange="reversed", row=2, col=2)
             any_ok = True
     if not any_ok:
         return False
@@ -1661,7 +1663,7 @@ def _plotly_valor_proyecto(df, wacc=None, chart_key=None):
 
 
 def _plotly_sector(df):
-    """Ranking sectorial horizontal con hover."""
+    """Ranking sectorial por Score compuesto (mayor = mejor)."""
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
@@ -1669,27 +1671,38 @@ def _plotly_sector(df):
         return False
     if df is None or not hasattr(df, "columns") or len(df) == 0:
         return False
-    name_c = next((c for c in df.columns if str(c).lower() in ("nombre", "empresa", "ticker", "emisor")), df.columns[0])
-    labels = df[name_c].astype(str).str.slice(0, 28).tolist()
-    margen_c = next((c for c in df.columns if "margen" in str(c).lower()), None)
-    mult_c = next((c for c in df.columns if "ev/ebitda" in str(c).lower() or "múltiplo" in str(c).lower() or "multiplo" in str(c).lower()), None)
-    score_c = next((c for c in df.columns if "score" in str(c).lower() or "puntaje" in str(c).lower() or "ranking" in str(c).lower()), None)
+    d = df.copy()
+    name_c = next((c for c in d.columns if str(c).lower() in ("nombre", "empresa", "ticker", "emisor")), d.columns[0])
+    score_c = next((c for c in d.columns if str(c).lower() in ("score", "puntaje")), None)
+    if score_c is None:
+        score_c = next((c for c in d.columns if "score" in str(c).lower() and "rank" not in str(c).lower()), None)
+    rank_c = next((c for c in d.columns if str(c).lower() == "ranking"), None)
+    margen_c = next((c for c in d.columns if "margen" in str(c).lower()), None)
+    mult_c = next((c for c in d.columns if "ev/ebitda" in str(c).lower() or "múltiplo" in str(c).lower() or "multiplo" in str(c).lower()), None)
 
-    if score_c is not None and margen_c is None and mult_c is None:
-        yv = pd.to_numeric(df[score_c], errors="coerce").fillna(0).tolist()
+    if score_c is not None:
+        d["_sc"] = pd.to_numeric(d[score_c], errors="coerce")
+        d = d.dropna(subset=["_sc"]).sort_values("_sc", ascending=False)
+        labels = []
+        for _, row in d.iterrows():
+            emp = str(row[name_c])[:26]
+            rk = int(row[rank_c]) if rank_c and pd.notna(row.get(rank_c)) else None
+            labels.append(f"#{rk} · {emp}" if rk else emp)
+        yv = d["_sc"].tolist()
         fig = go.Figure(go.Bar(
             y=labels, x=yv, orientation="h",
             marker_color="#14B8A6",
             text=[f"{v:.2f}" for v in yv],
             textposition="outside",
             hovertemplate=(
-                "<b>%{y}</b><br>Puntaje: <b>%{x:.2f}</b><br>"
-                "<i>Más alto = mejor posición relativa frente a pares del sector.</i>"
+                "<b>%{y}</b><br>Score compuesto: <b>%{x:.2f}</b><br>"
+                "<i>Más alto = mejor posición relativa (margen, ROIC, WACC, crecimiento, múltiplo).</i>"
                 "<extra></extra>"
             ),
         ))
-        fig.update_xaxes(title="Score")
-        return _finish_plotly(fig, title="Ranking sectorial", height=max(400, 40 * len(labels) + 120))
+        fig.update_xaxes(title="Score compuesto")
+        fig.update_yaxes(autorange="reversed")
+        return _finish_plotly(fig, title="Ranking sectorial por Score", height=max(400, 40 * len(labels) + 120))
 
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Margen EBITDA %", "EV/EBITDA (x)"))
     if margen_c is not None:
