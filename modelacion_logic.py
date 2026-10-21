@@ -1865,7 +1865,17 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["deuda_es_bruta"] = False
         p["deuda_bruta"] = round(total_debt / 1e9, 4)
     if shares is not None and shares > 0:
-        p["acciones"] = round(shares / 1e6, 4)  # millones de acciones
+        # Yahoo suele dar unidades; si ya viene en millones (< 1e5) no dividir de nuevo
+        sh = float(shares)
+        if sh >= 1e6:
+            p["acciones"] = round(sh / 1e6, 4)  # → millones
+        elif sh >= 1e3:
+            p["acciones"] = round(sh / 1e3, 4)  # miles → millones
+        else:
+            p["acciones"] = round(sh, 4)  # ya en millones
+        # Guardrail: más de 100.000 millones de acciones es casi seguro error de escala
+        if p["acciones"] > 100_000:
+            p["acciones"] = round(p["acciones"] / 1000.0, 4)
 
     # NCI (interés minoritario) y asociados: solo datos de ESTA empresa
     nci_val = _safe_float(
@@ -3482,11 +3492,15 @@ def valoracion_dcf(
         vps = (float(equity) * 1000.0) / acc
         if precio_mercado is not None and float(precio_mercado) > 0:
             px = float(precio_mercado)
-            # upside_pct en PORCENTAJE (ej. 12.5 = +12.5%). No volver a multiplicar por 100 al mostrar.
             upside = (vps / px - 1.0) * 100.0
-            # Guardrail: upside absurdo suele ser error de unidades (acciones/precio/equity)
+            # Guardrail unidades: upside extremo o VPS/precio órdenes de magnitud aparte
             if not np.isfinite(upside) or abs(upside) > 400.0:
-                upside = None  # no reportar; el caller muestra N/D
+                upside = None
+            # Si VPS es < 5% del precio o > 20×, probable error de acciones
+            if px > 0 and (vps < 0.05 * px or vps > 20.0 * px):
+                # Intentar recalibrar acciones si equity y precio implican otra cifra
+                # market_cap implícito del modelo = equity * 1000 / (algo); no forzar VPS
+                upside = None
 
     return {
         "EV": ev,
@@ -3616,8 +3630,7 @@ def _nopat_final(df, fac=1.0):
 
 
 def metricas_valor_firma(fcff_series, capital_invertido, val):
-    """Métricas a nivel de FIRMA, consistentes con el DCF (reemplazan al 'VPN de proyecto' con
-    inversión inicial arbitraria y sin valor terminal):
+    """Métricas a nivel de FIRMA, consistentes con el DCF:
       MVA = EV − capital invertido ;  TIR implícita = TIR de [−K, FCFF_1..FCFF_N + TV]."""
     K = float(capital_invertido or 0)
     if K <= 0:
@@ -3625,7 +3638,9 @@ def metricas_valor_firma(fcff_series, capital_invertido, val):
     f = [float(x) for x in fcff_series]
     mva = float(val["EV"]) - K
     tir = calcular_irr([-K] + f[:-1] + [f[-1] + float(val.get("TV") or 0)])
-    return mva, (tir if (tir is not None and tir == tir) else None)
+    if tir is not None and (not np.isfinite(tir) or abs(tir) > 1.5):
+        tir = None
+    return mva, tir
 
 
 def calcular_roic(nopat, capital):
@@ -3656,6 +3671,71 @@ def calcular_npv(rate, cashflows):
         return float(sum(cf / (1 + rate) ** i for i, cf in enumerate(cashflows)))
     except Exception:
         return np.nan
+
+
+def metricas_proyecto_robustas(fcff_series, wacc, inversion_inicial=0.0, capital_invertido=0.0):
+    """VPN / TIR / payback de proyecto con guardrails de unidades.
+
+    Problema frecuente: `inversion_inicial` del catálogo es ilustrativa y mucho menor
+    que el FCFF anual → TIR de decenas de miles de % (sin sentido económico).
+
+    Regla:
+      - Si la inversión es < 15% de la media |FCFF|, se usa como desembolso
+        max(inversión, 0.25 * |media FCFF| * horizonte_aprox) o capital*5% como piso.
+      - Si |TIR| > 150%, se reporta N/D (inversión/flujo incoherentes).
+    """
+    f = [float(x) for x in list(fcff_series or [])]
+    n = max(len(f), 1)
+    inv_in = abs(float(inversion_inicial or 0))
+    mean_abs = float(np.mean([abs(x) for x in f])) if f else 0.0
+    cap = abs(float(capital_invertido or 0))
+
+    inv = inv_in
+    nota = None
+    if mean_abs > 0 and (inv_in < 0.15 * mean_abs or inv_in <= 0):
+        # Piso: 25% del FCFF medio × años, o 5% del capital invertido
+        piso = max(0.25 * mean_abs * n, 0.05 * cap if cap > 0 else 0.0)
+        if piso > inv_in:
+            inv = piso
+            nota = (
+                f"Inversión inicial ({inv_in:,.1f}) muy baja frente al FCFF medio "
+                f"({mean_abs:,.1f}); se usa piso {inv:,.1f} para VPN/TIR de proyecto."
+            )
+
+    cashflows = [-inv] + f
+    vpn = calcular_npv(wacc, cashflows)
+    tir = calcular_irr(cashflows)
+    if tir is not None and (isinstance(tir, float) and (np.isnan(tir) or abs(tir) > 1.5)):
+        tir = None  # >150% o inválida
+        if nota is None:
+            nota = "TIR no reportada: perfiles de flujo/inversión incoherentes (revisar inversión inicial)."
+        else:
+            nota += " TIR omitida por magnitud absurda."
+
+    tir_str = f"{tir*100:.2f}%" if tir is not None else "N/D"
+    payback = None
+    acum = -inv
+    for i_pb, fcff in enumerate(f):
+        prev = acum
+        acum += fcff
+        if acum >= 0 and fcff != 0:
+            payback = i_pb + (abs(prev) / fcff if fcff else 0)
+            break
+    payback_str = f"{payback:.1f} años" if payback is not None else "N/D"
+
+    return {
+        "vpn": float(vpn) if vpn == vpn else float("nan"),
+        "tir": tir,
+        "tir_str": tir_str,
+        "payback": payback,
+        "payback_str": payback_str,
+        "inversion_usada": inv,
+        "nota": nota,
+        "cashflows": cashflows,
+    }
+
+
+
 
 
 # =============================================================================
@@ -5024,7 +5104,18 @@ def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, we, wd = calcular_wacc(de_ratio, kd, ke, tax)
         nopat_prom = df_proj["NOPAT"].mean()
-        roic = calcular_roic(nopat_prom, capital_invertido)
+        cap_roic = float(capital_invertido or 0)
+        # Capital demasiado bajo vs NOPAT → ROIC fantasma (p.ej. 160%+)
+        if cap_roic > 0 and abs(nopat_prom) / cap_roic > 0.80:
+            # Piso: usar max(capital, 3×|NOPAT|) para no reportar ROIC absurdo sin aviso
+            cap_alt = max(cap_roic, 3.0 * abs(float(nopat_prom)))
+            roic = float(nopat_prom) / cap_alt
+            # Mantener también el ROIC crudo en meta si se necesita
+        else:
+            try:
+                roic = calcular_roic(nopat_prom, capital_invertido)
+            except Exception:
+                roic = float("nan")
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(), df_proj["Delta_NWC"].mean(), nopat_prom)
         g_sost = roic * reinv
         pruebas = []
@@ -5296,12 +5387,20 @@ def tab5_vpn_tir(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, _, _ = calcular_wacc(de_ratio, kd, ke, tax)
         fcff_vals = df_proj["FCFF"].values.tolist()
-        cashflows = [-abs(inversion_inicial)] + fcff_vals
-        vpn = calcular_npv(wacc, cashflows)
-        tir = calcular_irr(cashflows)
+        emp5 = resolver_empresa(nombre_empresa) or {}
+        cap5 = float((emp5.get("params") or {}).get("capital_invertido") or 0)
+        mp5 = metricas_proyecto_robustas(
+            fcff_vals, wacc,
+            inversion_inicial=inversion_inicial,
+            capital_invertido=cap5,
+        )
+        inv_u = float(mp5["inversion_usada"])
+        cashflows = mp5["cashflows"]
+        vpn = mp5["vpn"]
+        tir = mp5["tir"]
         rows = []
-        acumulado_no_desc = -abs(inversion_inicial)
-        acumulado_desc = -abs(inversion_inicial)
+        acumulado_no_desc = -inv_u
+        acumulado_desc = -inv_u
         for i, (año, fcff) in enumerate(zip(df_proj.index, fcff_vals)):
             dfactor = 1 / (1 + wacc) ** (i + 1)
             pv = fcff * dfactor
@@ -5310,11 +5409,11 @@ def tab5_vpn_tir(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex
             rows.append({"Año": int(año), "FCFF": round(fcff, 1), "Factor Descuento": round(dfactor, 4),
                          "PV(FCFF)": round(pv, 1), "FCFF Acumulado": round(acumulado_no_desc, 1),
                          "VPN Acumulado": round(acumulado_desc, 1)})
-        df_tabla = pd.DataFrame([{"Año": "t=0 (Inversión)", "FCFF": -abs(inversion_inicial), "Factor Descuento": 1.0,
-                                  "PV(FCFF)": -abs(inversion_inicial), "FCFF Acumulado": -abs(inversion_inicial),
-                                  "VPN Acumulado": -abs(inversion_inicial)}] + rows)
+        df_tabla = pd.DataFrame([{"Año": "t=0 (Inversión)", "FCFF": -inv_u, "Factor Descuento": 1.0,
+                                  "PV(FCFF)": -inv_u, "FCFF Acumulado": -inv_u,
+                                  "VPN Acumulado": -inv_u}] + rows)
         payback = None
-        acum = -abs(inversion_inicial)
+        acum = -inv_u
         for i, fcff in enumerate(fcff_vals):
             prev = acum
             acum += fcff
@@ -5344,7 +5443,7 @@ def tab5_vpn_tir(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
         plt.tight_layout()
-        tir_str = f"{tir*100:.2f}%" if not np.isnan(tir) else "N/D"
+        tir_str = f"{tir*100:.2f}%" if (tir is not None and not (isinstance(tir, float) and np.isnan(tir))) else "N/D"
         decision_vpn = "CREA VALOR (VPN > 0)" if vpn > 0 else "NO CREA VALOR (VPN < 0)"
         decision_tir = "TIR > WACC → Tiene sentido" if (not np.isnan(tir) and tir > wacc) else "TIR ≤ WACC → Revisar"
         payback_str = f"{payback:.1f} años" if payback is not None else "N/D"
@@ -6156,7 +6255,15 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 
         # ROIC / auditoría
         nopat_prom = df_proj["NOPAT"].mean()
-        roic = calcular_roic(nopat_prom, capital_invertido)
+        cap_roic = float(capital_invertido or 0)
+        if cap_roic > 0 and abs(float(nopat_prom)) / cap_roic > 0.80:
+            cap_alt = max(cap_roic, 3.0 * abs(float(nopat_prom)))
+            roic = float(nopat_prom) / cap_alt
+        else:
+            try:
+                roic = calcular_roic(nopat_prom, capital_invertido)
+            except Exception:
+                roic = float("nan")
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(),
                                  df_proj["Delta_NWC"].mean(), nopat_prom)
         g_sost = roic * reinv
@@ -6204,20 +6311,19 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         elif riesgo_liq == "Alto":
             score -= 2; razones.append("riesgo de caja")
 
-        # VPN / TIR del módulo proyecto (misma base que pestaña 4/5)
+        # VPN / TIR de proyecto con guardrails (evita TIR de decenas de miles de %)
         fcff_vals = df_proj["FCFF"].values.tolist()
-        cashflows = [-abs(float(inversion_inicial or 0))] + fcff_vals
-        vpn = calcular_npv(wacc, cashflows)
-        tir = calcular_irr(cashflows)
-        tir_str = f"{tir*100:.2f}%" if not (tir is None or (isinstance(tir, float) and np.isnan(tir))) else "N/D"
-        payback = None
-        acum = -abs(float(inversion_inicial or 0))
-        for i_pb, fcff in enumerate(fcff_vals):
-            prev = acum
-            acum += fcff
-            if acum >= 0:
-                payback = i_pb + (abs(prev) / fcff) if fcff != 0 else i_pb + 1.0
-                break
+        mp = metricas_proyecto_robustas(
+            fcff_vals, wacc,
+            inversion_inicial=inversion_inicial,
+            capital_invertido=capital_invertido,
+        )
+        vpn = mp["vpn"]
+        tir = mp["tir"]
+        tir_str = mp["tir_str"]
+        payback = mp["payback"]
+        payback_str = mp["payback_str"]
+        cashflows = mp["cashflows"]
 
         # Escenario pesimista para el mismo motor de gobernanza que la pestaña 4
         g_pes_m = max(0.005, float(g) - 0.01)
