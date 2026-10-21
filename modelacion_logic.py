@@ -240,85 +240,112 @@ EMPRESAS = {
 EMPRESAS_RUNTIME = {}  # nombre_display -> mismo shape que EMPRESAS[k]
 
 # ---------------------------------------------------------------------------
-# Tickers BVC → Yahoo Finance exige el sufijo .CL
+# Tickers BVC → Yahoo Finance usa sufijo .CL (SOLO emisores Colombia)
+# Nunca aplicar .CL a tickers US/internacionales (AAPL, MSFT, etc.)
 # ---------------------------------------------------------------------------
-_TICKERS_BVC_EXTRA = {
-    "ISA", "GEB", "CELSIA", "EPM", "ENELAM", "BVC", "ECOPETROL", "EC",
+_TICKERS_BVC = {
+    "ISA", "GEB", "CELSIA", "EPM", "ENELAM", "BVC", "ECOPETROL",
     "PFBCOLOM", "GRUPOSURA", "PFGRUPSURA", "NUTRESA", "CEMARGOS", "CLH",
     "CORFICOLCF", "PFDAVVNDA", "BANCOLOMBIA", "EXITO", "ETB",
     "TERPEL", "PROMIGAS", "CNEC", "CONCONCRET", "BOGOTA", "OCCIDENTE",
     "PREVER", "MINEROS", "FABRICATO", "TABLEMAC", "ELCONDOR",
+    "PFBANCOLOMBIA", "GRUPOARGOS", "PFGRUPOARGOS", "CELSIA", "ISA",
+}
+# Tickers que NUNCA deben recibir .CL (US y globales frecuentes)
+_TICKERS_NUNCA_CL = {
+    "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX",
+    "JPM", "BAC", "WFC", "C", "GS", "MS", "V", "MA", "BRK-B", "BRK.B",
+    "XOM", "CVX", "JNJ", "UNH", "PFE", "ABBV", "MRK", "LLY",
+    "NEE", "DUK", "SO", "D", "AEP", "EXC",
+    "ORCL", "CRM", "ADBE", "INTC", "AMD", "TSM", "AVGO", "QCOM",
+    "KO", "PEP", "WMT", "COST", "HD", "MCD", "NKE", "DIS", "T", "VZ",
+    "IBM", "CSCO", "TXN", "QCOM", "SBUX", "BA", "CAT", "GE", "HON",
+    "SPY", "QQQ", "IWM", "DIA", "VOO",
 }
 
 
 def _tickers_bvc_conocidos():
-    """Símbolos BVC (sin sufijo) del catálogo + lista de referencia."""
-    s = set(_TICKERS_BVC_EXTRA)
+    s = set(_TICKERS_BVC)
     for emp in list(EMPRESAS.values()) + list(EMPRESAS_RUNTIME.values()):
         tb = emp.get("ticker_bvc")
         if tb:
-            s.add(str(tb).upper().split(".")[0].strip())
+            base = str(tb).upper().split(".")[0].strip()
+            if base and base not in _TICKERS_NUNCA_CL:
+                s.add(base)
         ty = emp.get("ticker_yf")
         if ty and str(ty).upper().endswith(".CL"):
-            s.add(str(ty).upper().split(".")[0].strip())
+            base = str(ty).upper().split(".")[0].strip()
+            if base and base not in _TICKERS_NUNCA_CL:
+                s.add(base)
     return s
 
 
 def es_ticker_bvc(ticker):
-    """True si el símbolo pertenece (o es muy probable que pertenezca) a la BVC."""
+    """True solo si es (o es muy probable) un símbolo de la BVC."""
     if not ticker:
         return False
     t = str(ticker).strip().upper()
     if t.endswith(".CL"):
-        return True
+        base = t[:-3]
+        return base not in _TICKERS_NUNCA_CL
     base = t.split(".")[0]
+    if base in _TICKERS_NUNCA_CL:
+        return False
     return base in _tickers_bvc_conocidos()
 
 
 def asegurar_sufijo_cl_bvc(ticker, forzar_si_bvc=True):
     """
-    Normaliza tickers de la Bolsa de Valores de Colombia para Yahoo Finance.
-    Yahoo usa el sufijo .CL (ej. ISA.CL, ECOPETROL.CL, BVC.CL).
+    Añade .CL SOLO a tickers BVC conocidos sin sufijo.
+    AAPL, MSFT, etc. se devuelven sin cambiar.
     """
     if ticker is None:
         return None
     t = str(ticker).strip().upper().replace(" ", "")
     if not t:
         return t
+    # Ya tiene sufijo de bolsa → respetar
     _SUFIJOS = (
         ".CL", ".MX", ".SA", ".BA", ".L", ".T", ".HK", ".TO", ".PA", ".DE",
-        ".SW", ".MI", ".AS", ".BR", ".OL", ".ST", ".CO", ".HE", ".LS", ".AT",
-        ".VI", ".AX", ".SI", ".KS", ".KQ", ".TW", ".JK", ".NS", ".BO",
+        ".SW", ".MI", ".AS", ".BR", ".OL", ".ST", ".AX", ".SI", ".KS", ".KQ",
+        ".TW", ".JK", ".NS", ".BO", ".US",
     )
     if any(t.endswith(s) for s in _SUFIJOS):
+        # Corregir error histórico: AAPL.CL / MSFT.CL → quitar .CL indebido
+        if t.endswith(".CL"):
+            base = t[:-3]
+            if base in _TICKERS_NUNCA_CL or (base not in _tickers_bvc_conocidos() and len(base) <= 5 and base.isalpha()):
+                # Si no es BVC conocido, devolver sin .CL
+                if base in _TICKERS_NUNCA_CL or base not in _tickers_bvc_conocidos():
+                    return base
         return t
     base = t.split(".")[0]
+    if base in _TICKERS_NUNCA_CL:
+        return base
     if forzar_si_bvc and base in _tickers_bvc_conocidos():
         return f"{base}.CL"
     return t
 
 
 def candidatos_ticker_yf(query):
-    """Lista ordenada de candidatos Yahoo; BVC pone SYMBOL.CL primero."""
+    """
+    Candidatos Yahoo ordenados.
+    BVC conocidos: SYMBOL.CL primero.
+    US/otros: solo el ticker bare (nunca .CL).
+    """
     q = (query or "").strip().upper().replace(" ", "")
     if not q:
         return []
-    _SUFIJOS = (".CL", ".MX", ".SA", ".BA", ".L", ".T", ".HK", ".TO")
-    if any(q.endswith(s) for s in _SUFIJOS):
-        return [q]
+    # Si ya trae sufijo válido, un solo candidato (y corregir .CL indebido)
+    if "." in q:
+        return [asegurar_sufijo_cl_bvc(q)]
     base = q.split(".")[0]
-    cands = []
+    if base in _TICKERS_NUNCA_CL:
+        return [base]
     if base in _tickers_bvc_conocidos():
-        cands.append(f"{base}.CL")
-        cands.append(base)
-    else:
-        cands.append(q)
-    seen, out = set(), []
-    for c in cands:
-        if c and c not in seen:
-            seen.add(c)
-            out.append(c)
-    return out
+        return [f"{base}.CL", base]
+    # Desconocido: probar bare primero; NO añadir .CL automáticamente
+    return [base]
 
 
 # ---------------------------------------------------------------------------
@@ -639,7 +666,7 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
     if not q:
         return False, "<div class='result-note'>Escribe un ticker (ej. <code>AAPL</code>, <code>EC</code>, <code>ISA.CL</code>) o un nombre.</div>", None, None
 
-    # Candidatos Yahoo: tickers BVC llevan automáticamente el sufijo .CL
+    # Candidatos Yahoo: .CL solo para BVC conocidos; AAPL/MSFT sin sufijo
     ticker_candidates = candidatos_ticker_yf(q)
 
     info = None
@@ -1010,11 +1037,11 @@ def _finite_or_none(x):
 
 
 def _proveedor_yahoo(ticker_yf):
-    """Capa 1 (default): Yahoo Finance para tickers BVC vía sufijo .CL"""
+    """Capa 1 (default): Yahoo Finance. .CL solo si el ticker es BVC."""
     ticker_yf = asegurar_sufijo_cl_bvc(ticker_yf)
     if not HAS_YF or not ticker_yf:
         return _respuesta_mercado_vacia(
-            "Sin datos Yahoo: falta yfinance o ticker .CL.",
+            "Sin datos Yahoo: falta yfinance o ticker.",
             proveedor="yahoo",
         )
     try:
@@ -1067,7 +1094,7 @@ def _proveedor_yahoo(ticker_yf):
             "precio": precio,
             "moneda": (
                 "COP" if str(ticker_yf or "").upper().endswith(".CL")
-                else (info.get("currency") or "COP")
+                else (info.get("currency") or "USD")
             ),
             "cambio_pct": cambio_pct,
             "market_cap": mcap,
@@ -1115,7 +1142,7 @@ def _proveedor_api_key(ticker_yf, ticker_bvc=None):
             proveedor="api_key",
         )
 
-    symbol = ticker_yf or ticker_bvc
+    symbol = asegurar_sufijo_cl_bvc(ticker_yf) or asegurar_sufijo_cl_bvc(ticker_bvc)
     if not symbol:
         return _respuesta_mercado_vacia("Sin símbolo para consultar al vendor.", proveedor="api_key")
 
@@ -1213,7 +1240,7 @@ def obtener_datos_mercado_bvc(ticker_yf, ticker_bvc=None, proveedor=None):
       - manual:  no red
 
     No afirma ser 'BVC oficial'. Etiqueta siempre el proveedor real usado.
-    Tickers BVC sin sufijo se normalizan a SYMBOL.CL para Yahoo.
+    Solo normaliza a .CL tickers BVC conocidos (nunca AAPL/MSFT).
     """
     if not ticker_yf and ticker_bvc:
         ticker_yf = asegurar_sufijo_cl_bvc(ticker_bvc)
@@ -1637,22 +1664,18 @@ def formatear_market_cap(mc, moneda="COP"):
 
 
 def moneda_empresa(nombre_o_emp):
-    """Moneda de los EEFF / modelo (catálogo COP; Yahoo = financialCurrency).
-    Tickers BVC (.CL) y catálogo local → COP con prioridad.
-    """
+    """Moneda de los EEFF / modelo. BVC/.CL → COP; US (AAPL…) → USD."""
     if isinstance(nombre_o_emp, dict):
         emp = nombre_o_emp
     else:
         emp = resolver_empresa(nombre_o_emp) or {}
     tk = str(emp.get("ticker_yf") or emp.get("ticker_bvc") or "")
     if tk:
-        try:
-            tk = asegurar_sufijo_cl_bvc(tk) or tk
-        except Exception:
-            pass
-    if (tk and str(tk).upper().endswith(".CL")) or emp.get("ticker_bvc") or es_ticker_bvc(tk):
-        if str(tk).upper().endswith(".CL") or emp.get("ticker_bvc"):
-            return "COP"
+        tk = asegurar_sufijo_cl_bvc(tk) or tk
+    if tk and str(tk).upper().endswith(".CL"):
+        return "COP"
+    if emp.get("ticker_bvc") and es_ticker_bvc(emp.get("ticker_bvc")):
+        return "COP"
     mon = (
         (emp.get("moneda") or "")
         or ((emp.get("params") or {}).get("moneda") or "")
@@ -1900,8 +1923,8 @@ def _codigo_mercado(country, currency=None, ticker_yf=None):
 
 
 def ticker_yf_empresa(nombre_empresa):
-    """Ticker Yahoo de catálogo o runtime (empresas no predefinidas).
-    Tickers BVC se normalizan automáticamente con sufijo .CL.
+    """Ticker Yahoo de catálogo o runtime.
+    .CL solo para BVC; corrige AAPL.CL/MSFT.CL si quedaron mal guardados.
     """
     emp = resolver_empresa(nombre_empresa) or {}
     tk = emp.get("ticker_yf")
@@ -2010,7 +2033,7 @@ def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None)
 
 
 def precio_mercado_actual(nombre_empresa=None, precio_ui=None):
-    """Alias: precio de mercado del emisor (Yahoo / conector)."""
+    """Alias de resolver_precio_mercado."""
     return resolver_precio_mercado(nombre_empresa, precio_ui)
 
 
@@ -6046,25 +6069,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         )
         decision, color, just = motor["decision"], motor["color"], motor["sesgo"]
 
-        # Módulo de contraste modelo vs mercado (antes no se calculaba -> NameError)
-        try:
-            contraste = modulo_ia_contraste_decision(
-                nombre_empresa=nombre_empresa,
-                motor=motor,
-                wacc=wacc,
-                g=float(g),
-                roic=roic,
-                equity_base=val_base.get("Equity_Value"),
-                ev_base=val_base.get("EV"),
-                de_ratio=float(de_ratio),
-                procedencia=prov,
-                ticker_yf=emp.get("ticker_yf") or ticker_yf_empresa(nombre_empresa),
-                precio_modelo=precio_p,
-                upside_modelo_pct=val_base.get("upside_pct"),
-            ) or {}
-        except Exception as e_ctr:
-            contraste = {"html": f"<p style='color:#991B1B'>No se pudo generar el módulo de contraste: {e_ctr}</p>"}
-        contraste_ok = bool(contraste.get("veredicto_mercado"))
+        # Módulo «CONTRASTE MODELO vs MERCADO» retirado de la pestaña 4.
 
         kpis = pd.DataFrame({
             "Indicador": [
@@ -6082,8 +6087,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         })
 
         vetos_html = "".join(f"<li style='color:#991B1B'>{v}</li>" for v in motor["vetos"]) or "<li style='color:#065F46'>Ningún veto duro activo</li>"
-        # Si el módulo IA está disponible ya explica los vetos en lenguaje de negocio: no se listan dos veces.
-        vetos_bloque = "" if contraste_ok else (
+        vetos_bloque = (
             "<b>Vetos de calidad del modelo (control interno · no son rating de la acción)</b>"
             f"<ul>{vetos_html}</ul>"
         )
@@ -6135,9 +6139,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
 </div>
 {tip("Checklist mínimo antes de una decisión real: (1) cifras auditadas, (2) CAPM calibrado al mercado, (3) deuda y CAPEX del guidance oficial, (4) liquidez del título en BVC, (5) límites de riesgo del mandato.")}
 """
-        # Salida 1 (decisión): tarjeta + alertas/soportes + análisis IA de mercado.
-        # Salida 3 (memo): resumen numérico + sensibilidad + puente EV→Equity. Sin bloques repetidos.
-        decision_html = decision_html + contraste.get("html", "")
+        # Salida 1: decisión + alertas/soportes (sin contraste modelo vs mercado).
+        # Salida 3: resumen + sensibilidad + puente EV→Equity.
         resumen = resumen + formatear_bridge_html(val_base, moneda_modelo=mon_modelo, moneda_precio=mon_precio, nombre_empresa=nombre_empresa)
         try:
             guardar_resultado_tab("4", nombre_empresa, {
