@@ -1923,11 +1923,26 @@ def _market_tape_quotes():
                 info = getattr(t, "info", {}) or {}
                 px = info.get("regularMarketPrice") or info.get("currentPrice")
                 chg = info.get("regularMarketChangePercent")
+                try:
+                    px = float(px) if px is not None else None
+                    if px is not None and (px != px):
+                        px = None
+                except Exception:
+                    px = None
+                try:
+                    chg = float(chg) if chg is not None else None
+                    if chg is not None and (chg != chg):
+                        chg = None
+                except Exception:
+                    chg = None
                 rows.append({"sym": sym.split(".")[0], "name": name, "px": px, "chg": chg})
                 continue
             px = float(hist["Close"].iloc[-1])
             prev = float(hist["Close"].iloc[-2])
-            chg = 100.0 * (px - prev) / prev if prev else 0.0
+            if px != px or prev != prev or prev == 0:  # NaN check
+                rows.append({"sym": sym.split(".")[0], "name": name, "px": None, "chg": None})
+                continue
+            chg = 100.0 * (px - prev) / prev
             rows.append({"sym": sym.split(".")[0], "name": name, "px": px, "chg": chg})
         except Exception:
             rows.append({"sym": sym.split(".")[0], "name": name, "px": None, "chg": None})
@@ -1937,18 +1952,33 @@ def _market_tape_quotes():
 def _render_market_tape() -> None:
     data = _market_tape_quotes()
     parts = []
+
+    def _finite(x):
+        try:
+            if x is None:
+                return False
+            v = float(x)
+            return v == v and abs(v) != float("inf")
+        except Exception:
+            return False
+
     for d in data:
         chg = d.get("chg")
         px = d.get("px")
-        if chg is None:
+        if not _finite(chg):
             cls, chg_txt = "tf-flat", "—"
-        elif chg > 0.05:
-            cls, chg_txt = "tf-up", f"+{chg:.2f}%"
-        elif chg < -0.05:
-            cls, chg_txt = "tf-down", f"{chg:.2f}%"
         else:
-            cls, chg_txt = "tf-flat", f"{chg:.2f}%"
-        px_txt = f"{px:,.2f}" if isinstance(px, (int, float)) else "—"
+            chg = float(chg)
+            # Yahoo a veces devuelve fraction (0.012) y a veces % (1.2)
+            if abs(chg) < 0.5:
+                chg = chg * 100.0
+            if chg > 0.05:
+                cls, chg_txt = "tf-up", f"+{chg:.2f}%"
+            elif chg < -0.05:
+                cls, chg_txt = "tf-down", f"{chg:.2f}%"
+            else:
+                cls, chg_txt = "tf-flat", f"{chg:.2f}%"
+        px_txt = f"{float(px):,.2f}" if _finite(px) else "—"
         parts.append(
             f'<span class="tf-tick"><b>{d["sym"]}</b> {d["name"]} '
             f'{px_txt} <span class="{cls}">{chg_txt}</span></span>'

@@ -5463,9 +5463,21 @@ def tab5_vpn_tir(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
         plt.tight_layout()
-        tir_str = f"{tir*100:.2f}%" if (tir is not None and not (isinstance(tir, float) and np.isnan(tir))) else "N/D"
-        decision_vpn = "CREA VALOR (VPN > 0)" if vpn > 0 else "NO CREA VALOR (VPN < 0)"
-        decision_tir = "TIR > WACC → Tiene sentido" if (not np.isnan(tir) and tir > wacc) else "TIR ≤ WACC → Revisar"
+        def _tir_ok(x):
+            try:
+                return x is not None and isinstance(x, (int, float)) and np.isfinite(float(x))
+            except Exception:
+                return False
+        tir_str = f"{float(tir)*100:.2f}%" if _tir_ok(tir) else "N/D"
+        try:
+            vpn_f = float(vpn)
+            decision_vpn = "CREA VALOR (VPN > 0)" if np.isfinite(vpn_f) and vpn_f > 0 else "NO CREA VALOR (VPN ≤ 0 o N/D)"
+        except Exception:
+            decision_vpn = "VPN N/D"
+        if _tir_ok(tir):
+            decision_tir = "TIR > WACC → Tiene sentido" if float(tir) > float(wacc) else "TIR ≤ WACC → Revisar"
+        else:
+            decision_tir = "TIR N/D (inversión/flujos incoherentes — usar EV/Equity)"
         payback_str = f"{payback:.1f} años" if payback is not None else "N/D"
         resumen = f"""
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:18px">
