@@ -1043,7 +1043,7 @@ def _plotly_atipicos(df_hist, title="Comparación de drivers · original vs norm
     return _plotly_comparacion_drivers(df_hist, title=title)
 
 
-def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
+def _plotly_informe_panel(resultados, title="Resumen gráfico del informe", chart_key=None):
     """Panel 2×2 en Plotly a partir de resultados de sesión."""
     try:
         import plotly.graph_objects as go
@@ -1192,7 +1192,7 @@ def _plotly_informe_panel(resultados, title="Resumen gráfico del informe"):
             any_ok = True
     if not any_ok:
         return False
-    ok = _finish_plotly(fig, title=title, height=740, key="tab7_informe_panel", barmode="group")
+    ok = _finish_plotly(fig, title=title, height=740, key=chart_key or "tab7_informe_panel", barmode="group")
     st.caption(
         "Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. "
         "Pasa el cursor: cada punto o barra te explica el resultado en lenguaje simple."

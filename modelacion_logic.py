@@ -5055,7 +5055,7 @@ D/E={de_ratio:.2f} → {wd*100:.1f}% deuda y {we*100:.1f}% de los dueños. Costo
 def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u, capital_invertido, deuda_neta, rf=0.09, erp=0.06, crp=0.0, usar_datos_publicos=True, caja=0, nci=0, otros_claims=0, asociados=0, acciones=None, exit_multiple=0.0, mid_year=True, g_max_macro=0.05):
     try:
         horizonte = int(horizonte)
-        df_hist, _ = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
+        df_hist, mensaje_carga = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
         df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
         df_proj["NOPAT"] = df_proj["EBIT"] * (1 - float(tax))
         df_proj["CAPEX"] = df_proj["CAPEX"] + float(capex_extra or 0)
