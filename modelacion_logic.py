@@ -3435,11 +3435,20 @@ def valoracion_dcf(
     vps = None
     upside = None
     if acciones is not None and float(acciones) > 0:
-        # acciones en millones; equity en miles de millones (moneda del emisor)
-        # VPS en COP = (equity miles de millones * 1e9) / (acciones millones * 1e6) = equity * 1000 / acciones
-        vps = (equity * 1000.0) / float(acciones)
+        # Convención de unidades del modelo:
+        #   equity, EV  → miles de millones (moneda del emisor)
+        #   acciones    → millones de acciones
+        #   VPS         → moneda por acción (misma que el precio de mercado)
+        # VPS = equity * 1e9 / (acciones * 1e6) = equity * 1000 / acciones
+        acc = float(acciones)
+        vps = (float(equity) * 1000.0) / acc
         if precio_mercado is not None and float(precio_mercado) > 0:
-            upside = (vps / float(precio_mercado) - 1.0) * 100.0
+            px = float(precio_mercado)
+            # upside_pct en PORCENTAJE (ej. 12.5 = +12.5%). No volver a multiplicar por 100 al mostrar.
+            upside = (vps / px - 1.0) * 100.0
+            # Guardrail: upside absurdo suele ser error de unidades (acciones/precio/equity)
+            if not np.isfinite(upside) or abs(upside) > 400.0:
+                upside = None  # no reportar; el caller muestra N/D
 
     return {
         "EV": ev,
@@ -5734,10 +5743,10 @@ def graficar_ranking_sectorial(ax, df_rank, short, titulo):
         ax.text(val + xmax * 0.01, b.get_y() + b.get_height() / 2, f"#{int(rk)} · {val:.2f}", va="center", fontsize=8)
     ax.set_xlim(0, xmax * 1.18)
     ax.set_xlabel("Score compuesto")
-    ax.set_title(titulo)
+    ax.set_title(titulo or "Ranking por Score compuesto")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    anotar_grafico(ax, "Barra resaltada = empresa en análisis\nMayor score = mejor posición relativa en el sector", loc="lower right")
+    anotar_grafico(ax, "Ordenado por Score (mayor arriba)\nBarra resaltada = empresa en análisis", loc="lower right")
 
 
 def tab6_comparacion_sectorial(nombre_empresa):
@@ -5902,7 +5911,7 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
     up = datos.get("upside_pct")
     px = datos.get("precio_mercado")
     vps_s = f"{vps:,.2f}" if vps is not None else "N/D"
-    up_s = f"{float(up)*100:+.1f}%" if up is not None else "N/D"
+    up_s = f"{float(up):+.1f}%" if up is not None and np.isfinite(float(up)) else "N/D"
     px_s = f"{px:,.2f}" if px is not None else "N/D"
     mon = datos.get("moneda") or ""
     kpi_data = [
@@ -6526,7 +6535,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         fig_ui.tight_layout()
 
         vps_txt = f"{vps:,.2f}" if vps is not None and np.isfinite(float(vps)) else "N/D"
-        up_txt = f"{upside*100:+.1f}%" if upside is not None and np.isfinite(float(upside)) else "N/D"
+        up_txt = f"{float(upside):+.1f}%" if upside is not None and np.isfinite(float(upside)) else "N/D"
         px_txt = f"{precio:,.2f}" if precio is not None else "N/D"
         resumen_tabla = pd.DataFrame({
             "Indicador": [
