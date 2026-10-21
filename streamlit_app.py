@@ -318,17 +318,21 @@ hr {
   opacity: 0.85;
 }
 
-/* —— Custom: Hero —— */
+/* —— Custom: Hero (título + ficha empresa) —— */
 .tf-hero {
   background:
     linear-gradient(135deg, rgba(11, 31, 51, 0.95) 0%, rgba(22, 58, 95, 0.88) 50%, rgba(15, 118, 110, 0.55) 140%);
   border: 1px solid rgba(153, 246, 228, 0.2);
   border-radius: 18px;
-  padding: 1.35rem 1.6rem;
+  padding: 1.2rem 1.4rem;
   margin: 0 0 1.35rem 0;
   box-shadow: var(--shadow);
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 1rem 1.4rem;
 }
 .tf-hero::before {
   content: "";
@@ -336,6 +340,48 @@ hr {
   inset: 0;
   background: radial-gradient(600px 200px at 80% 0%, rgba(45, 212, 191, 0.12), transparent 60%);
   pointer-events: none;
+}
+.tf-hero-left {
+  flex: 1 1 240px;
+  min-width: 200px;
+  position: relative;
+  z-index: 1;
+}
+.tf-hero-right {
+  flex: 1 1 280px;
+  min-width: 220px;
+  max-width: 480px;
+  position: relative;
+  z-index: 1;
+  background: rgba(7, 11, 20, 0.45);
+  border: 1px solid rgba(153, 246, 228, 0.22);
+  border-radius: 14px;
+  padding: 0.75rem 0.95rem;
+  backdrop-filter: blur(6px);
+}
+.tf-hero-right .section-card,
+.tf-hero-right > div {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.tf-hero-right,
+.tf-hero-right * {
+  font-size: 0.82rem !important;
+  line-height: 1.4 !important;
+  color: #E2E8F0 !important;
+}
+.tf-hero-right b,
+.tf-hero-right strong {
+  color: #5EEAD4 !important;
+  font-weight: 600 !important;
+}
+.tf-hero-ficha-empty {
+  color: #94A3B8 !important;
+  font-size: 0.84rem !important;
+  margin: 0;
 }
 .tf-hero h1 {
   margin: 0 0 0.4rem 0 !important;
@@ -365,6 +411,10 @@ hr {
   font-weight: 600;
   letter-spacing: 0.04em;
   position: relative;
+}
+@media (max-width: 720px) {
+  .tf-hero { flex-direction: column; }
+  .tf-hero-right { max-width: 100%; }
 }
 
 /* —— KPI grid (glass) —— */
@@ -2420,13 +2470,30 @@ def main():
     _init_state()
     _aplicar_empresa_pendiente()
 
-    # ----- Hero -----
+    # Asegurar ficha antes del hero (para que se pinte en el primer render)
+    if not st.session_state.get("ficha_html") and st.session_state.get("empresa_sel"):
+        try:
+            _cargar_params_empresa(st.session_state["empresa_sel"])
+        except Exception:
+            pass
+
+    # ----- Hero (título + ficha de la empresa a la derecha) -----
+    _ficha = st.session_state.get("ficha_html") or ""
+    if not _ficha:
+        _ficha_block = '<p class="tf-hero-ficha-empty">Selecciona o descarga una empresa para ver la ficha.</p>'
+    else:
+        _ficha_block = str(_ficha)
     st.markdown(
-        """
+        f"""
         <div class="tf-hero">
-          <h1>◈ Modelación Financiera y Riesgo</h1>
-          <p>Proyección · DCF · Auditoría · VPN/TIR · Sector · Informe · Consulta asistida</p>
-          <span class="tf-badge">Apoyo a decisión · No es asesoría de inversión</span>
+          <div class="tf-hero-left">
+            <h1>◈ Modelación Financiera y Riesgo</h1>
+            <p>Proyección · DCF · Auditoría · VPN/TIR · Sector · Informe · Consulta asistida</p>
+            <span class="tf-badge">Apoyo a decisión · No es asesoría de inversión</span>
+          </div>
+          <div class="tf-hero-right">
+            {_ficha_block}
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2488,13 +2555,6 @@ def main():
 
         if st.session_state.get("params") is None:
             _cargar_params_empresa(empresa)
-
-        # Ficha siempre visible como acordeón abierto por defecto
-        with st.expander("Ficha", expanded=True):
-            if st.session_state.get("ficha_html"):
-                _html(st.session_state["ficha_html"])
-            else:
-                st.caption("Selecciona o descarga una empresa para ver la ficha.")
 
         st.markdown('<p class="tf-sidebar-label">Estados financieros</p>', unsafe_allow_html=True)
         up = st.file_uploader("Excel / CSV", type=["xlsx", "xls", "csv"], label_visibility="collapsed")
