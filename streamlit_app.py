@@ -2330,17 +2330,23 @@ def _es_mercado_us(moneda=None, mercado=None, ticker=None, nombre=None):
 def _alinear_moneda_y_precio(nombre):
     """
     Asegura que moneda del modelo y del precio de mercado coincidan.
-    - Emisores US / Yahoo en USD → modelo USD, precio en USD, CAPM US (rf/erp/crp).
-    - Emisores CO / .CL → COP.
+    - Emisores BVC / ticker .CL → modelo y precio en COP (prioridad).
+    - Emisores US / Yahoo en USD → modelo USD, precio en USD, CAPM US.
     Escribe en session_state['params'] y, si existe, en el dict de la empresa en L.
     """
     p = dict(st.session_state.get("params") or {})
-    mon = str(p.get("moneda") or "").upper()
+    mon = str(p.get("moneda") or "").upper().replace("US$", "USD").replace("COL", "COP")
     merc = str(p.get("mercado_capm") or "").upper()
     ticker = _inferir_ticker_yf(nombre, p)
+    if ticker and hasattr(L, "asegurar_sufijo_cl_bvc"):
+        try:
+            ticker = L.asegurar_sufijo_cl_bvc(ticker) or ticker
+        except Exception:
+            pass
 
     precio = None
     moneda_precio = None
+    fin_currency = None
     try:
         if ticker:
             import yfinance as yf
@@ -2350,11 +2356,10 @@ def _alinear_moneda_y_precio(nombre):
                 info = getattr(t, "info", None) or {}
             except Exception:
                 info = {}
-            moneda_precio = str(
-                info.get("currency")
-                or info.get("financialCurrency")
-                or ""
-            ).upper()
+            moneda_precio = str(info.get("currency") or "").upper().replace("US$", "USD")
+            fin_currency = str(
+                info.get("financialCurrency") or info.get("currency") or ""
+            ).upper().replace("US$", "USD")
             for key in ("regularMarketPrice", "currentPrice", "previousClose"):
                 try:
                     v = info.get(key)
@@ -2375,7 +2380,7 @@ def _alinear_moneda_y_precio(nombre):
                                 getattr(fi, "currency", None)
                                 or (fi.get("currency") if hasattr(fi, "get") else "")
                                 or ""
-                            ).upper()
+                            ).upper().replace("US$", "USD")
                 except Exception:
                     pass
             if precio is None:
@@ -2388,49 +2393,82 @@ def _alinear_moneda_y_precio(nombre):
     except Exception:
         pass
 
-    # Inferir mercado US si Yahoo reporta USD o el ticker/nombre lo indican
-    if not moneda_precio and mon in ("USD", "US$"):
-        moneda_precio = "USD"
-    us = _es_mercado_us(moneda=mon or moneda_precio, mercado=merc, ticker=ticker, nombre=nombre)
-    if moneda_precio in ("USD", "US$") or (ticker and "." not in str(ticker) and us):
-        us = True
-        moneda_precio = moneda_precio or "USD"
+    tk_u = str(ticker or "").upper()
+    es_bvc = tk_u.endswith(".CL") or (
+        hasattr(L, "es_ticker_bvc") and L.es_ticker_bvc(tk_u)
+    ) or (merc in ("CO", "COL", "COLOMBIA"))
+    # Nombre del catálogo BVC
+    n_u = str(nombre or "").upper()
+    if any(x in n_u for x in ("ISA —", "GEB —", "CELSIA", "ECOPETROL", "EPM —", "ENEL", "BVC —", "INTERCONEXIÓN")):
+        es_bvc = True
 
-    if us:
-        p["moneda"] = "USD"
-        p["mercado_capm"] = p.get("mercado_capm") or "US"
+    if es_bvc:
+        # Cotización local BVC: modelo y precio en COP (no mezclar con ADR/USD)
+        p["moneda"] = "COP"
+        p["precio_moneda"] = "COP"
+        p["mercado_capm"] = p.get("mercado_capm") or "CO"
         if ticker:
             p["ticker_yf"] = ticker
         if precio is not None and precio > 0:
             p["precio"] = precio
             p["precio_mercado"] = precio
-            p["precio_moneda"] = "USD"
-        # CAPM US: no dejar rf de Colombia
-        if float(st.session_state.get("rf", 0.12)) >= 0.08:
-            st.session_state["rf"] = 0.045
-        if float(st.session_state.get("erp", 0.055)) > 0.07:
-            st.session_state["erp"] = 0.05
-        st.session_state["crp"] = 0.0
-        em = float(p.get("exit_multiple") or 0)
-        if em < 12:
-            p["exit_multiple"] = 22.0
-        # Tax corporativo US por defecto si venía 35% CO
+        # Si CAPM traía rf US muy bajo, restaurar ancla CO si el usuario no lo tocó
         try:
-            if float(p.get("tax") or 0) >= 0.33:
-                p["tax"] = 0.21
+            if float(st.session_state.get("rf", 0.12)) < 0.06 and float(st.session_state.get("rf", 0.12)) > 0:
+                # no forzar si el usuario calibró; solo si parece default US
+                pass
         except Exception:
             pass
+        st.session_state["fx_mismatch"] = False
     else:
-        # Colombia / local
-        if not mon or mon in ("", "NONE"):
-            p["moneda"] = "COP"
-        if moneda_precio in ("COP", "COL"):
-            p["precio_moneda"] = "COP"
+        if not moneda_precio and mon in ("USD", "US$"):
+            moneda_precio = "USD"
+        us = _es_mercado_us(moneda=mon or moneda_precio, mercado=merc, ticker=ticker, nombre=nombre)
+        if moneda_precio in ("USD", "US$") or (ticker and "." not in str(ticker) and us):
+            us = True
+            moneda_precio = moneda_precio or "USD"
+
+        if us:
+            p["moneda"] = "USD"
+            p["mercado_capm"] = p.get("mercado_capm") or "US"
+            if ticker:
+                p["ticker_yf"] = ticker
             if precio is not None and precio > 0:
                 p["precio"] = precio
                 p["precio_mercado"] = precio
-        if ticker:
-            p["ticker_yf"] = ticker
+                p["precio_moneda"] = "USD"
+            if float(st.session_state.get("rf", 0.12)) >= 0.08:
+                st.session_state["rf"] = 0.045
+            if float(st.session_state.get("erp", 0.055)) > 0.07:
+                st.session_state["erp"] = 0.05
+            st.session_state["crp"] = 0.0
+            em = float(p.get("exit_multiple") or 0)
+            if em < 12:
+                p["exit_multiple"] = 22.0
+            try:
+                if float(p.get("tax") or 0) >= 0.33:
+                    p["tax"] = 0.21
+            except Exception:
+                pass
+            st.session_state["fx_mismatch"] = False
+        else:
+            # Local / otros mercados: alinear modelo a la moneda de cotización si hace falta
+            if moneda_precio in ("COP", "COL"):
+                p["moneda"] = "COP"
+                p["precio_moneda"] = "COP"
+            elif not mon or mon in ("", "NONE"):
+                p["moneda"] = moneda_precio or fin_currency or "COP"
+                p["precio_moneda"] = p["moneda"]
+            else:
+                p["precio_moneda"] = moneda_precio or mon
+            if precio is not None and precio > 0:
+                p["precio"] = precio
+                p["precio_mercado"] = precio
+            if ticker:
+                p["ticker_yf"] = ticker
+            mm = str(p.get("moneda") or "").upper()
+            mp = str(p.get("precio_moneda") or "").upper()
+            st.session_state["fx_mismatch"] = bool(mm and mp and mm != mp)
 
     st.session_state["params"] = p
     st.session_state["precio_mercado_alineado"] = p.get("precio_mercado") or p.get("precio")
@@ -2844,28 +2882,57 @@ def main():
     except Exception:
         sector = "—"
 
-    # Si aún hay desalineación residual, forzar etiqueta de precio = moneda del modelo
-    if moneda in ("USD", "US$") and moneda_precio in ("COP", "COL"):
-        moneda_precio = "USD"
+    # Alineación residual según ticker de cotización (prioridad BVC .CL → COP)
+    _tk = str((st.session_state.get("params") or {}).get("ticker_yf") or "")
+    _es_cl = _tk.upper().endswith(".CL") or (
+        hasattr(L, "es_ticker_bvc") and L.es_ticker_bvc(_tk)
+    )
+    if _es_cl:
+        # Listado BVC: modelo y precio en COP (evita falso USD vs COP)
+        moneda = "COP"
+        moneda_precio = "COP"
         pfix = st.session_state.get("params") or {}
-        pfix["precio_moneda"] = "USD"
-        pfix["moneda"] = "USD"
+        pfix["moneda"] = "COP"
+        pfix["precio_moneda"] = "COP"
         st.session_state["params"] = pfix
-        st.session_state["moneda_precio_alineada"] = "USD"
+        st.session_state["moneda_precio_alineada"] = "COP"
+        st.session_state["fx_mismatch"] = False
         try:
             emp_fix = L.resolver_empresa(empresa) if hasattr(L, "resolver_empresa") else None
             if emp_fix and isinstance(emp_fix, dict):
-                emp_fix.setdefault("params", {})["moneda"] = "USD"
-                emp_fix["params"]["precio_moneda"] = "USD"
-                emp_fix["moneda"] = "USD"
+                emp_fix.setdefault("params", {})["moneda"] = "COP"
+                emp_fix["params"]["precio_moneda"] = "COP"
+                emp_fix["moneda"] = "COP"
+                emp_fix["moneda_precio"] = "COP"
+        except Exception:
+            pass
+    elif moneda in ("USD", "US$") and moneda_precio in ("COP", "COL"):
+        # Precio realmente en COP (p.ej. listado local): alinear modelo a COP, no inventar USD
+        moneda = "COP"
+        pfix = st.session_state.get("params") or {}
+        pfix["moneda"] = "COP"
+        pfix["precio_moneda"] = "COP"
+        st.session_state["params"] = pfix
+        st.session_state["moneda_precio_alineada"] = "COP"
+        st.session_state["fx_mismatch"] = False
+        try:
+            emp_fix = L.resolver_empresa(empresa) if hasattr(L, "resolver_empresa") else None
+            if emp_fix and isinstance(emp_fix, dict):
+                emp_fix.setdefault("params", {})["moneda"] = "COP"
+                emp_fix["params"]["precio_moneda"] = "COP"
+                emp_fix["moneda"] = "COP"
+                emp_fix["moneda_precio"] = "COP"
         except Exception:
             pass
     elif moneda in ("COP", "COL") and moneda_precio in ("USD", "US$"):
-        # ADR / dual listing: EEFF en COP, cotización en USD → no forzar FX; anular upside implícito
+        # ADR / dual listing: EEFF en COP, cotización en USD → no forzar FX; anular upside
         st.session_state["fx_mismatch"] = True
         st.session_state["moneda_precio_alineada"] = moneda_precio
     else:
-        st.session_state["fx_mismatch"] = False
+        st.session_state["fx_mismatch"] = bool(
+            moneda and moneda_precio
+            and moneda.replace("$", "") != moneda_precio.replace("$", "")
+        )
 
 
     # ----- KPI strip (con burbujas al pasar el cursor) -----

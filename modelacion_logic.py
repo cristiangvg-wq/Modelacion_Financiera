@@ -1071,7 +1071,10 @@ def _proveedor_yahoo(ticker_yf):
                 if ok else f"Yahoo no devolvió precio usable para {ticker_yf}."
             ),
             "precio": precio,
-            "moneda": info.get("currency") or "COP",
+            "moneda": (
+                "COP" if str(ticker_yf or "").upper().endswith(".CL")
+                else (info.get("currency") or "COP")
+            ),
             "cambio_pct": cambio_pct,
             "market_cap": mcap,
             "beta": beta,
@@ -1640,11 +1643,20 @@ def formatear_market_cap(mc, moneda="COP"):
 
 
 def moneda_empresa(nombre_o_emp):
-    """Moneda de los EEFF / modelo (catálogo COP; Yahoo = financialCurrency)."""
+    """Moneda de los EEFF / modelo (catálogo COP; Yahoo = financialCurrency).
+    Tickers BVC (.CL) y catálogo local → COP con prioridad sobre currency de Yahoo mal leída.
+    """
     if isinstance(nombre_o_emp, dict):
         emp = nombre_o_emp
     else:
         emp = resolver_empresa(nombre_o_emp) or {}
+    tk = str(emp.get("ticker_yf") or emp.get("ticker_bvc") or "")
+    tk = asegurar_sufijo_cl_bvc(tk) if tk else tk
+    # Prioridad BVC: no dejar que un financialCurrency=USD de ADR contamine el listado .CL
+    if (tk and str(tk).upper().endswith(".CL")) or emp.get("ticker_bvc") or es_ticker_bvc(tk):
+        # Si params fuerza explícitamente otra moneda y NO es .CL, respetar; si es .CL → COP
+        if str(tk).upper().endswith(".CL") or emp.get("ticker_bvc"):
+            return "COP"
     # params.moneda a veces guarda la divisa antes que emp["moneda"]
     mon = (
         (emp.get("moneda") or "")
@@ -1654,6 +1666,8 @@ def moneda_empresa(nombre_o_emp):
     mon = str(mon).strip().upper()
     if mon in ("US$", "U$S"):
         mon = "USD"
+    if mon in ("COL",):
+        mon = "COP"
     if mon:
         return mon
     tk = str(emp.get("ticker_yf") or "")
@@ -1673,15 +1687,27 @@ def moneda_empresa(nombre_o_emp):
 
 
 def moneda_precio_empresa(nombre_o_emp, mkt=None):
-    """Moneda del precio de cotización (puede diferir de la de EEFF en ADRs)."""
-    if mkt and mkt.get("moneda"):
-        return str(mkt["moneda"]).upper().replace("US$", "USD")
+    """Moneda del precio de cotización (puede diferir de la de EEFF en ADRs).
+    Listados BVC (.CL) → COP. ADR dual (p.ej. EC en USD) respeta mkt/currency.
+    """
     if isinstance(nombre_o_emp, dict):
         emp = nombre_o_emp
     else:
         emp = resolver_empresa(nombre_o_emp) or {}
-    mon = (emp.get("moneda_precio") or emp.get("moneda") or (emp.get("params") or {}).get("currency") or "")
-    mon = str(mon).strip().upper().replace("US$", "USD")
+    tk = str(emp.get("ticker_yf") or emp.get("ticker_bvc") or "")
+    tk = asegurar_sufijo_cl_bvc(tk) if tk else ""
+    if tk.upper().endswith(".CL") or (emp.get("ticker_bvc") and not str(emp.get("ticker_yf") or "").upper().endswith((".NYSE", ".US"))):
+        if tk.upper().endswith(".CL") or emp.get("ticker_bvc"):
+            # Precio del listado local colombiano
+            if mkt and mkt.get("moneda"):
+                m = str(mkt["moneda"]).upper().replace("US$", "USD").replace("COL", "COP")
+                if m in ("COP", "COL"):
+                    return "COP"
+            return "COP"
+    if mkt and mkt.get("moneda"):
+        return str(mkt["moneda"]).upper().replace("US$", "USD").replace("COL", "COP")
+    mon = (emp.get("moneda_precio") or (emp.get("params") or {}).get("precio_moneda") or emp.get("moneda") or (emp.get("params") or {}).get("currency") or "")
+    mon = str(mon).strip().upper().replace("US$", "USD").replace("COL", "COP")
     if mon:
         return mon
     return moneda_empresa(emp)
