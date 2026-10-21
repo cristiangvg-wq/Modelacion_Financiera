@@ -4444,7 +4444,9 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
     key_ui = (api_key or "").strip()
     key_xai = key_ui or (os.environ.get("XAI_API_KEY") or "").strip()
     key_oai = key_ui or (os.environ.get("OPENAI_API_KEY") or "").strip()
-    key_gem = key_ui or (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+    # Fallback prestablecido solo para Gemini (consulta asistida sin Secrets/env)
+    _GEMINI_FALLBACK = "AQ.Ab8RN6Lq_5w77l3GlbR4hlmYW9vFRDZjPxv5wn8Iaw4WluWMUA"
+    key_gem = key_ui or (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip() or _GEMINI_FALLBACK
 
     prov = (proveedor or "auto").lower().strip()
 
