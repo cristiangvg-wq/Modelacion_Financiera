@@ -5863,7 +5863,7 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
                               fontSize=9, textColor=colors.HexColor("#0F172A"), leading=12))
 
     story = []
-    story.append(Paragraph("Informe Ejecutivo de Modelación Financiera", styles["TituloMain"]))
+    story.append(Paragraph("Informe Ejecutivo - Resumen para Comite", styles["TituloMain"]))
     story.append(Paragraph(f"<b>{nombre_empresa}</b>", styles["TituloMain"]))
     story.append(Paragraph(
         f"Generado: {datos['fecha']} · Horizonte: {datos['horizonte']} años · Proyección: Drivers + identidad FCFF · "
@@ -5898,18 +5898,30 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
 
     # 3. KPIs
     story.append(Paragraph("3. Números clave (y qué significan)", styles["Subtitulo"]))
+    vps = datos.get("vps")
+    up = datos.get("upside_pct")
+    px = datos.get("precio_mercado")
+    vps_s = f"{vps:,.2f}" if vps is not None else "N/D"
+    up_s = f"{float(up)*100:+.1f}%" if up is not None else "N/D"
+    px_s = f"{px:,.2f}" if px is not None else "N/D"
+    mon = datos.get("moneda") or ""
     kpi_data = [
-        ["Indicador", "Valor", "Qué significa en simple"],
-        ["WACC (costo del dinero)", f"{datos['wacc']*100:.2f}%", "Lo que le 'cuesta' a la empresa financiarse"],
-        ["g (crecimiento largo plazo)", f"{datos['g']*100:.2f}%", "Ritmo al que se asume que crecen los flujos"],
-        ["ROIC (retorno del capital)", f"{datos['roic']*100:.2f}%", "Qué tan bien rinde cada peso invertido"],
-        ["D/E (deuda / patrimonio)", f"{datos['de_ratio']:.2f}", "Cuánta deuda hay por cada peso de los dueños"],
-        ["EV escenario base", f"{datos['ev_base']:,.0f}", "Valor total estimado de la empresa (miles M · moneda del emisor)"],
-        ["Equity escenario base", f"{datos['eq_base']:,.0f}", "Lo que les quedaría a los dueños"],
-        ["VPN del proyecto", f"{datos['vpn']:,.1f}", "Valor creado (o destruido) en pesos de hoy"],
-        ["TIR del proyecto", datos['tir_str'], "Rentabilidad anual implícita del proyecto"],
-        ["Payback", datos['payback_str'], "Años para recuperar la inversión inicial"],
-        ["FCFF promedio proyectado", f"{datos['fcff_prom']:,.0f}", "Dinero libre promedio esperado por año"],
+        ["Indicador", "Valor", "Que significa"],
+        ["WACC", f"{datos['wacc']*100:.2f}%", "Costo promedio del capital"],
+        ["g terminal", f"{datos['g']*100:.2f}%", "Crecimiento de largo plazo"],
+        ["ROIC", f"{datos['roic']*100:.2f}%", "Retorno del capital invertido"],
+        ["D/E", f"{datos['de_ratio']:.2f}", "Apalancamiento"],
+        ["EV base", f"{datos['ev_base']:,.0f}", f"Enterprise Value (miles M {mon})"],
+        ["Equity base", f"{datos['eq_base']:,.0f}", "Valor para accionistas base"],
+        ["Equity pesimista", f"{datos.get('eq_pes', 0):,.0f}", "Escenario adverso"],
+        ["Equity optimista", f"{datos.get('eq_opt', 0):,.0f}", "Escenario favorable"],
+        ["VPS modelo", vps_s, "Valor por accion del DCF"],
+        ["Precio mercado", px_s, "Ultima cotizacion"],
+        ["Upside", up_s, "VPS vs precio"],
+        ["VPN proyecto", f"{datos['vpn']:,.1f}", "Valor presente neto del proyecto"],
+        ["TIR", datos['tir_str'], "Rentabilidad anual implicita"],
+        ["Payback", datos['payback_str'], "Anios para recuperar inversion"],
+        ["FCFF promedio", f"{datos['fcff_prom']:,.0f}", "Dinero libre promedio / anio"],
     ]
     t = Table(kpi_data, colWidths=[2.1*inch, 1.3*inch, 3.4*inch])
     t.setStyle(TableStyle([
@@ -6384,6 +6396,8 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 
         # PDF
         pdf_path = os.path.join(tmpdir, f"Informe_Ejecutivo_{short}.pdf".replace(" ", "_"))
+        vps = val_base.get("value_per_share")
+        upside = val_base.get("upside_pct")
         datos_pdf = {
             "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "horizonte": horizonte,
@@ -6392,13 +6406,19 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             "decision_just": decision_just,
             "decision_simple": decision_simple,
             "score": score,
-            "razones": razones,
+            "razones": list(dict.fromkeys(razones)),
             "wacc": wacc,
             "g": g,
             "roic": roic,
             "de_ratio": de_ratio,
             "ev_base": val_base["EV"],
             "eq_base": val_base["Equity_Value"],
+            "eq_pes": escenarios["Pesimista"]["Equity_Value"],
+            "eq_opt": escenarios["Optimista"]["Equity_Value"],
+            "vps": vps,
+            "upside_pct": upside,
+            "precio_mercado": precio,
+            "moneda": mon_modelo,
             "vpn": vpn,
             "tir_str": tir_str,
             "payback_str": payback_str,
@@ -6505,22 +6525,39 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         fig_ui.suptitle(f"Resumen gráfico · {nombre_empresa}", fontweight="bold", color=COLOR_PRIMARY)
         fig_ui.tight_layout()
 
+        vps_txt = f"{vps:,.2f}" if vps is not None and np.isfinite(float(vps)) else "N/D"
+        up_txt = f"{upside*100:+.1f}%" if upside is not None and np.isfinite(float(upside)) else "N/D"
+        px_txt = f"{precio:,.2f}" if precio is not None else "N/D"
         resumen_tabla = pd.DataFrame({
-            "Indicador": ["Decisión", "Puntaje", "WACC %", "ROIC %", "D/E", "EV base", "Equity base",
-                          "VPN", "TIR", "Payback", "FCFF prom. proy."],
-            "Valor": [decision, f"{score}/7", f"{wacc*100:.2f}", f"{roic*100:.2f}", f"{de_ratio:.2f}",
-                      f"{val_base['EV']:,.0f}", f"{val_base['Equity_Value']:,.0f}",
-                      f"{vpn:,.1f}", tir_str, payback_str, f"{df_proj['FCFF'].mean():,.0f}"],
+            "Indicador": [
+                "Decisión", "Puntaje", "WACC %", "ROIC %", "D/E",
+                "EV base", "Equity base", "Equity pesimista", "Equity optimista",
+                "VPS modelo", "Precio mercado", "Upside %",
+                "VPN proyecto", "TIR", "Payback", "FCFF prom. proy.",
+            ],
+            "Valor": [
+                decision, f"{score}/7", f"{wacc*100:.2f}", f"{roic*100:.2f}", f"{de_ratio:.2f}",
+                f"{val_base['EV']:,.0f}", f"{val_base['Equity_Value']:,.0f}",
+                f"{escenarios['Pesimista']['Equity_Value']:,.0f}",
+                f"{escenarios['Optimista']['Equity_Value']:,.0f}",
+                vps_txt, px_txt, up_txt,
+                f"{vpn:,.1f}", tir_str, payback_str, f"{df_proj['FCFF'].mean():,.0f}",
+            ],
             "Lectura sencilla": [
                 decision_simple,
-                "Suma de criterios de viabilidad",
-                "Costo promedio del dinero",
+                "Suma de criterios de viabilidad (máx. 7)",
+                "Costo promedio del capital (deuda + equity)",
                 "Rendimiento del capital invertido",
-                "Deuda por cada peso de los dueños",
-                "Valor total estimado de la empresa",
-                "Valor para los accionistas",
-                "Valor creado por el proyecto en pesos de hoy",
-                "Rentabilidad anual del proyecto",
+                "Deuda por cada unidad de patrimonio",
+                "Enterprise Value · escenario base",
+                "Valor para accionistas · base",
+                "Equity en escenario adverso",
+                "Equity en escenario favorable",
+                "Valor por acción del modelo",
+                "Último precio de mercado (si hay)",
+                "VPS vs precio (si monedas alineadas)",
+                "VPN del proyecto con inversión inicial",
+                "Rentabilidad anual implícita del proyecto",
                 "Años para recuperar la inversión",
                 "Dinero libre promedio esperado por año",
             ],

@@ -2792,44 +2792,99 @@ def main():
             )
 
     with tab7:
-        st.markdown("##### Informe ejecutivo")
+        st.markdown("##### Dashboard ejecutivo - Resumen para comite")
         st.caption(
-            "En pantalla el panel usa el gráfico generado por el modelo. "
-            "Las pestañas 1–6 tienen gráficos Plotly con hover, nombres y valores. "
-            "El PDF sigue siendo estático (con títulos y cifras anotadas)."
+            "Vista gerencial: decision, valoracion, escenarios, proyecto y sector. "
+            "Misma data que el PDF. Generado con Generar todo."
         )
-        st.caption("Resultados generados con «Generar todo» (incluye PDF si el modelo lo produce).")
         r = st.session_state.get("resultados", {}).get("tab7")
         if r and isinstance(r, (list, tuple)):
-            if len(r) > 0:
-                _html(r[0])
-            if len(r) > 1:
-                _show_df(r[1], "KPIs del informe")
-            # Panel resumen en Plotly (misma estética); requiere corridas previas
-            if not _plotly_informe_panel(st.session_state.get("resultados") or {}, title="Resumen gráfico · informe"):
-                if len(r) > 2:
-                    _show_fig(r[2], "Panel (respaldo estático)")
+            kpi_df = r[1] if len(r) > 1 else None
+            kpi_map = {}
+            if kpi_df is not None and hasattr(kpi_df, "columns"):
+                cols = list(kpi_df.columns)
+                if "Indicador" in cols and "Valor" in cols:
+                    try:
+                        for _, row in kpi_df.iterrows():
+                            kpi_map[str(row["Indicador"])] = str(row["Valor"])
+                    except Exception:
+                        kpi_map = {}
+
+            def _k(name, default="—"):
+                return kpi_map.get(name, default)
+
+            decision = _k("Decision", _k("Decisión", "—"))
+            puntaje = _k("Puntaje", "—")
+            banner = (
+                '<div class="tf-section" style="border-color:rgba(20,184,166,0.45);margin-bottom:1rem">'
+                '<div class="tf-section-title">Tesis y recomendacion</div>'
+                f'<div style="font-size:1.25rem;font-weight:700;color:#5EEAD4;margin:0.25rem 0 0.5rem 0">{decision}</div>'
+                f'<div style="color:#CBD5E1;font-size:0.9rem">Puntaje de viabilidad: '
+                f'<b style="color:#F1F5F9">{puntaje}</b> · Apoyo a decision · no es orden de compra/venta</div></div>'
+            )
+            st.markdown(banner, unsafe_allow_html=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("EV base", _k("EV base"))
+            c2.metric("Equity base", _k("Equity base"))
+            c3.metric("VPS modelo", _k("VPS modelo"))
+            c4.metric("Upside", _k("Upside %", _k("Upside")))
+
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric("WACC", f"{_k('WACC %')}%")
+            c6.metric("ROIC", f"{_k('ROIC %')}%")
+            c7.metric("VPN proyecto", _k("VPN proyecto", _k("VPN")))
+            c8.metric("TIR / Payback", f"{_k('TIR')} · {_k('Payback')}")
+
+            st.markdown("###### Escenarios de equity")
+            e1, e2, e3 = st.columns(3)
+            e1.metric("Pesimista", _k("Equity pesimista"))
+            e2.metric("Base", _k("Equity base"))
+            e3.metric("Optimista", _k("Equity optimista"))
+
+            with st.expander("Detalle de KPIs y lectura sencilla", expanded=False):
+                if kpi_df is not None:
+                    _show_df(kpi_df, "KPIs ejecutivos")
+            with st.expander("Narrativa completa del informe", expanded=False):
+                if len(r) > 0:
+                    _html(r[0])
+
+            st.markdown("###### Resumen grafico")
+            if not _plotly_informe_panel(
+                st.session_state.get("resultados") or {},
+                title="Resumen grafico · comite",
+                chart_key="tab7_exec_panel",
+            ):
+                if len(r) > 2 and r[2] is not None:
+                    _show_fig(r[2], "Panel resumen")
             else:
                 _chart_tip(
-                    "Cuatro vistas en una: (A) dinero libre pasado y futuro, (B) valor en escenarios, "
-                    "(C) flujos del proyecto, (D) posición frente al sector. Pasa el cursor para leer cada cifra en simple."
+                    "A) FCFF  B) Escenarios  C) Flujos / VPN  D) Sector. "
+                    "Mismos numeros que el PDF ejecutivo."
                 )
-                _explain(
-                    "<b>Burbuja de lectura · Informe:</b> este panel resume la historia del análisis. "
-                    "Úsalo para el comité: primero mira si el FCFF tiene sentido, luego si el valor se sostiene en más de un escenario, "
-                    "si el proyecto recupera la inversión y cómo se ve la empresa frente a sus pares."
-                )
+
+            st.markdown("###### Exportar para directivos")
             if len(r) > 3 and r[3]:
                 pdf_path = r[3]
                 if isinstance(pdf_path, str) and os.path.isfile(pdf_path):
                     with open(pdf_path, "rb") as f:
                         st.download_button(
-                            "Descargar PDF",
+                            "Descargar informe ejecutivo (PDF)",
                             f,
-                            file_name=f"informe_{datetime.now().strftime('%Y%m%d')}.pdf",
+                            file_name=f"informe_ejecutivo_{datetime.now().strftime('%Y%m%d')}.pdf",
                             mime="application/pdf",
                             type="primary",
+                            use_container_width=True,
                         )
+                    st.caption("El PDF incluye decision, KPIs, escenarios, auditoria, sector y graficos.")
+                else:
+                    st.info("PDF no disponible en esta corrida.")
+            else:
+                st.info("Ejecuta Generar todo para consolidar el informe y el PDF.")
+        else:
+            st.info(
+                "Aun no hay informe. Configura parametros en la barra lateral y pulsa **Generar todo**."
+            )
 
     st.markdown(
         '<div class="tf-footer">Herramienta pedagógica · Catálogo / Yahoo Finance · '
