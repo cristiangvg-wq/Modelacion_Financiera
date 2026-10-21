@@ -102,8 +102,8 @@ EMPRESAS = {
         "ticker_bvc": "ISA", "ticker_yf": "ISA.CL",
         "sector": "Transmisión de energía / Infraestructura",
         "descripcion": "Transporta electricidad a alta tensión en Colombia y Latinoamérica. También opera carreteras y telecomunicaciones.",
-        "params": {"de_ratio": 1.20, "kd": 0.08, "tax": 0.35, "g": 0.03, "beta_u": 0.42,
-                   "capital_invertido": 45000, "deuda_neta": 29800, "inversion_inicial": 5000, "caja": 4610, "nci": 10400, "otros_claims": 0, "asociados": 4500, "acciones": 1108, "exit_multiple": 8.4, "moneda": "COP"},
+        "params": {"de_ratio": 1.20, "kd": 0.08, "tax": 0.22, "g": 0.03, "beta_u": 0.42,
+                   "capital_invertido": 45000, "deuda_neta": 40350, "inversion_inicial": 5000, "caja": 4610, "nci": 10400, "otros_claims": 0, "asociados": 4500, "acciones": 1108, "exit_multiple": 8.4, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
             "Ingresos": [7200, 7800, 8400, 9045, 10180, 11117, 13356, 14171, 14935, 15918],
@@ -3676,10 +3676,10 @@ def metricas_valor_firma(fcff_series, capital_invertido, val):
     K = float(capital_invertido or 0)
     if K <= 0:
         return None, None
-    f = [float(x) for x in fcff_series]
+    f = [float(x) for x in list(fcff_series)]
     mva = float(val["EV"]) - K
     tir = calcular_irr([-K] + f[:-1] + [f[-1] + float(val.get("TV") or 0)])
-    if tir is not None and (not np.isfinite(tir) or abs(tir) > 1.5):
+    if tir is not None and (not np.isfinite(tir) or abs(tir) > 0.80):
         tir = None
     return mva, tir
 
@@ -3725,7 +3725,7 @@ def metricas_proyecto_robustas(fcff_series, wacc, inversion_inicial=0.0, capital
         max(inversión, 0.25 * |media FCFF| * horizonte_aprox) o capital*5% como piso.
       - Si |TIR| > 150%, se reporta N/D (inversión/flujo incoherentes).
     """
-    f = [float(x) for x in list(fcff_series or [])]
+    f = [float(x) for x in list(fcff_series if fcff_series is not None else [])]
     n = max(len(f), 1)
     inv_in = abs(float(inversion_inicial or 0))
     mean_abs = float(np.mean([abs(x) for x in f])) if f else 0.0
@@ -3746,7 +3746,7 @@ def metricas_proyecto_robustas(fcff_series, wacc, inversion_inicial=0.0, capital
     cashflows = [-inv] + f
     vpn = calcular_npv(wacc, cashflows)
     tir = calcular_irr(cashflows)
-    if tir is not None and (isinstance(tir, float) and (np.isnan(tir) or abs(tir) > 1.5)):
+    if tir is not None and (isinstance(tir, float) and (np.isnan(tir) or abs(tir) > 0.80)):
         tir = None  # >150% o inválida
         if nota is None:
             nota = "TIR no reportada: perfiles de flujo/inversión incoherentes (revisar inversión inicial)."
