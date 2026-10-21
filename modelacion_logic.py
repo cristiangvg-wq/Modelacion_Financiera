@@ -278,10 +278,7 @@ def es_ticker_bvc(ticker):
 def asegurar_sufijo_cl_bvc(ticker, forzar_si_bvc=True):
     """
     Normaliza tickers de la Bolsa de Valores de Colombia para Yahoo Finance.
-
     Yahoo usa el sufijo .CL (ej. ISA.CL, ECOPETROL.CL, BVC.CL).
-    - Si ya tiene sufijo de bolsa (.CL, .MX, .SA, …) se respeta.
-    - Si es un ticker BVC conocido sin sufijo → se añade .CL.
     """
     if ticker is None:
         return None
@@ -302,10 +299,7 @@ def asegurar_sufijo_cl_bvc(ticker, forzar_si_bvc=True):
 
 
 def candidatos_ticker_yf(query):
-    """
-    Lista ordenada de candidatos Yahoo a partir de un query de usuario.
-    Para símbolos BVC pone SYMBOL.CL primero (y el bare como respaldo).
-    """
+    """Lista ordenada de candidatos Yahoo; BVC pone SYMBOL.CL primero."""
     q = (query or "").strip().upper().replace(" ", "")
     if not q:
         return []
@@ -1121,7 +1115,7 @@ def _proveedor_api_key(ticker_yf, ticker_bvc=None):
             proveedor="api_key",
         )
 
-    symbol = asegurar_sufijo_cl_bvc(ticker_yf) or asegurar_sufijo_cl_bvc(ticker_bvc)
+    symbol = ticker_yf or ticker_bvc
     if not symbol:
         return _respuesta_mercado_vacia("Sin símbolo para consultar al vendor.", proveedor="api_key")
 
@@ -1644,20 +1638,21 @@ def formatear_market_cap(mc, moneda="COP"):
 
 def moneda_empresa(nombre_o_emp):
     """Moneda de los EEFF / modelo (catálogo COP; Yahoo = financialCurrency).
-    Tickers BVC (.CL) y catálogo local → COP con prioridad sobre currency de Yahoo mal leída.
+    Tickers BVC (.CL) y catálogo local → COP con prioridad.
     """
     if isinstance(nombre_o_emp, dict):
         emp = nombre_o_emp
     else:
         emp = resolver_empresa(nombre_o_emp) or {}
     tk = str(emp.get("ticker_yf") or emp.get("ticker_bvc") or "")
-    tk = asegurar_sufijo_cl_bvc(tk) if tk else tk
-    # Prioridad BVC: no dejar que un financialCurrency=USD de ADR contamine el listado .CL
+    if tk:
+        try:
+            tk = asegurar_sufijo_cl_bvc(tk) or tk
+        except Exception:
+            pass
     if (tk and str(tk).upper().endswith(".CL")) or emp.get("ticker_bvc") or es_ticker_bvc(tk):
-        # Si params fuerza explícitamente otra moneda y NO es .CL, respetar; si es .CL → COP
         if str(tk).upper().endswith(".CL") or emp.get("ticker_bvc"):
             return "COP"
-    # params.moneda a veces guarda la divisa antes que emp["moneda"]
     mon = (
         (emp.get("moneda") or "")
         or ((emp.get("params") or {}).get("moneda") or "")
@@ -1687,27 +1682,15 @@ def moneda_empresa(nombre_o_emp):
 
 
 def moneda_precio_empresa(nombre_o_emp, mkt=None):
-    """Moneda del precio de cotización (puede diferir de la de EEFF en ADRs).
-    Listados BVC (.CL) → COP. ADR dual (p.ej. EC en USD) respeta mkt/currency.
-    """
+    """Moneda del precio de cotización (puede diferir de la de EEFF en ADRs)."""
+    if mkt and mkt.get("moneda"):
+        return str(mkt["moneda"]).upper().replace("US$", "USD")
     if isinstance(nombre_o_emp, dict):
         emp = nombre_o_emp
     else:
         emp = resolver_empresa(nombre_o_emp) or {}
-    tk = str(emp.get("ticker_yf") or emp.get("ticker_bvc") or "")
-    tk = asegurar_sufijo_cl_bvc(tk) if tk else ""
-    if tk.upper().endswith(".CL") or (emp.get("ticker_bvc") and not str(emp.get("ticker_yf") or "").upper().endswith((".NYSE", ".US"))):
-        if tk.upper().endswith(".CL") or emp.get("ticker_bvc"):
-            # Precio del listado local colombiano
-            if mkt and mkt.get("moneda"):
-                m = str(mkt["moneda"]).upper().replace("US$", "USD").replace("COL", "COP")
-                if m in ("COP", "COL"):
-                    return "COP"
-            return "COP"
-    if mkt and mkt.get("moneda"):
-        return str(mkt["moneda"]).upper().replace("US$", "USD").replace("COL", "COP")
-    mon = (emp.get("moneda_precio") or (emp.get("params") or {}).get("precio_moneda") or emp.get("moneda") or (emp.get("params") or {}).get("currency") or "")
-    mon = str(mon).strip().upper().replace("US$", "USD").replace("COL", "COP")
+    mon = (emp.get("moneda_precio") or emp.get("moneda") or (emp.get("params") or {}).get("currency") or "")
+    mon = str(mon).strip().upper().replace("US$", "USD")
     if mon:
         return mon
     return moneda_empresa(emp)
@@ -1926,7 +1909,6 @@ def ticker_yf_empresa(nombre_empresa):
         tk = emp.get("ticker_bvc")
     if tk:
         return asegurar_sufijo_cl_bvc(tk)
-    # Fallback: "Apple Inc. — AAPL" / "Microsoft — MSFT" / "ISA — Interconexión"
     s = str(nombre_empresa or "").strip()
     if "—" in s:
         part = s.split("—")[-1].strip().upper().replace(" ", "")
@@ -1936,7 +1918,6 @@ def ticker_yf_empresa(nombre_empresa):
         part = s.split(" - ")[-1].strip().upper().replace(" ", "")
         if 1 <= len(part) <= 12 and part.replace(".", "").isalnum():
             return asegurar_sufijo_cl_bvc(part)
-    # Nombre corto tipo AAPL o ISA
     if s and len(s) <= 12 and s.replace(".", "").isalnum():
         return asegurar_sufijo_cl_bvc(s.upper())
     return None
@@ -2028,6 +2009,11 @@ def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None)
     return None
 
 
+def precio_mercado_actual(nombre_empresa=None, precio_ui=None):
+    """Alias: precio de mercado del emisor (Yahoo / conector)."""
+    return resolver_precio_mercado(nombre_empresa, precio_ui)
+
+
 def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
     """Precio de mercado en moneda de cotización. UI → conector Yahoo/runtime."""
     try:
@@ -2038,6 +2024,10 @@ def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
     emp = resolver_empresa(nombre_empresa) if nombre_empresa else None
     emp = emp or {}
     tk = emp.get("ticker_yf") or (ticker_yf_empresa(nombre_empresa) if nombre_empresa else None)
+    if not tk and emp.get("ticker_bvc"):
+        tk = emp.get("ticker_bvc")
+    if tk:
+        tk = asegurar_sufijo_cl_bvc(tk)
     if not tk:
         return None
     try:
