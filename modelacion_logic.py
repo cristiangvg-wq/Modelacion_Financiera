@@ -2593,6 +2593,47 @@ def proyectar_variables_con_meta(df_hist, horizonte=5, metodo="drivers", tax=0.3
     return proyectar_por_drivers(df_hist, horizonte, tax=tax)
 
 
+
+def recalcular_fcff(df_proj, tax=0.35, capex_extra=0.0):
+    """Recalcula NOPAT y FCFF de forma coherente con la proyección por drivers.
+
+    NOPAT = EBIT − tax·max(EBIT, 0)  (sin escudo fiscal artificial por pérdidas)
+    FCFF  = NOPAT + D&A − CAPEX − ΔNWC
+    """
+    d = df_proj.copy()
+    tax = float(tax)
+    ebit = pd.to_numeric(d["EBIT"], errors="coerce").fillna(0.0).astype(float)
+    dep = pd.to_numeric(d["Depreciacion"], errors="coerce").fillna(0.0).astype(float)
+    capex = pd.to_numeric(d["CAPEX"], errors="coerce").fillna(0.0).astype(float) + float(capex_extra or 0)
+    dnwc = pd.to_numeric(d["Delta_NWC"], errors="coerce").fillna(0.0).astype(float)
+    nopat = ebit - tax * np.maximum(ebit.values, 0.0)
+    d["CAPEX"] = capex
+    d["NOPAT"] = nopat
+    d["FCFF"] = nopat + dep - capex - dnwc
+    return d
+
+
+def capital_base_roic(capital_invertido, nopat_prom, deuda_neta=0.0, equity_val=None):
+    """Base de capital para ROIC: evita ROIC fantasma por capital subestimado.
+
+    Usa el máximo entre capital declarado, proxy (equity+deuda neta) y un piso
+    que limita ROIC implícito a ≤ 50% (señal de revisar inputs, no de rentabilidad real).
+    """
+    caps = []
+    c0 = float(capital_invertido or 0)
+    if c0 > 0:
+        caps.append(c0)
+    dn = float(deuda_neta or 0)
+    if equity_val is not None and np.isfinite(float(equity_val)):
+        caps.append(abs(float(equity_val)) + max(dn, 0.0))
+    nopat = float(nopat_prom or 0)
+    if abs(nopat) > 0:
+        # Piso: capital mínimo para que |ROIC| no supere 50%
+        caps.append(abs(nopat) / 0.50)
+    return max(caps) if caps else max(c0, 1.0)
+
+
+
 def monte_carlo_fcff(df_proj, df_hist, horizonte=5, n_sim=1000, seed=42, tax=0.35):
     """
     Bandas de incertidumbre por Monte Carlo CENTRADAS en la proyección base:
@@ -3351,7 +3392,7 @@ def valoracion_dcf(
     g_use, g_cap = anclar_g_terminal(g, wacc, g_max_macro=g_max_macro)
 
     empty = {
-        "EV": 0.0, "EV_Gordon": 0.0, "EV_Exit": None, "Equity_Value": -float(deuda_neta) + float(caja) - float(nci),
+        "EV": 0.0, "EV_Gordon": 0.0, "EV_Exit": None, "Equity_Value": -float(deuda_neta) - float(nci),  # deuda neta: no sumar caja
         "PV_FCFF": 0.0, "PV_TV": 0.0, "TV": 0.0, "TV_Gordon": 0.0, "TV_Exit": None,
         "WACC": wacc, "g_used": g_use, "g_cap": g_cap, "mid_year": mid_year,
         "bridge": {}, "value_per_share": None, "upside_pct": None,
@@ -4901,10 +4942,7 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
         horizonte = int(horizonte)
         df_hist, mensaje_carga = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
         df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
-        # Recalcular NOPAT/FCFF con la tasa de impuestos del usuario y CAPEX extra
-        df_proj["NOPAT"] = df_proj["EBIT"] * (1 - float(tax))
-        df_proj["CAPEX"] = df_proj["CAPEX"] + float(capex_extra or 0)
-        df_proj["FCFF"] = df_proj["NOPAT"] + df_proj["Depreciacion"] - df_proj["CAPEX"] - df_proj["Delta_NWC"]
+        df_proj = recalcular_fcff(df_proj, tax=tax, capex_extra=capex_extra)
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         # CAPM pedagógico: rf≈9%, prima de mercado≈6% (Colombia, simplificado)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
@@ -5096,26 +5134,12 @@ def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
     try:
         horizonte = int(horizonte)
         df_hist, _ = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
-        df_proj = proyectar_variables(df_hist, horizonte, tax=tax)
-        df_proj = df_proj.copy()
-        df_proj["NOPAT"] = df_proj["EBIT"] * (1 - float(tax))
-        df_proj["FCFF"] = df_proj["NOPAT"] + df_proj["Depreciacion"] - df_proj["CAPEX"] - df_proj["Delta_NWC"]
+        df_proj = recalcular_fcff(proyectar_variables(df_hist, horizonte, tax=tax).copy(), tax=tax, capex_extra=0)
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, we, wd = calcular_wacc(de_ratio, kd, ke, tax)
-        nopat_prom = df_proj["NOPAT"].mean()
-        cap_roic = float(capital_invertido or 0)
-        # Capital demasiado bajo vs NOPAT → ROIC fantasma (p.ej. 160%+)
-        if cap_roic > 0 and abs(nopat_prom) / cap_roic > 0.80:
-            # Piso: usar max(capital, 3×|NOPAT|) para no reportar ROIC absurdo sin aviso
-            cap_alt = max(cap_roic, 3.0 * abs(float(nopat_prom)))
-            roic = float(nopat_prom) / cap_alt
-            # Mantener también el ROIC crudo en meta si se necesita
-        else:
-            try:
-                roic = calcular_roic(nopat_prom, capital_invertido)
-            except Exception:
-                roic = float("nan")
+        nopat_prom = float(df_proj["NOPAT"].mean())
+        roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(), df_proj["Delta_NWC"].mean(), nopat_prom)
         g_sost = roic * reinv
         pruebas = []
@@ -5195,9 +5219,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         horizonte = int(horizonte)
         df_hist, mensaje_carga = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
         df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
-        df_proj["NOPAT"] = df_proj["EBIT"] * (1 - float(tax))
-        df_proj["CAPEX"] = df_proj["CAPEX"] + float(capex_extra or 0)
-        df_proj["FCFF"] = df_proj["NOPAT"] + df_proj["Depreciacion"] - df_proj["CAPEX"] - df_proj["Delta_NWC"]
+        df_proj = recalcular_fcff(df_proj, tax=tax, capex_extra=capex_extra)
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, _, _ = calcular_wacc(de_ratio, kd, ke, tax)
@@ -5380,9 +5402,7 @@ def tab5_vpn_tir(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex
         horizonte = int(horizonte)
         df_hist, _ = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
         df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
-        df_proj["NOPAT"] = df_proj["EBIT"] * (1 - float(tax))
-        df_proj["CAPEX"] = df_proj["CAPEX"] + float(capex_extra or 0)
-        df_proj["FCFF"] = df_proj["NOPAT"] + df_proj["Depreciacion"] - df_proj["CAPEX"] - df_proj["Delta_NWC"]
+        df_proj = recalcular_fcff(df_proj, tax=tax, capex_extra=capex_extra)
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, _, _ = calcular_wacc(de_ratio, kd, ke, tax)
@@ -6225,9 +6245,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         capex_extra = float(capex_extra or 0)
         df_hist, mensaje_datos = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
         df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
-        df_proj["NOPAT"] = df_proj["EBIT"] * (1 - float(tax))
-        df_proj["CAPEX"] = df_proj["CAPEX"] + float(capex_extra or 0)
-        df_proj["FCFF"] = df_proj["NOPAT"] + df_proj["Depreciacion"] - df_proj["CAPEX"] - df_proj["Delta_NWC"]
+        df_proj = recalcular_fcff(df_proj, tax=tax, capex_extra=capex_extra)
 
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
@@ -6261,7 +6279,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             roic = float(nopat_prom) / cap_alt
         else:
             try:
-                roic = calcular_roic(nopat_prom, capital_invertido)
+                roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
             except Exception:
                 roic = float("nan")
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(),
@@ -6324,6 +6342,14 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         payback = mp["payback"]
         payback_str = mp["payback_str"]
         cashflows = mp["cashflows"]
+        # Si la TIR de proyecto no es creíble, el KPI ejecutivo usa métricas de FIRMA
+        # (MVA / TIR implícita con capital invertido + TV), no el proyecto con inversión ilustrativa.
+        _vpn_f, _tir_f = metricas_valor_firma(fcff_vals, capital_invertido, val_base)
+        if tir is None and _vpn_f is not None:
+            vpn = float(_vpn_f)
+            tir = _tir_f
+            tir_str = f"{_tir_f*100:.2f}%" if _tir_f is not None else "N/D"
+            payback_str = "N/D (usar capital de firma)"
 
         # Escenario pesimista para el mismo motor de gobernanza que la pestaña 4
         g_pes_m = max(0.005, float(g) - 0.01)
