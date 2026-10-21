@@ -239,6 +239,37 @@ EMPRESAS = {
 # ---------------------------------------------------------------------------
 EMPRESAS_RUNTIME = {}  # nombre_display -> mismo shape que EMPRESAS[k]
 
+# Snapshot inmutable del catálogo BVC al importar el módulo.
+# Evita que una sesión (p.ej. AAPL) corrompa ticker_yf de ISA en memoria.
+import copy as _copy_mod
+_EMPRESAS_CATALOGO_INMUTABLE = _copy_mod.deepcopy(EMPRESAS)
+
+
+def _restaurar_entrada_catalogo(nombre_empresa):
+    """Restaura ticker/moneda del catálogo si se contaminó en sesión."""
+    if not nombre_empresa or nombre_empresa not in _EMPRESAS_CATALOGO_INMUTABLE:
+        return
+    orig = _EMPRESAS_CATALOGO_INMUTABLE[nombre_empresa]
+    vivo = EMPRESAS.get(nombre_empresa)
+    if not isinstance(vivo, dict):
+        return
+    for k in ("ticker_yf", "ticker_bvc", "moneda", "moneda_precio", "sector", "descripcion", "fuente"):
+        if k in orig:
+            vivo[k] = _copy_mod.deepcopy(orig[k])
+    op = _copy_mod.deepcopy(orig.get("params") or {})
+    cur = vivo.get("params") or {}
+    for nk in (
+        "de_ratio", "kd", "tax", "g", "capex_extra", "beta_u", "capital_invertido",
+        "deuda_neta", "inversion_inicial", "caja", "nci", "otros_claims", "asociados",
+        "acciones", "exit_multiple",
+    ):
+        if nk in cur and cur[nk] is not None:
+            op[nk] = cur[nk]
+    op["moneda"] = (orig.get("params") or {}).get("moneda") or orig.get("moneda") or "COP"
+    op["precio_moneda"] = op.get("moneda")
+    vivo["params"] = op
+
+
 # ---------------------------------------------------------------------------
 # BVC (.CL) vs resto del mundo — tickers y monedas alineadas
 # ---------------------------------------------------------------------------
@@ -342,7 +373,7 @@ def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
     if tk:
         tk = asegurar_sufijo_cl_bvc(tk)
     # Catálogo BVC estático
-    if nombre_empresa and nombre_empresa in EMPRESAS:
+    if nombre_empresa and (nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE or nombre_empresa in EMPRESAS):
         return "COP", "COP"
     if emp and (emp.get("ticker_bvc") or str(tk or "").endswith(".CL") or es_ticker_bvc(tk)):
         if str(tk or "").endswith(".CL") or emp.get("ticker_bvc") or es_ticker_bvc(tk):
@@ -376,26 +407,25 @@ def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
 
 
 def aplicar_monedas_a_empresa(nombre_empresa=None, emp=None):
-    """Escribe moneda y moneda_precio alineadas en el dict de la empresa."""
+    """Monedas alineadas. Restaura catálogo y usa ticker canónico (no AAPL en ISA)."""
+    if nombre_empresa and nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
+        _restaurar_entrada_catalogo(nombre_empresa)
     if emp is None and nombre_empresa:
         emp = resolver_empresa(nombre_empresa)
     if not emp or not isinstance(emp, dict):
         return emp
-    mm, mp = monedas_alineadas_por_ticker(
-        ticker=emp.get("ticker_yf") or emp.get("ticker_bvc"),
-        nombre_empresa=nombre_empresa,
-        emp=emp,
-    )
+    tk = ticker_canonico_empresa(nombre_empresa) if nombre_empresa else None
+    if not tk:
+        tk = asegurar_sufijo_cl_bvc(emp.get("ticker_yf") or emp.get("ticker_bvc"))
+    mm, mp = monedas_alineadas_por_ticker(ticker=tk, nombre_empresa=nombre_empresa, emp=emp)
     emp["moneda"] = mm
     emp["moneda_precio"] = mp
     emp.setdefault("params", {})
     emp["params"]["moneda"] = mm
     emp["params"]["precio_moneda"] = mp
     emp["params"]["moneda_precio"] = mp
-    # Normalizar ticker
-    tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
     if tk:
-        emp["ticker_yf"] = asegurar_sufijo_cl_bvc(tk)
+        emp["ticker_yf"] = tk
     return emp
 
 
@@ -874,6 +904,8 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
 
 def resolver_empresa(nombre_empresa):
     """Busca primero en catálogo estático, luego en runtime descargado."""
+    if nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
+        _restaurar_entrada_catalogo(nombre_empresa)
     if nombre_empresa in EMPRESAS:
         return EMPRESAS[nombre_empresa]
     if nombre_empresa in EMPRESAS_RUNTIME:
@@ -1819,11 +1851,13 @@ def card_empresa_seleccionada(nombre_empresa):
         Descarga un ticker en Yahoo o carga un Excel/CSV (Año, Ingresos, EBITDA, EBIT, CAPEX, NWC)
         y calibra los parámetros con datos de <b>esta</b> empresa.</div>"""
 
+    if nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
+        _restaurar_entrada_catalogo(nombre_empresa)
+        emp = EMPRESAS.get(nombre_empresa) or emp
     emp = aplicar_monedas_a_empresa(nombre_empresa, emp)
-    # Ticker canónico de ESTA empresa (no de session de otra)
-    _tk_card = ticker_yf_empresa(nombre_empresa) or asegurar_sufijo_cl_bvc(
-        emp.get("ticker_yf") or emp.get("ticker_bvc")
-    )
+    _tk_card = ticker_canonico_empresa(nombre_empresa)
+    if not _tk_card:
+        _tk_card = asegurar_sufijo_cl_bvc(emp.get("ticker_yf") or emp.get("ticker_bvc"))
     if _tk_card:
         emp["ticker_yf"] = _tk_card
     mkt = obtener_datos_mercado_bvc(_tk_card, ticker_bvc=emp.get("ticker_bvc"))
@@ -1843,9 +1877,9 @@ def card_empresa_seleccionada(nombre_empresa):
     pe_txt = f"{_pe:.1f}x" if _pe is not None else "N/D"
     mc_txt = formatear_market_cap(mkt.get("market_cap"), mon)
 
-    ticker = emp.get("ticker_yf") or emp.get("ticker_bvc") or "—"
-    es_bvc = bool(str(emp.get("ticker_yf") or "").endswith(".CL") or (
-        nombre_empresa in EMPRESAS and emp.get("ticker_bvc")
+    ticker = _tk_card or emp.get("ticker_yf") or emp.get("ticker_bvc") or "—"
+    es_bvc = bool(str(ticker).upper().endswith(".CL") or (
+        nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE
     ))
     etiqueta_mercado = "Bolsa de Valores de Colombia (BVC)" if es_bvc else "Mercado (Yahoo Finance)"
     etiqueta_precio = "Precio de mercado (BVC)" if es_bvc else "Precio de mercado"
@@ -1980,23 +2014,52 @@ def _codigo_mercado(country, currency=None, ticker_yf=None):
 
 
 
-def ticker_yf_empresa(nombre_empresa):
-    """Ticker Yahoo: BVC con .CL; US sin .CL."""
-    emp = resolver_empresa(nombre_empresa) or {}
-    tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
-    if tk:
-        return asegurar_sufijo_cl_bvc(tk)
-    s = str(nombre_empresa or "").strip()
-    if "—" in s:
-        part = s.split("—")[-1].strip().upper().replace(" ", "")
-        if 1 <= len(part) <= 12 and part.replace(".", "").isalnum():
+def ticker_canonico_empresa(nombre_empresa):
+    """
+    Ticker Yahoo canónico, a prueba de contaminación.
+    Catálogo BVC → siempre snapshot (ISA.CL, nunca AAPL).
+    Runtime → ticker con el que se registró la descarga.
+    """
+    nombre = str(nombre_empresa or "").strip()
+    if not nombre:
+        return None
+    # Catálogo exacto
+    if nombre in _EMPRESAS_CATALOGO_INMUTABLE:
+        _restaurar_entrada_catalogo(nombre)
+        orig = _EMPRESAS_CATALOGO_INMUTABLE[nombre]
+        tk = orig.get("ticker_yf") or orig.get("ticker_bvc")
+        return asegurar_sufijo_cl_bvc(tk) if tk else None
+    # Match parcial catálogo
+    for k, orig in _EMPRESAS_CATALOGO_INMUTABLE.items():
+        if nombre == k or (len(nombre) > 3 and (nombre in k or k in nombre)):
+            _restaurar_entrada_catalogo(k)
+            tk = orig.get("ticker_yf") or orig.get("ticker_bvc")
+            return asegurar_sufijo_cl_bvc(tk) if tk else None
+    # Runtime Yahoo
+    emp = EMPRESAS_RUNTIME.get(nombre)
+    if emp:
+        tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
+        return asegurar_sufijo_cl_bvc(tk) if tk else None
+    for k, emp in EMPRESAS_RUNTIME.items():
+        if nombre == k or nombre in k or k in nombre:
+            tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
+            return asegurar_sufijo_cl_bvc(tk) if tk else None
+    # Heurística display
+    if "—" in nombre:
+        part = nombre.split("—")[-1].strip().upper().replace(" ", "")
+        if 1 <= len(part) <= 12 and part.replace(".", "").replace("-", "").isalnum():
             return asegurar_sufijo_cl_bvc(part)
-    if nombre_empresa in EMPRESAS:
-        e = EMPRESAS[nombre_empresa]
-        return asegurar_sufijo_cl_bvc(e.get("ticker_yf") or e.get("ticker_bvc"))
-    if s and len(s) <= 12 and s.replace(".", "").isalnum():
-        return asegurar_sufijo_cl_bvc(s.upper())
+    head = nombre.split("—")[0].strip().upper()
+    if head in _tickers_bvc_conocidos():
+        return asegurar_sufijo_cl_bvc(head)
+    if nombre and len(nombre) <= 12 and nombre.replace(".", "").isalnum():
+        return asegurar_sufijo_cl_bvc(nombre.upper())
     return None
+
+
+def ticker_yf_empresa(nombre_empresa):
+    """Alias: siempre el ticker canónico de la empresa."""
+    return ticker_canonico_empresa(nombre_empresa)
 
 
 def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None):
@@ -7728,21 +7791,21 @@ def _capm_para_ui(p):
 
 
 def al_cambiar_empresa(nombre_empresa):
+    if nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
+        _restaurar_entrada_catalogo(nombre_empresa)
     emp = resolver_empresa(nombre_empresa)
     if emp:
         aplicar_monedas_a_empresa(nombre_empresa, emp)
-        tk = ticker_yf_empresa(nombre_empresa)
-        if tk:
-            emp["ticker_yf"] = tk
     p = params_empresa(nombre_empresa)
-    # Garantizar ticker de esta empresa en params
-    tk = ticker_yf_empresa(nombre_empresa)
+    tk = ticker_canonico_empresa(nombre_empresa)
     if tk:
         p = dict(p)
         p["ticker_yf"] = tk
         mm, mp = monedas_alineadas_por_ticker(tk, nombre_empresa, emp or {})
         p["moneda"] = mm
         p["precio_moneda"] = mp
+        if emp is not None:
+            emp["ticker_yf"] = tk
     card = card_empresa_seleccionada(nombre_empresa)
     # Si es catálogo y no trae rf, anotar mercado CO en params para UI
     if p.get("origen_params") == "catalogo" or (nombre_empresa in EMPRESAS and "rf" not in p):

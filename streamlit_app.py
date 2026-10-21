@@ -2289,7 +2289,9 @@ def _inferir_ticker_yf(nombre, p=None):
 
     # 1) Fuente de verdad: lógica / catálogo de ESTA empresa
     try:
-        if hasattr(L, "ticker_yf_empresa"):
+        if hasattr(L, "ticker_canonico_empresa"):
+            tk_nombre = L.ticker_canonico_empresa(nombre)
+        elif hasattr(L, "ticker_yf_empresa"):
             tk_nombre = L.ticker_yf_empresa(nombre)
     except Exception:
         tk_nombre = None
@@ -2854,6 +2856,11 @@ def main():
     except Exception:
         pass
 
+    try:
+        if hasattr(L, "_restaurar_entrada_catalogo"):
+            L._restaurar_entrada_catalogo(empresa)
+    except Exception:
+        pass
     # Re-alinear moneda/precio en cada run (evita USD modelo vs COP precio en AAPL y similares)
     try:
         _alinear_moneda_y_precio(empresa)
