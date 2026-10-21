@@ -50,7 +50,7 @@ st.set_page_config(
     page_title="Modelación Financiera · Terminal",
     page_icon="◈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",  # en móvil Streamlit igual puede colapsar; hay panel en main
     menu_items={
         "About": "Terminal de modelación financiera multisectorial · apoyo a decisión · no es asesoría de inversión.",
     },
@@ -693,7 +693,40 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
 }
 ::-webkit-scrollbar-thumb:hover { background: #14B8A6; }
 
+/* —— Móvil: sidebar y acceso a controles —— */
+@media (max-width: 768px) {
+  /* Asegurar que el botón de abrir sidebar sea visible */
+  [data-testid="stSidebarCollapsedControl"],
+  button[kind="header"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 100000 !important;
+  }
+  /* Panel de empresa en main (no depende del sidebar) */
+  .tf-mobile-config {
+    display: block !important;
+    margin: 0 0 1rem 0;
+  }
+}
+@media (min-width: 769px) {
+  .tf-mobile-config-hint { display: none !important; }
+}
+.tf-mobile-config {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid #14B8A6;
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+.tf-mobile-config h4 {
+  margin: 0 0 0.4rem 0;
+  color: #5EEAD4 !important;
+  font-size: 0.95rem !important;
+}
+
 /* Hide Streamlit chrome */
+
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
 header[data-testid="stHeader"] {
@@ -2551,6 +2584,69 @@ def main():
             sector = "—"
     except Exception:
         sector = "—"
+
+
+    # ----- Panel empresa (siempre visible; crítico en móvil donde el sidebar se oculta) -----
+    st.markdown(
+        '<div class="tf-mobile-config-hint" style="margin:0 0 0.5rem 0;color:#94A3B8;font-size:0.8rem">'
+        "En el celular: si no ves el menú izquierdo, usa este bloque o el ícono "
+        "<b>»</b> / menú superior para abrir la barra lateral."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    with st.expander("☰ Empresa y datos (abrir aquí en el celular)", expanded=False):
+        st.caption("Mismos controles que la barra izquierda. En pantallas pequeñas el menú lateral a veces queda oculto.")
+        _cats_m = _listar_empresas()
+        _emp_m = st.selectbox(
+            "Empresa / emisor",
+            options=_cats_m,
+            index=_cats_m.index(empresa) if empresa in _cats_m else 0,
+            key="mobile_select_empresa",
+        )
+        if _emp_m != empresa:
+            st.session_state["empresa_sel"] = _emp_m
+            st.session_state["select_empresa"] = _emp_m
+            _cargar_params_empresa(_emp_m)
+            st.session_state["resultados"] = {}
+            try:
+                L.reset_resultados_sesion(_emp_m)
+            except Exception:
+                pass
+            st.rerun()
+        _tq_m = st.text_input("Descargar ticker Yahoo", placeholder="AAPL", key="mobile_ticker")
+        if st.button("Descargar ticker", key="mobile_dl", type="primary"):
+            with st.spinner("Yahoo…"):
+                try:
+                    ok, html, display_name, params_tuple = L.buscar_y_descargar_empresa(_tq_m, "")
+                except Exception as e:
+                    ok, html, display_name, params_tuple = False, str(e), None, None
+            if ok and display_name:
+                st.session_state["empresa_sel"] = display_name
+                st.session_state["select_empresa"] = display_name
+                if params_tuple and len(params_tuple) >= 14:
+                    keys = [
+                        "de_ratio", "kd", "tax", "g", "beta_u",
+                        "capital_invertido", "deuda_neta", "inversion_inicial",
+                        "caja", "nci", "otros_claims", "asociados",
+                        "acciones", "exit_multiple",
+                    ]
+                    st.session_state["params"] = {k: params_tuple[i] for i, k in enumerate(keys)}
+                _cargar_params_empresa(display_name)
+                st.session_state["resultados"] = {}
+                st.success(f"Cargada: {display_name}")
+                st.rerun()
+            else:
+                st.error("No se pudo descargar")
+                _html(html)
+        _p_m = st.session_state.get("params") or {}
+        st.write(
+            f"**Acciones (M):** {_p_m.get('acciones', '—')} · "
+            f"**Moneda:** {_p_m.get('moneda') or moneda} · "
+            f"**D/E:** {_p_m.get('de_ratio', '—')}"
+        )
+        if st.session_state.get("ficha_html"):
+            _html(st.session_state["ficha_html"])
+
 
     # ----- KPI strip (con burbujas al pasar el cursor) -----
     _kpi_row(
