@@ -2719,11 +2719,6 @@ def main():
     with t2:
         with st.expander("📚 Glosario en palabras simples", expanded=False):
             _glosario_chips()
-            with st.expander("Glosario completo (técnico)", expanded=False):
-                try:
-                    _html(L.glosario_html())
-                except Exception:
-                    st.caption("FCFF · WACC · ROIC · EV · Equity · VPN · TIR · g · Beta")
 
     with st.expander("🤖 Consulta IA", expanded=False):
         st.caption(
