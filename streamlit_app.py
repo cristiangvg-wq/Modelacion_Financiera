@@ -10,7 +10,6 @@ import traceback
 from datetime import datetime
 
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 
@@ -745,46 +744,7 @@ button[data-testid="stBaseButton-headerNoPadding"] {
   color: #5EEAD4 !important;
   stroke: #5EEAD4 !important;
 }
-/* Botón flotante propio (respaldo si Streamlit no pinta la flecha) */
-.tf-open-sidebar-btn {
-  position: fixed !important;
-  left: 0.45rem !important;
-  top: 0.45rem !important;
-  z-index: 100030 !important;
-  width: 2.5rem !important;
-  height: 2.5rem !important;
-  border-radius: 12px !important;
-  border: 1px solid #14B8A6 !important;
-  background: rgba(15, 23, 42, 0.96) !important;
-  color: #5EEAD4 !important;
-  font-size: 1.15rem !important;
-  line-height: 1 !important;
-  cursor: pointer !important;
-  display: none !important;
-  align-items: center !important;
-  justify-content: center !important;
-  box-shadow: 0 2px 14px rgba(0,0,0,0.45) !important;
-}
-.tf-open-sidebar-btn:hover {
-  background: rgba(20, 184, 166, 0.2) !important;
-}
 
-/* Panel auxiliar en main (respaldo si el CSS del sidebar falla en alguna versión) */
-@media (min-width: 992px) {
-  .tf-mobile-config-hint { display: none !important; }
-}
-.tf-mobile-config {
-  background: rgba(15, 23, 42, 0.92);
-  border: 1px solid #14B8A6;
-  border-radius: 14px;
-  padding: 0.85rem 1rem;
-  margin-bottom: 1rem;
-}
-.tf-mobile-config h4 {
-  margin: 0 0 0.4rem 0;
-  color: #5EEAD4 !important;
-  font-size: 0.95rem !important;
-}
 
 /* Hide solo menú hamburger y footer; NO ocultar header/toolbar (flecha del sidebar) */
 #MainMenu { visibility: hidden; }
@@ -856,83 +816,6 @@ div[role="radiogroup"] label:has(input:checked) {
 
 
 st.markdown(FINTECH_CSS, unsafe_allow_html=True)
-
-# Control para reabrir sidebar (visible en la página; JS habla con el parent de Streamlit)
-components.html(
-    """
-<div style="display:flex;gap:8px;align-items:center;font-family:system-ui,sans-serif;">
-  <button id="tf-open-sidebar" type="button"
-    style="cursor:pointer;border:1px solid #14B8A6;background:#0F172A;color:#5EEAD4;
-           border-radius:10px;padding:8px 14px;font-weight:600;font-size:14px;">
-    ☰ Abrir menú lateral
-  </button>
-  <span id="tf-sb-hint" style="color:#94A3B8;font-size:12px;">
-    Si cerraste el panel izquierdo, pulsa aquí o la flecha arriba a la izquierda.
-  </span>
-</div>
-<script>
-(function () {
-  function rootDoc() {
-    try { return window.parent.document; } catch (e) { return document; }
-  }
-  function findBtn(doc) {
-    var sels = [
-      '[data-testid="stSidebarCollapsedControl"] button',
-      '[data-testid="stSidebarCollapsedControl"]',
-      '[data-testid="collapsedControl"] button',
-      '[data-testid="collapsedControl"]',
-      '[data-testid="stExpandSidebarButton"]',
-      'button[data-testid="baseButton-headerNoPadding"]',
-      'button[data-testid="stBaseButton-headerNoPadding"]',
-      'button[kind="header"]'
-    ];
-    for (var i = 0; i < sels.length; i++) {
-      var el = doc.querySelector(sels[i]);
-      if (el) return el;
-    }
-    return null;
-  }
-  function sideW(doc) {
-    var s = doc.querySelector('section[data-testid="stSidebar"]');
-    return s ? (s.getBoundingClientRect().width || 0) : 0;
-  }
-  function sync() {
-    try {
-      var doc = rootDoc();
-      var closed = sideW(doc) < 48;
-      var btn = document.getElementById('tf-open-sidebar');
-      var hint = document.getElementById('tf-sb-hint');
-      if (btn) {
-        btn.style.opacity = closed ? '1' : '0.55';
-        btn.textContent = closed ? '☰ Abrir menú lateral' : '☰ Menú abierto';
-      }
-      if (hint) {
-        hint.textContent = closed
-          ? 'El panel izquierdo está cerrado. Pulsa el botón o la flecha superior izquierda.'
-          : 'Panel lateral visible. Puedes cerrarlo con la flecha del borde.';
-      }
-    } catch (e) {}
-  }
-  function openSb() {
-    try {
-      var doc = rootDoc();
-      if (sideW(doc) >= 48) return; // ya abierto
-      var btn = findBtn(doc);
-      if (btn) btn.click();
-      setTimeout(sync, 300);
-      setTimeout(sync, 900);
-    } catch (e) {}
-  }
-  var b = document.getElementById('tf-open-sidebar');
-  if (b) b.onclick = function (e) { e.preventDefault(); openSb(); };
-  sync();
-  setInterval(sync, 700);
-})();
-</script>
-""",
-    height=52,
-)
-
 
 # =============================================================================
 # UI HELPERS
@@ -2742,50 +2625,6 @@ def main():
             sector = "—"
     except Exception:
         sector = "—"
-
-
-    # ----- Panel empresa (siempre visible; crítico en móvil donde el sidebar se oculta) -----
-    st.markdown(
-        '<div class="tf-mobile-config-hint" style="margin:0 0 0.5rem 0;color:#94A3B8;font-size:0.8rem">'
-        "Si el menú lateral está cerrado, pulsa la flecha <b>»</b> arriba a la izquierda para abrirlo. "
-        "También puedes usar este bloque."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    with st.expander("☰ Empresa y datos (abrir aquí en el celular)", expanded=False):
-        st.caption("Mismos controles que la barra izquierda. En pantallas pequeñas el menú lateral a veces queda oculto.")
-        _cats_m = _listar_empresas()
-        # Sincronizar valor del select móvil sin pisar select_empresa (widget ya creado en sidebar)
-        if "mobile_select_empresa" not in st.session_state or st.session_state.get("mobile_select_empresa") not in _cats_m:
-            st.session_state["mobile_select_empresa"] = empresa if empresa in _cats_m else (_cats_m[0] if _cats_m else "")
-        _emp_m = st.selectbox(
-            "Empresa / emisor",
-            options=_cats_m,
-            key="mobile_select_empresa",
-        )
-        if _emp_m and _emp_m != st.session_state.get("empresa_sel"):
-            _solicitar_cambio_empresa(_emp_m)
-        _tq_m = st.text_input("Descargar ticker Yahoo", placeholder="AAPL", key="mobile_ticker")
-        if st.button("Descargar ticker", key="mobile_dl", type="primary"):
-            with st.spinner("Yahoo…"):
-                try:
-                    ok, html, display_name, params_tuple = L.buscar_y_descargar_empresa(_tq_m, "")
-                except Exception as e:
-                    ok, html, display_name, params_tuple = False, str(e), None, None
-            if ok and display_name:
-                st.success(f"Cargada: {display_name}")
-                _solicitar_cambio_empresa(display_name, params_tuple=params_tuple)
-            else:
-                st.error("No se pudo descargar")
-                _html(html)
-        _p_m = st.session_state.get("params") or {}
-        st.write(
-            f"**Acciones (M):** {_p_m.get('acciones', '—')} · "
-            f"**Moneda:** {_p_m.get('moneda') or moneda} · "
-            f"**D/E:** {_p_m.get('de_ratio', '—')}"
-        )
-        if st.session_state.get("ficha_html"):
-            _html(st.session_state["ficha_html"])
 
 
     # ----- KPI strip (con burbujas al pasar el cursor) -----
