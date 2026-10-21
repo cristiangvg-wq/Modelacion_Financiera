@@ -3528,7 +3528,7 @@ def formatear_bridge_html(val, moneda_modelo=None, moneda_precio=None, nombre_em
 
     rows = "".join(
         f"<tr><td style='padding:6px 10px;color:#E8EEF7;border-bottom:1px solid #E2E8F0'>{k}</td>"
-        f"<td style='padding:6px 10px;text-align:right;color:#E8EEF7;border-bottom:1px solid #E2E8F0'>{_celda(v)}</td></tr>"
+        f"<td style='padding:6px 10px;text-align:left;color:#E8EEF7;border-bottom:1px solid #E2E8F0'>{_celda(v)}</td></tr>"
         for k, v in b.items()
     )
     vps = val.get("value_per_share")
@@ -4967,15 +4967,15 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
 <div style="background:#151C2C;border:1px solid #243044;border-radius:12px;padding:18px 22px">
 <h3 style="color:{COLOR_PRIMARY};margin-top:0">Parámetros · {nombre_empresa}</h3>
 <table style="width:100%;border-collapse:collapse;font-size:14px">
-<tr style="background:#0A2540;color:white"><th style="padding:8px;text-align:left">Parámetro</th><th style="padding:8px;text-align:right">Valor</th><th style="padding:8px;text-align:left">¿Qué significa?</th></tr>
-<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">D/E</td><td style="padding:6px;text-align:right;border-bottom:1px solid #E2E8F0"><b>{de_ratio:.2f}</b></td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Deuda por cada peso de los dueños</td></tr>
-<tr style="background:#1A2336"><td style="padding:6px;border-bottom:1px solid #E2E8F0">Kd</td><td style="padding:6px;text-align:right;border-bottom:1px solid #E2E8F0">{kd*100:.2f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Interés que paga por sus deudas</td></tr>
-<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">Impuestos</td><td style="padding:6px;text-align:right;border-bottom:1px solid #E2E8F0">{tax*100:.1f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Porcentaje que se va en impuestos</td></tr>
-<tr style="background:#1A2336"><td style="padding:6px;border-bottom:1px solid #E2E8F0">g perpetuo</td><td style="padding:6px;text-align:right;border-bottom:1px solid #E2E8F0">{g*100:.2f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Crecimiento de largo plazo</td></tr>
-<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">CAPEX extra</td><td style="padding:6px;text-align:right;border-bottom:1px solid #E2E8F0">{capex_extra:,.0f}</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Inversión adicional en activos</td></tr>
-<tr style="background:#1A2336"><td style="padding:6px;border-bottom:1px solid #E2E8F0">β apalancado</td><td style="padding:6px;text-align:right;border-bottom:1px solid #E2E8F0">{beta_l:.2f}</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Riesgo del negocio + efecto deuda</td></tr>
-<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">Ke</td><td style="padding:6px;text-align:right;border-bottom:1px solid #E2E8F0">{ke*100:.2f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Rentabilidad que piden los accionistas</td></tr>
-<tr style="background:#00A3A1;color:white"><td style="padding:8px"><b>WACC</b></td><td style="padding:8px;text-align:right"><b>{wacc*100:.2f}%</b></td><td style="padding:8px;font-size:12px">Costo promedio del dinero</td></tr>
+<tr style="background:#0A2540;color:white"><th style="padding:8px;text-align:left">Parámetro</th><th style="padding:8px;text-align:left">Valor</th><th style="padding:8px;text-align:left">¿Qué significa?</th></tr>
+<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">D/E</td><td style="padding:6px;text-align:left;border-bottom:1px solid #E2E8F0"><b>{de_ratio:.2f}</b></td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Deuda por cada peso de los dueños</td></tr>
+<tr style="background:#1A2336"><td style="padding:6px;border-bottom:1px solid #E2E8F0">Kd</td><td style="padding:6px;text-align:left;border-bottom:1px solid #E2E8F0">{kd*100:.2f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Interés que paga por sus deudas</td></tr>
+<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">Impuestos</td><td style="padding:6px;text-align:left;border-bottom:1px solid #E2E8F0">{tax*100:.1f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Porcentaje que se va en impuestos</td></tr>
+<tr style="background:#1A2336"><td style="padding:6px;border-bottom:1px solid #E2E8F0">g perpetuo</td><td style="padding:6px;text-align:left;border-bottom:1px solid #E2E8F0">{g*100:.2f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Crecimiento de largo plazo</td></tr>
+<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">CAPEX extra</td><td style="padding:6px;text-align:left;border-bottom:1px solid #E2E8F0">{capex_extra:,.0f}</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Inversión adicional en activos</td></tr>
+<tr style="background:#1A2336"><td style="padding:6px;border-bottom:1px solid #E2E8F0">β apalancado</td><td style="padding:6px;text-align:left;border-bottom:1px solid #E2E8F0">{beta_l:.2f}</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Riesgo del negocio + efecto deuda</td></tr>
+<tr><td style="padding:6px;border-bottom:1px solid #E2E8F0">Ke</td><td style="padding:6px;text-align:left;border-bottom:1px solid #E2E8F0">{ke*100:.2f}%</td><td style="padding:6px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#E2E8F0;font-weight:500">Rentabilidad que piden los accionistas</td></tr>
+<tr style="background:#00A3A1;color:white"><td style="padding:8px"><b>WACC</b></td><td style="padding:8px;text-align:left"><b>{wacc*100:.2f}%</b></td><td style="padding:8px;font-size:12px">Costo promedio del dinero</td></tr>
 </table>
 <br>
 <p style="margin:0;color:#E8EEF7"><b>EV base:</b> {escenarios['Base']['EV']:,.0f} | <b>Equity base:</b> {escenarios['Base']['Equity_Value']:,.0f}</p>
@@ -5224,10 +5224,15 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
 
         try:
             sens = matriz_sensibilidad_wacc_g(df_proj["FCFF"].values, deuda_neta, wacc, float(g), mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj))
-            sens_html = sens.to_html(index=False)
-            sens_html = sens_html.replace('<table', '<table style="width:100%;border-collapse:collapse;font-size:12px;color:#E8EEF7"')
-            sens_html = sens_html.replace('<th>', '<th style="background:#0A2540;color:#fff;padding:6px;text-align:right">')
-            sens_html = sens_html.replace('<td>', '<td style="padding:6px;border-bottom:1px solid #E2E8F0;text-align:right;color:#E8EEF7">')
+            sens_html = sens.to_html(index=False, na_rep="—")
+            sens_html = sens_html.replace(
+                '<table',
+                '<table style="width:100%;border-collapse:collapse;font-size:12px;color:#E8EEF7;text-align:left"',
+            )
+            sens_html = sens_html.replace('<th>', '<th style="text-align:left;padding:8px 10px;background:#0F766E;color:#ECFDF5">')
+            sens_html = sens_html.replace('<td>', '<td style="text-align:left;padding:6px 10px;border-bottom:1px solid #243044">')
+            sens_html = sens_html.replace('<th>', '<th style="background:#0A2540;color:#fff;padding:6px;text-align:left">')
+            sens_html = sens_html.replace('<td>', '<td style="padding:6px;border-bottom:1px solid #E2E8F0;text-align:left;color:#E8EEF7">')
         except Exception as e_sens:
             sens_html = f"<p style='color:#991B1B'>No se pudo calcular la matriz de sensibilidad: {e_sens}</p>"
 
@@ -5907,7 +5912,9 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
                               fontSize=8, textColor=colors.HexColor("#64748B"),
                               alignment=TA_CENTER))
     styles.add(ParagraphStyle(name="KPI", parent=styles["Normal"],
-                              fontSize=9, textColor=colors.HexColor("#0F172A"), leading=12))
+                              fontSize=9, textColor=colors.HexColor("#0F172A"), leading=12, alignment=0))
+    styles.add(ParagraphStyle(name="KPIHeader", parent=styles["Normal"],
+                              fontSize=9, textColor=colors.white, leading=12, alignment=0))
 
     story = []
     story.append(Paragraph("Informe Ejecutivo - Resumen para Comite", styles["TituloMain"]))
@@ -5970,7 +5977,17 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
         ["Payback", datos['payback_str'], "Anios para recuperar inversion"],
         ["FCFF promedio", f"{datos['fcff_prom']:,.0f}", "Dinero libre promedio / anio"],
     ]
-    t = Table(kpi_data, colWidths=[2.1*inch, 1.3*inch, 3.4*inch])
+    def _pdf_cell(txt, header=False):
+        s = "" if txt is None else str(txt).strip()
+        if not s or s.lower() in ("nan", "none"):
+            s = "—"
+        st_name = "KPIHeader" if header else "KPI"
+        return Paragraph(s.replace("\n", "<br/>"), styles[st_name])
+
+    kpi_flow = [[_pdf_cell(c, header=True) for c in kpi_data[0]]]
+    for row in kpi_data[1:]:
+        kpi_flow.append([_pdf_cell(x) for x in row])
+    t = Table(kpi_flow, colWidths=[2.0*inch, 1.5*inch, 3.3*inch])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A2540")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -5980,10 +5997,11 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
         ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#0F172A")),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1F5F9")]),
     ]))
     story.append(t)
@@ -6020,9 +6038,15 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
     # 5. Escenarios
     story.append(Paragraph("6. Escenarios de valoración", styles["Subtitulo"]))
     esc_data = [["Escenario", "WACC %", "g %", "EV", "Equity"]]
-    for row in datos["escenarios"]:
-        esc_data.append([str(x) for x in row])
-    t2 = Table(esc_data, colWidths=[1.3*inch, 1*inch, 1*inch, 1.5*inch, 1.5*inch])
+    for row in datos.get("escenarios") or []:
+        esc_data.append([("—" if x is None or str(x).strip() == "" else str(x)) for x in row])
+    esc_flow = []
+    for ri, row in enumerate(esc_data):
+        esc_flow.append([
+            Paragraph(str(c), styles["KPIHeader"] if ri == 0 else styles["KPI"])
+            for c in row
+        ])
+    t2 = Table(esc_flow, colWidths=[1.4*inch, 1.0*inch, 1.0*inch, 1.5*inch, 1.5*inch])
     t2.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A2540")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -6030,7 +6054,12 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
         ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#0F172A")),
-        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1F5F9")]),
     ]))
     story.append(t2)

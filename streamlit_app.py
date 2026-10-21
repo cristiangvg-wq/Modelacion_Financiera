@@ -722,6 +722,41 @@ div[role="radiogroup"] label:has(input:checked) {
 [data-testid="stNotification"] {
   border-radius: 12px !important;
 }
+
+/* —— Tablas HTML embebidas —— */
+.tf-table-wrap { overflow-x: auto; margin: 0.5rem 0 1rem 0; border-radius: 12px; border: 1px solid #243044; }
+.tf-table-wrap table, .section-card table, .html-container table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+  font-size: 0.86rem !important;
+}
+.tf-table-wrap th, .section-card table th, .html-container table th {
+  text-align: left !important;
+  background: #0F766E !important;
+  color: #ECFDF5 !important;
+  padding: 10px 12px !important;
+  font-weight: 600 !important;
+  white-space: normal !important;
+  vertical-align: top !important;
+}
+.tf-table-wrap td, .section-card table td, .html-container table td {
+  text-align: left !important;
+  padding: 8px 12px !important;
+  border-bottom: 1px solid #243044 !important;
+  color: #E8EEF7 !important;
+  vertical-align: top !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+}
+.tf-table-wrap tr:nth-child(even) td, .section-card table tr:nth-child(even) td {
+  background: rgba(30, 41, 59, 0.55) !important;
+}
+[data-testid="stDataFrame"] table th,
+[data-testid="stDataFrame"] table td {
+  text-align: left !important;
+}
+
 </style>
 """
 
@@ -742,58 +777,81 @@ def _html(x, max_chars=120000):
 
 
 def _plotly_table(df, title="Tabla"):
-    """Tabla Plotly con anchos de columna adaptados (evita index enorme y celdas cortadas)."""
+    """Tabla Plotly: texto a la izquierda, sin celdas vacías, anchos legibles, título sin cortar."""
     try:
         import plotly.graph_objects as go
+        import pandas as pd
+        import numpy as np
     except ImportError:
         return False
-    if df is None or not hasattr(df, "columns"):
+    if df is None:
         return False
     try:
         d = df.copy()
-        # Convertir índice en columna compacta
-        if not isinstance(d.index, pd.RangeIndex) or d.index.name:
+        if not isinstance(d, pd.DataFrame):
+            d = pd.DataFrame(d)
+        if d.empty:
+            return False
+        # Índice con nombre útil (años, etc.)
+        if not isinstance(d.index, pd.RangeIndex) or (d.index.name is not None):
             try:
                 name = d.index.name or "Año"
                 d = d.reset_index()
-                # Renombrar index feo
                 if "index" in d.columns:
                     d = d.rename(columns={"index": name if name != "index" else "Año"})
             except Exception:
                 pass
-        d = d.head(50)
+        d = d.head(60)
         cols = [str(c) for c in d.columns]
 
-        TEXT_COLS = (
+        TEXT_KEYS = (
             "interpretación", "interpretacion", "lectura sencilla", "lectura", "detalle",
             "comentario", "mensaje", "descripción", "descripcion", "motivo", "nota", "prueba",
+            "indicador", "escenario", "nombre", "empresa", "ticker", "estado", "resultado",
+            "veredicto", "fuente", "origen", "recomend",
         )
 
         def _is_text_col(colname):
-            cl = colname.lower().strip()
-            return any(t in cl for t in TEXT_COLS) or cl in ("estado", "resultado", "veredicto")
+            cl = str(colname).lower().strip()
+            return any(t in cl for t in TEXT_KEYS)
+
+        def _is_year_col(colname):
+            cl = str(colname).lower().strip()
+            return cl in ("año", "ano", "year", "t", "periodo", "index")
 
         def _fmt(v, colname):
-            if v is None or (isinstance(v, float) and v != v):
+            # Celdas vacías / NaN → guión legible
+            if v is None:
+                return "—"
+            try:
+                if isinstance(v, float) and (v != v or np.isinf(v)):
+                    return "—"
+            except Exception:
+                pass
+            if isinstance(v, str) and not v.strip():
                 return "—"
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 fv = float(v)
-                if colname.lower() in ("año", "ano", "year", "index") and 1900 <= fv <= 2100 and abs(fv - round(fv)) < 1e-9:
+                if _is_year_col(colname) and 1900 <= fv <= 2100 and abs(fv - round(fv)) < 1e-9:
                     return str(int(round(fv)))
-                if abs(fv) >= 100:
+                if abs(fv) >= 1000:
                     return f"{fv:,.1f}"
+                if abs(fv) >= 100:
+                    return f"{fv:,.2f}"
                 if abs(fv) >= 1:
                     return f"{fv:,.2f}"
                 return f"{fv:.4g}"
             text = str(v).strip()
-            # columnas largas: no cortar agresivamente; soft-wrap con <br>
-            if _is_text_col(colname):
-                if len(text) > 220:
-                    text = text[:217] + "…"
-                # wrap cada ~42 chars para legibilidad en celda
+            if not text:
+                return "—"
+            # Texto largo: soft-wrap, sin truncar demasiado
+            max_chars = 320 if _is_text_col(colname) else 120
+            if len(text) > max_chars:
+                text = text[: max_chars - 1] + "…"
+            if _is_text_col(colname) and len(text) > 48:
                 parts, line, n = [], "", 0
                 for w in text.split():
-                    if n + len(w) + 1 > 42 and line:
+                    if n + len(w) + 1 > 48 and line:
                         parts.append(line)
                         line, n = w, len(w)
                     else:
@@ -802,34 +860,41 @@ def _plotly_table(df, title="Tabla"):
                 if line:
                     parts.append(line)
                 return "<br>".join(parts) if parts else "—"
-            return text[:80]
+            return text
 
         cell_vals = []
         for c in d.columns:
             cell_vals.append([_fmt(v, str(c)) for v in d[c].tolist()])
 
-        # Anchos: año estrecho; interpretación/lectura ancha; resto proporcional
+        # Anchos relativos (Plotly los normaliza). Priorizar columnas de texto.
         widths = []
         for c, vals in zip(cols, cell_vals):
             cl = c.lower().strip()
-            if cl in ("año", "ano", "year", "index", "t", "periodo"):
-                widths.append(52)
+            if _is_year_col(c):
+                widths.append(56)
             elif _is_text_col(c):
-                # texto largo: priorizar espacio
-                widths.append(280)
-            elif cl in ("escenario", "nombre", "empresa", "ticker", "indicador", "estado"):
-                widths.append(110)
+                plain = max((len(x.replace("<br>", " ")) for x in vals), default=12)
+                # lectura / interpretación más ancha
+                if any(k in cl for k in ("lectura", "interpret", "detalle", "comentario", "mensaje")):
+                    widths.append(int(min(340, max(200, plain * 6))))
+                else:
+                    widths.append(int(min(220, max(120, plain * 7))))
             else:
-                # longitud visible sin tags html
                 plain_lens = [len(x.replace("<br>", " ")) for x in vals]
-                maxlen = max(plain_lens, default=6)
-                widths.append(int(min(100, max(64, maxlen * 7))))
+                maxlen = max(plain_lens + [len(c)], default=6)
+                widths.append(int(min(140, max(72, maxlen * 8))))
 
         n_rows = len(d)
-        # Filas alternadas por columna
         fill = []
         for _ in cols:
             fill.append(["#1E293B" if i % 2 == 0 else "#151C2C" for i in range(n_rows)])
+
+        # Alineación: preferencia izquierda (títulos y celdas)
+        aligns = ["left"] * len(cols)
+
+        has_wrap = any("<br>" in str(x) for col in cell_vals for x in col)
+        cell_h = 40 if has_wrap else 30
+        header_h = 36
 
         fig = go.Figure(data=[go.Table(
             columnwidth=widths,
@@ -837,44 +902,56 @@ def _plotly_table(df, title="Tabla"):
                 values=[f"<b>{c}</b>" for c in cols],
                 fill_color="#0F766E",
                 font=dict(color="#ECFDF5", size=12, family="IBM Plex Sans"),
-                align=["center" if str(c).lower() in ("año", "ano", "year") else "left" for c in cols],
-                height=34,
+                align=aligns,
+                height=header_h,
             ),
             cells=dict(
                 values=cell_vals,
                 fill_color=fill,
-                font=dict(color="#F1F5F9", size=12, family="IBM Plex Mono"),
-                align=["center" if str(c).lower() in ("año", "ano", "year") else "right"
-                       if str(c).lower() not in ("escenario", "nombre", "empresa", "prueba", "indicador", "estado")
-                       else "left" for c in cols],
-                height=36 if any(_is_text_col(c) for c in cols) else 28,
+                font=dict(color="#F1F5F9", size=12, family="IBM Plex Sans"),
+                align=aligns,
+                height=cell_h,
             ),
         )])
-        row_h = 52 if any(_is_text_col(c) for c in cols) else 30
+        # Título fuera del plotly (evita cortes); solo caption en layout mínimo
         fig.update_layout(
-            title=dict(text=title, font=dict(size=14, color="#F8FAFC")),
             paper_bgcolor="#0F172A",
-            margin=dict(l=8, r=8, t=42, b=8),
-            height=min(160 + row_h * n_rows, 720),
+            plot_bgcolor="#0F172A",
+            margin=dict(l=4, r=4, t=8, b=4),
+            height=min(48 + header_h + cell_h * n_rows, 780),
         )
+        if title:
+            st.markdown(
+                f'<div class="tf-section-title" style="margin:0.35rem 0 0.5rem 0">{title}</div>',
+                unsafe_allow_html=True,
+            )
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         return True
     except Exception as e:
-        st.caption(f"Tabla Plotly: {e}")
+        st.caption(f"Tabla: {e}")
         return False
 
 
+
 def _show_df(df, label=None):
-    """Preferir tabla Plotly; respaldo st.dataframe."""
+    """Preferir tabla Plotly; respaldo st.dataframe con ancho completo."""
     if df is None:
         return
     title = label or "Datos"
     if _plotly_table(df, title=title):
         return
     if label:
-        st.caption(label)
+        st.markdown(
+            f'<div class="tf-section-title" style="margin:0.35rem 0 0.5rem 0">{title}</div>',
+            unsafe_allow_html=True,
+        )
     try:
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    except TypeError:
+        try:
+            st.dataframe(df, use_container_width=True)
+        except Exception:
+            st.write(df)
     except Exception:
         st.write(df)
 
