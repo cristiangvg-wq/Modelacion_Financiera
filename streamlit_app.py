@@ -10,6 +10,7 @@ import traceback
 from datetime import datetime
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 
@@ -693,35 +694,79 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
 }
 ::-webkit-scrollbar-thumb:hover { background: #14B8A6; }
 
-/* —— Sidebar: comportamiento nativo; flecha de abrir siempre visible —— */
-/* No forzar open/width del sidebar: Streamlit lo maneja. Solo garantizar el control. */
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
+/* —— Control para REABRIR el sidebar (flecha nativa) —— */
+/* No ocultar header/toolbar: ahí vive el botón cuando el menú está cerrado. */
+header[data-testid="stHeader"] {
+  background: rgba(7, 11, 20, 0.55) !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  height: 2.75rem !important;
+  min-height: 2.75rem !important;
+  display: block !important;
+  z-index: 100020 !important;
+}
+div[data-testid="stToolbar"] {
   display: flex !important;
   visibility: visible !important;
   opacity: 1 !important;
+}
+/* Selectores de la flecha según versión de Streamlit */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"],
+[data-testid="stExpandSidebarButton"],
+button[kind="header"],
+button[data-testid="baseButton-header"],
+button[data-testid="baseButton-headerNoPadding"],
+button[data-testid="stBaseButton-headerNoPadding"] {
+  display: inline-flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
   pointer-events: auto !important;
-  z-index: 100010 !important;
+  z-index: 100025 !important;
+}
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
   position: fixed !important;
-  left: 0.35rem !important;
-  top: 0.45rem !important;
-  width: 2.25rem !important;
-  height: 2.25rem !important;
-  background: rgba(15, 23, 42, 0.92) !important;
+  left: 0.4rem !important;
+  top: 0.4rem !important;
+  width: 2.4rem !important;
+  height: 2.4rem !important;
+  background: rgba(15, 23, 42, 0.95) !important;
   border: 1px solid #14B8A6 !important;
   border-radius: 10px !important;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.35) !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 [data-testid="stSidebarCollapsedControl"] svg,
-[data-testid="collapsedControl"] svg {
+[data-testid="collapsedControl"] svg,
+[data-testid="stExpandSidebarButton"] svg {
   fill: #5EEAD4 !important;
   color: #5EEAD4 !important;
+  stroke: #5EEAD4 !important;
 }
-/* Header de Streamlit: no ocultarlo del todo (ahí vive a veces el control) */
-header[data-testid="stHeader"] {
-  background: transparent !important;
-  visibility: visible !important;
-  height: auto !important;
+/* Botón flotante propio (respaldo si Streamlit no pinta la flecha) */
+.tf-open-sidebar-btn {
+  position: fixed !important;
+  left: 0.45rem !important;
+  top: 0.45rem !important;
+  z-index: 100030 !important;
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 12px !important;
+  border: 1px solid #14B8A6 !important;
+  background: rgba(15, 23, 42, 0.96) !important;
+  color: #5EEAD4 !important;
+  font-size: 1.15rem !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  display: none !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 2px 14px rgba(0,0,0,0.45) !important;
+}
+.tf-open-sidebar-btn:hover {
+  background: rgba(20, 184, 166, 0.2) !important;
 }
 
 /* Panel auxiliar en main (respaldo si el CSS del sidebar falla en alguna versión) */
@@ -741,14 +786,9 @@ header[data-testid="stHeader"] {
   font-size: 0.95rem !important;
 }
 
-/* Hide Streamlit chrome */
-
+/* Hide solo menú hamburger y footer; NO ocultar header/toolbar (flecha del sidebar) */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header[data-testid="stHeader"] {
-  background: transparent !important;
-}
-div[data-testid="stToolbar"] { display: none; }
 
 /* Radio / horizontal controls */
 div[role="radiogroup"] label {
@@ -817,6 +857,81 @@ div[role="radiogroup"] label:has(input:checked) {
 
 st.markdown(FINTECH_CSS, unsafe_allow_html=True)
 
+# Control para reabrir sidebar (visible en la página; JS habla con el parent de Streamlit)
+components.html(
+    """
+<div style="display:flex;gap:8px;align-items:center;font-family:system-ui,sans-serif;">
+  <button id="tf-open-sidebar" type="button"
+    style="cursor:pointer;border:1px solid #14B8A6;background:#0F172A;color:#5EEAD4;
+           border-radius:10px;padding:8px 14px;font-weight:600;font-size:14px;">
+    ☰ Abrir menú lateral
+  </button>
+  <span id="tf-sb-hint" style="color:#94A3B8;font-size:12px;">
+    Si cerraste el panel izquierdo, pulsa aquí o la flecha arriba a la izquierda.
+  </span>
+</div>
+<script>
+(function () {
+  function rootDoc() {
+    try { return window.parent.document; } catch (e) { return document; }
+  }
+  function findBtn(doc) {
+    var sels = [
+      '[data-testid="stSidebarCollapsedControl"] button',
+      '[data-testid="stSidebarCollapsedControl"]',
+      '[data-testid="collapsedControl"] button',
+      '[data-testid="collapsedControl"]',
+      '[data-testid="stExpandSidebarButton"]',
+      'button[data-testid="baseButton-headerNoPadding"]',
+      'button[data-testid="stBaseButton-headerNoPadding"]',
+      'button[kind="header"]'
+    ];
+    for (var i = 0; i < sels.length; i++) {
+      var el = doc.querySelector(sels[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+  function sideW(doc) {
+    var s = doc.querySelector('section[data-testid="stSidebar"]');
+    return s ? (s.getBoundingClientRect().width || 0) : 0;
+  }
+  function sync() {
+    try {
+      var doc = rootDoc();
+      var closed = sideW(doc) < 48;
+      var btn = document.getElementById('tf-open-sidebar');
+      var hint = document.getElementById('tf-sb-hint');
+      if (btn) {
+        btn.style.opacity = closed ? '1' : '0.55';
+        btn.textContent = closed ? '☰ Abrir menú lateral' : '☰ Menú abierto';
+      }
+      if (hint) {
+        hint.textContent = closed
+          ? 'El panel izquierdo está cerrado. Pulsa el botón o la flecha superior izquierda.'
+          : 'Panel lateral visible. Puedes cerrarlo con la flecha del borde.';
+      }
+    } catch (e) {}
+  }
+  function openSb() {
+    try {
+      var doc = rootDoc();
+      if (sideW(doc) >= 48) return; // ya abierto
+      var btn = findBtn(doc);
+      if (btn) btn.click();
+      setTimeout(sync, 300);
+      setTimeout(sync, 900);
+    } catch (e) {}
+  }
+  var b = document.getElementById('tf-open-sidebar');
+  if (b) b.onclick = function (e) { e.preventDefault(); openSb(); };
+  sync();
+  setInterval(sync, 700);
+})();
+</script>
+""",
+    height=52,
+)
 
 
 # =============================================================================
