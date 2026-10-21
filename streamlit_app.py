@@ -2265,21 +2265,15 @@ def _init_state():
 
 
 def _inferir_ticker_yf(nombre, p=None):
-    """Ticker Yahoo: .CL solo BVC; AAPL/MSFT sin sufijo (corrige .CL indebido)."""
+    """Ticker Yahoo normalizado: BVC→.CL, US sin .CL."""
     def _norm(t):
         t = str(t).strip().upper()
         if hasattr(L, "asegurar_sufijo_cl_bvc"):
             return L.asegurar_sufijo_cl_bvc(t)
-        # Respaldo local si la lógica no cargó el helper
-        if t.endswith(".CL"):
-            base = t[:-3]
-            us = {"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA"}
-            if base in us:
-                return base
         return t
 
     p = p or {}
-    for k in ("ticker_yf", "ticker", "symbol"):
+    for k in ("ticker_yf", "ticker", "symbol", "ticker_bvc"):
         t = p.get(k)
         if t and str(t).strip():
             return _norm(t)
@@ -2293,21 +2287,21 @@ def _inferir_ticker_yf(nombre, p=None):
     try:
         emp = L.resolver_empresa(nombre) if hasattr(L, "resolver_empresa") else None
         if emp:
-            for k in ("ticker_yf", "ticker", "symbol", "ticker_bvc"):
-                t = (emp.get("params") or {}).get(k) or emp.get(k)
+            for k in ("ticker_yf", "ticker_bvc", "ticker", "symbol"):
+                t = emp.get(k) or (emp.get("params") or {}).get(k)
                 if t and str(t).strip():
                     return _norm(t)
     except Exception:
         pass
-    # Heurística desde el nombre: "Apple Inc. — AAPL" → AAPL
     s = str(nombre or "")
     if "—" in s:
         part = s.split("—")[-1].strip().upper().replace(" ", "")
         if 1 <= len(part) <= 12 and part.replace(".", "").replace("-", "").isalnum():
             return _norm(part)
-    base = s.split("—")[0].split("-")[0].strip().upper()
-    if base and 1 <= len(base) <= 12 and " " not in base:
-        return _norm(base)
+    # Prefijo del nombre de catálogo ("ISA — Interconexión")
+    head = s.split("—")[0].strip().upper()
+    if head in ("ISA", "GEB", "CELSIA", "ECOPETROL", "EPM", "BVC", "ENELAM"):
+        return _norm(head)
     return None
 
 
@@ -2338,6 +2332,8 @@ def _alinear_moneda_y_precio(nombre):
     mon = str(p.get("moneda") or "").upper()
     merc = str(p.get("mercado_capm") or "").upper()
     ticker = _inferir_ticker_yf(nombre, p)
+    if ticker and hasattr(L, "asegurar_sufijo_cl_bvc"):
+        ticker = L.asegurar_sufijo_cl_bvc(ticker) or ticker
 
     precio = None
     moneda_precio = None
@@ -2388,39 +2384,15 @@ def _alinear_moneda_y_precio(nombre):
     except Exception:
         pass
 
-    # Normalizar ticker (quita .CL indebido en AAPL/MSFT)
-    if ticker and hasattr(L, "asegurar_sufijo_cl_bvc"):
-        ticker = L.asegurar_sufijo_cl_bvc(ticker) or ticker
-
-    es_bvc = bool(ticker and str(ticker).upper().endswith(".CL"))
-    if not es_bvc and ticker and hasattr(L, "es_ticker_bvc"):
-        try:
-            es_bvc = bool(L.es_ticker_bvc(ticker))
-        except Exception:
-            es_bvc = False
-
+    # Inferir mercado US si Yahoo reporta USD o el ticker/nombre lo indican
     if not moneda_precio and mon in ("USD", "US$"):
         moneda_precio = "USD"
-    us = (not es_bvc) and _es_mercado_us(
-        moneda=mon or moneda_precio, mercado=merc, ticker=ticker, nombre=nombre
-    )
-    if (not es_bvc) and (
-        moneda_precio in ("USD", "US$") or (ticker and "." not in str(ticker) and us)
-    ):
+    us = _es_mercado_us(moneda=mon or moneda_precio, mercado=merc, ticker=ticker, nombre=nombre)
+    if moneda_precio in ("USD", "US$") or (ticker and "." not in str(ticker) and us):
         us = True
         moneda_precio = moneda_precio or "USD"
 
-    if es_bvc:
-        p["moneda"] = "COP"
-        p["precio_moneda"] = "COP"
-        p["mercado_capm"] = p.get("mercado_capm") or "CO"
-        if ticker:
-            p["ticker_yf"] = ticker
-        if precio is not None and precio > 0:
-            p["precio"] = precio
-            p["precio_mercado"] = precio
-        st.session_state["fx_mismatch"] = False
-    elif us:
+    if us:
         p["moneda"] = "USD"
         p["mercado_capm"] = p.get("mercado_capm") or "US"
         if ticker:
@@ -2868,43 +2840,28 @@ def main():
     except Exception:
         sector = "—"
 
-    # Alineación residual: .CL → COP; tickers US (AAPL, MSFT…) → USD; no inventar .CL
-    _tk = str((st.session_state.get("params") or {}).get("ticker_yf") or "")
-    if hasattr(L, "asegurar_sufijo_cl_bvc") and _tk:
-        _tk = L.asegurar_sufijo_cl_bvc(_tk) or _tk
-        st.session_state.setdefault("params", {})["ticker_yf"] = _tk
-    _es_cl = str(_tk).upper().endswith(".CL")
-    _us_bare = str(_tk).upper() in {
-        "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX",
-    } or (bool(_tk) and "." not in str(_tk) and str(moneda).upper() in ("USD", "US$"))
-    if _es_cl:
-        moneda, moneda_precio = "COP", "COP"
+    # Si aún hay desalineación residual, forzar etiqueta de precio = moneda del modelo
+    if moneda in ("USD", "US$") and moneda_precio in ("COP", "COL"):
+        moneda_precio = "USD"
         pfix = st.session_state.get("params") or {}
-        pfix["moneda"] = "COP"
-        pfix["precio_moneda"] = "COP"
-        pfix["ticker_yf"] = _tk
-        st.session_state["params"] = pfix
-        st.session_state["moneda_precio_alineada"] = "COP"
-        st.session_state["fx_mismatch"] = False
-    elif _us_bare or (moneda in ("USD", "US$") and moneda_precio in ("COP", "COL") and not _es_cl):
-        # Emisor US: modelo y precio en USD (no etiquetar precio como COP)
-        moneda, moneda_precio = "USD", "USD"
-        pfix = st.session_state.get("params") or {}
-        pfix["moneda"] = "USD"
         pfix["precio_moneda"] = "USD"
-        if _tk and _tk.endswith(".CL"):
-            pfix["ticker_yf"] = _tk.replace(".CL", "")
+        pfix["moneda"] = "USD"
         st.session_state["params"] = pfix
         st.session_state["moneda_precio_alineada"] = "USD"
-        st.session_state["fx_mismatch"] = False
+        try:
+            emp_fix = L.resolver_empresa(empresa) if hasattr(L, "resolver_empresa") else None
+            if emp_fix and isinstance(emp_fix, dict):
+                emp_fix.setdefault("params", {})["moneda"] = "USD"
+                emp_fix["params"]["precio_moneda"] = "USD"
+                emp_fix["moneda"] = "USD"
+        except Exception:
+            pass
     elif moneda in ("COP", "COL") and moneda_precio in ("USD", "US$"):
+        # ADR / dual listing: EEFF en COP, cotización en USD → no forzar FX; anular upside implícito
         st.session_state["fx_mismatch"] = True
         st.session_state["moneda_precio_alineada"] = moneda_precio
     else:
-        st.session_state["fx_mismatch"] = bool(
-            moneda and moneda_precio
-            and moneda.replace("$", "") != moneda_precio.replace("$", "")
-        )
+        st.session_state["fx_mismatch"] = False
 
 
     # ----- KPI strip (con burbujas al pasar el cursor) -----
