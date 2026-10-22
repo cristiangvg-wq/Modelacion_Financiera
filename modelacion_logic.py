@@ -496,6 +496,39 @@ def extraer_resumen_comite_ia(html_o_texto, max_monitoreo=3):
             "texto": "",
             "ok": False,
         }
+    try:
+        raw = _sanear_salida_comite_ia(raw)
+    except Exception:
+        pass
+    _ru = (raw or "").upper().replace("Ó", "O").replace("Í", "I")
+    if (
+        "ACTUA COMO UN COMITE INTERDISCIPLINARIO" in _ru
+        and "INSTRUCCIONES Y FORMATO DE SALIDA" in _ru
+        and "[...]" in (raw or "")
+    ):
+        return {
+            "recomendacion": None,
+            "puntaje": None,
+            "monitoreo": [],
+            "texto": "",
+            "ok": False,
+        }
+    # Si el texto es el prompt del comité (eco del asistente genérico), no usarlo
+    _ru = raw.upper().replace("Ó", "O").replace("Í", "I")
+    if (
+        "ACTUA COMO UN COMITE INTERDISCIPLINARIO" in _ru
+        or "CONTEXTO DE ENTRADA (CALCULADO POR EL MODELO" in _ru
+        or ("INSTRUCCIONES Y FORMATO DE SALIDA" in _ru and "RECOMENDACION FINAL" in _ru and "APORTES DEL CFO" in _ru and len(raw) < 3500)
+    ):
+        # Puede ser solo el prompt sin deliberación real
+        if "APORTES DEL CFO" in _ru and "[...]" in raw:
+            return {
+                "recomendacion": None,
+                "puntaje": None,
+                "monitoreo": [],
+                "texto": "",
+                "ok": False,
+            }
 
     def _limpia(s):
         s = re.sub(r"[*#_`]+", "", str(s or "")).strip()
@@ -1360,7 +1393,7 @@ def _proveedor_yahoo(ticker_yf):
             or _finite_or_none((info.get("defaultKeyStatistics") or {}).get("beta") if isinstance(info.get("defaultKeyStatistics"), dict) else None)
         )
 
-        # --- P/E (nunca usar pegRatio: no es un múltiplo precio/utilidad) ---
+        # --- P/E (nunca pegRatio: no es precio/utilidad) ---
         pe = (
             _finite_or_none(info.get("trailingPE"))
             or _finite_or_none(info.get("forwardPE"))
@@ -1372,7 +1405,6 @@ def _proveedor_yahoo(ticker_yf):
                 or _finite_or_none(info.get("epsCurrentYear"))
                 or _finite_or_none(info.get("epsForward"))
             )
-            # netIncome / sharesOutstanding (Yahoo a veces trae esto y no EPS)
             if (eps is None or eps <= 0):
                 ni = _finite_or_none(info.get("netIncomeToCommon") or info.get("netIncome"))
                 sh = (
@@ -2147,12 +2179,13 @@ def enriquecer_metricas_ficha(nombre_empresa=None, emp=None, ticker=None, mkt=No
                 out["beta"] = float(bu)
             out["beta_nota"] = " *"
 
-    # P/E de respaldo cuando Yahoo no publica trailingPE (frecuente en BVC .CL).
-    # EPS ≈ último NOPAT (o EBIT·(1−t)) en unidad del catálogo / acciones.
+    # P/E de respaldo: precio / EPS estimado desde histórico (NOPAT o EBIT*(1-tax))
+    # cuando Yahoo no publica trailingPE (frecuente en tickers BVC .CL).
     if out["pe"] is None and precio and precio > 0:
         try:
             acc = _finite_or_none(params.get("acciones"))
             nopat = None
+            # 1) histórico de la ficha
             hist = emp.get("historico") if isinstance(emp, dict) else None
             if isinstance(hist, dict) and hist.get("NOPAT"):
                 try:
@@ -2161,13 +2194,15 @@ def enriquecer_metricas_ficha(nombre_empresa=None, emp=None, ticker=None, mkt=No
                         nopat = vals[-1]
                 except Exception:
                     nopat = None
+            # 2) df histórico vía catálogo
             if nopat is None and nombre_empresa:
                 try:
                     dfh = df_historico_empresa(nombre_empresa)
-                    if dfh is not None and not getattr(dfh, "empty", True) and "NOPAT" in dfh.columns:
+                    if dfh is not None and not dfh.empty and "NOPAT" in dfh.columns:
                         nopat = float(dfh["NOPAT"].dropna().iloc[-1])
                 except Exception:
                     pass
+            # 3) EBIT * (1-tax) del último año
             if nopat is None and isinstance(hist, dict) and hist.get("EBIT"):
                 try:
                     ebit = float(hist["EBIT"][-1])
@@ -2175,14 +2210,17 @@ def enriquecer_metricas_ficha(nombre_empresa=None, emp=None, ticker=None, mkt=No
                     nopat = ebit * (1.0 - tax_e)
                 except Exception:
                     pass
-            if nopat is not None and abs(float(nopat)) > 1e-9 and acc and acc > 0:
-                # Catálogo BVC: cifras en miles de millones; acciones en millones → EPS = NOPAT*1000/acc
+            if nopat is not None and abs(nopat) > 1e-9 and acc and acc > 0:
+                # Unidades catálogo BVC: cifras en miles de millones; acciones en millones
+                # EPS ≈ (NOPAT * 1e9) / (acciones * 1e6) = NOPAT * 1000 / acciones
                 if acc < 1e5:
                     eps = (float(nopat) * 1000.0) / float(acc)
                 else:
+                    # acciones ya en unidades absolutas
                     eps = (float(nopat) * 1e9) / float(acc)
                 if eps and eps > 0:
                     pe_est = float(precio) / eps
+                    # Guardrail razonable para múltiplos accionarios
                     if 0.5 <= pe_est <= 120:
                         out["pe"] = pe_est
                         out["pe_nota"] = " ≈"
@@ -2321,7 +2359,7 @@ def card_empresa_seleccionada(nombre_empresa):
     {etiqueta_mercado} · {msg_mkt}
   </p>
 </div>
-{tip("<b>Precio</b> = cotización de una acción. <b>Capitalización</b> = precio × acciones (≈ si se estima con el catálogo). <b>Beta *</b> = estimada del modelo si Yahoo no la publica. <b>P/E ≈</b> = Yahoo trailing/forward PE o, si falta, precio / EPS del último NOPAT del histórico.")}
+{tip("<b>Precio</b> = cotización de una acción. <b>Capitalización</b> = precio × acciones (≈ si se estima con el catálogo). <b>Beta *</b> = estimada del modelo si Yahoo no la publica. <b>P/E ≈</b> = Yahoo trailingPE o, si no hay, precio / EPS estimado con el último NOPAT del histórico.")}
 """
 
 
@@ -6137,6 +6175,50 @@ def _metricas_comite_para_ia(nombre_empresa):
     return out
 
 
+
+def _sanear_salida_comite_ia(texto):
+    """Elimina eco del prompt / instrucciones si el modelo las repitió en la respuesta."""
+    if not texto:
+        return texto
+    import re as _re
+    s = str(texto).strip()
+    up = s.upper().replace("Ó", "O").replace("Í", "I")
+
+    markers = (
+        r"##\s*1\.?\s*DELIBERACI[OÓ]N",
+        r"1\.?\s*DELIBERACI[OÓ]N\s+DEL\s+COMIT[EÉ]",
+        r"APORTES\s+DEL\s+CFO",
+        r"RECOMENDACI[OÓ]N\s+FINAL\s*[:：]",
+    )
+    if (
+        "ACTUA COMO UN COMITE" in up
+        or "CONTEXTO DE ENTRADA" in up
+        or "INSTRUCCIONES Y FORMATO DE SALIDA" in up
+    ):
+        cut = None
+        for pat in markers:
+            m = _re.search(pat, s, flags=_re.I)
+            if m:
+                cut = m.start()
+                break
+        if cut is not None and cut > 0:
+            s = s[cut:].strip()
+        else:
+            if "[...]" in s and "RECOMENDACI" in up and len(s) < 4000:
+                return (
+                    "No se obtuvo una deliberación válida del modelo (respuesta vacía o eco del prompt). "
+                    "Reintenta el comité IA."
+                )
+    s = _re.sub(
+        r"(?is)<div[^>]*>\s*<b>\s*Consulta:\s*</b>.*?</div>",
+        "",
+        s,
+        count=1,
+    )
+    s = _re.sub(r"(?im)^\s*Consulta:\s*.*$", "", s, count=1)
+    return s.strip()
+
+
 def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gemini", metricas=None):
     """
     Deliberación tipo comité interdisciplinario (CFO / Mercado / CRO) usando el mismo
@@ -6194,7 +6276,9 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
         "Respondes siempre en español, con tono profesional de comité, crítico y equilibrado. "
         "No inventes cifras distintas a las del contexto numérico; si faltan datos, dilo explícitamente. "
         "Esto es apoyo a decisión, no una orden de compra/venta ni asesoría personalizada. "
-        "Sigue estrictamente el formato de secciones numeradas que pide el usuario."
+        "Sigue estrictamente el formato de secciones numeradas que pide el usuario. "
+        "IMPORTANTE: NUNCA repitas el prompt, las instrucciones, el contexto de entrada ni el texto "
+        "'Actúa como un Comité…'. Devuelve SOLO la deliberación final (secciones 1 a 4)."
     )
 
     user_content = f"""Actúa como un Comité Interdisciplinario de Inversión de alto nivel compuesto por tres expertos senior:
@@ -6252,6 +6336,9 @@ Entrega el resultado **estrictamente** bajo este formato:
             f"<b>No se pudo generar la deliberación del comité.</b><br>{_html.escape(str(err))}<br>"
             f"Revisa el proveedor y la API key en <b>Consulta IA</b> (mismo conector).</div>"
         )
+
+    # Si el modelo devolvió el prompt (eco), recortar hasta la deliberación real
+    texto = _sanear_salida_comite_ia(texto)
 
     cuerpo = _texto_a_html(texto) if "_texto_a_html" in dir() else None
     if cuerpo is None:
@@ -7680,7 +7767,16 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
             comite_struct = extraer_resumen_comite_ia(comite_txt)
         except Exception:
             comite_struct = {}
-    if comite_struct.get("ok") or (comite_txt and (comite_struct.get("recomendacion") or comite_struct.get("puntaje"))):
+    _ct_up = (comite_txt or "").upper().replace("Ó", "O")
+    _parece_prompt = (
+        "ACTUA COMO UN COMITE" in _ct_up
+        or "CONTEXTO DE ENTRADA" in _ct_up
+        or ("INSTRUCCIONES Y FORMATO DE SALIDA" in _ct_up and "[...]" in (comite_txt or ""))
+    )
+    if (not _parece_prompt) and (
+        comite_struct.get("ok")
+        or (comite_txt and (comite_struct.get("recomendacion") or comite_struct.get("puntaje")))
+    ):
         story.append(Paragraph("9. Extracto Comité interdisciplinario (IA)", styles["Subtitulo"]))
         story.append(Paragraph(
             "Solo recomendación, puntaje y hasta 3 puntos de monitoreo. "

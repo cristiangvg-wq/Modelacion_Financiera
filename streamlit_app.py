@@ -2296,7 +2296,7 @@ def _market_tape_quotes():
 
 
 def _clear_market_caches() -> None:
-    """Invalida cachés de cinta y cualquier dato de mercado en sesión."""
+    """Invalida cachés de cinta y datos de mercado en sesión."""
     try:
         _market_tape_quotes.clear()
     except Exception:
@@ -2312,7 +2312,7 @@ def _clear_market_caches() -> None:
 
 
 def _ensure_market_refresh_interval(seconds: int = 300) -> None:
-    """Si pasaron ≥ seconds desde el último fetch forzado, limpia caché de cinta."""
+    """Si pasaron ≥ seconds, limpia caché de cinta para forzar nuevo fetch."""
     import time as _time
     now = _time.time()
     last = float(st.session_state.get("_market_last_fetch_ts") or 0)
@@ -2325,18 +2325,13 @@ def _ensure_market_refresh_interval(seconds: int = 300) -> None:
 
 
 def _install_auto_refresh(seconds: int = 300) -> None:
-    """Recarga la app cada `seconds` para refrescar cinta y ficha.
-
-    Prioridad: streamlit-autorefresh → st.fragment(run_every) → components.html.
-    """
-    # 1) streamlit-autorefresh (si está instalado)
+    """Recarga la app cada `seconds` para refrescar cinta y ficha."""
     try:
         from streamlit_autorefresh import st_autorefresh  # type: ignore
         st_autorefresh(interval=int(seconds) * 1000, key="tf_market_autorefresh")
         return
     except Exception:
         pass
-    # 2) JS vía components (recarga del iframe padre)
     try:
         import streamlit.components.v1 as components
         ms = int(seconds) * 1000
@@ -2360,9 +2355,52 @@ def _install_auto_refresh(seconds: int = 300) -> None:
             height=0,
             width=0,
         )
-        return
     except Exception:
         pass
+
+
+def _strip_prompt_echo_html(html: str) -> str:
+    """Quita eco del prompt del comité / 'Consulta:' antes de mostrar en UI."""
+    if not html:
+        return html
+    s = str(html)
+    up = s.upper().replace("Ó", "O").replace("Í", "I")
+    # Bloque Consulta: empresa — prompt...
+    import re as _re
+    s = _re.sub(
+        r'(?is)<div[^>]*>\s*<b>\s*Consulta:\s*</b>.*?</div>',
+        '',
+        s,
+        count=1,
+    )
+    if (
+        "ACTUA COMO UN COMITE" in up
+        or "CONTEXTO DE ENTRADA" in up
+        or "INSTRUCCIONES Y FORMATO DE SALIDA" in up
+    ):
+        # Recortar hasta deliberación
+        m = _re.search(
+            r'(?is)(##\s*1\.?\s*DELIBERACI[OÓ]N|1\.?\s*DELIBERACI[OÓ]N\s+DEL\s+COMIT|APORTES\s+DEL\s+CFO)',
+            s,
+        )
+        if m and m.start() > 40:
+            # conservar wrapper HTML previo corto si existe
+            head = ""
+            card = _re.search(r'(?is)(<div class="section-card"[^>]*>.*?</div>\s*)', s[: m.start()])
+            # Mejor: tomar desde el marker y re-envolver mínimo
+            body = s[m.start():]
+            s = (
+                '<div class="section-card" style="border-left:4px solid #14B8A6">'
+                '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px">'
+                "COMITÉ INTERDISCIPLINARIO (IA) · deliberación</div>"
+                f"{body}</div>"
+            )
+        elif "[...]" in s and len(s) < 5000:
+            return (
+                '<div class="result-note">La respuesta del modelo solo repitió el prompt. '
+                "Pulsa de nuevo «Deliberar en el comité».</div>"
+            )
+    return s
 
 
 def _render_market_tape() -> None:
@@ -2382,7 +2420,6 @@ def _render_market_tape() -> None:
     for d in data:
         chg = d.get("chg")
         px = d.get("px")
-        # `chg` ya viene en puntos porcentuales (NO multiplicar otra vez).
         if not _finite(chg):
             cls, chg_txt = "tf-flat", "—"
         else:
@@ -2991,7 +3028,7 @@ def main():
     except Exception:
         pass
 
-    # Cinta de mercado (tickers + variación del día) + auto-refresh 5 min
+    # Cinta de mercado + auto-refresh 5 min
     try:
         _install_auto_refresh(300)
     except Exception:
@@ -3043,7 +3080,6 @@ def main():
 
         empresa = st.selectbox("Emisor", options=catalogo, key="select_empresa", label_visibility="collapsed")
         if empresa != st.session_state.get("empresa_sel"):
-            # No asignar select_empresa aquí (el widget ya existe). Solo sincronizar estado y recargar.
             st.session_state["empresa_sel"] = empresa
             for _k in (
                 "ficha_html", "resultados", "tab4_comite_ia_html", "tab4_comite_ia_texto",
@@ -4136,7 +4172,6 @@ def main():
                         "El comité tratará el upside como no comparable hasta alinear FX."
                     )
                     st.info("Comité bloqueado parcialmente: puedes continuar, pero el upside se fuerza a 0 en el prompt.")
-                prompt = _prompt_comite_ia(ctx)
                 with st.spinner("El comité interdisciplinario está deliberando…"):
                     try:
                         key_eff = (
@@ -4146,9 +4181,55 @@ def main():
                         )
                         if prov_ia == "gemini" and not key_eff:
                             key_eff = _resolve_gemini_key(None)
-                        respuesta = L.asistente_consulta_financiera(
-                            prompt, empresa, api_key=key_eff, proveedor=prov_ia or "gemini",
-                        )
+                        # Usar el endpoint dedicado del comité (no asistente_consulta_financiera):
+                        # ese último imprime «Consulta: …» + el prompt completo en el HTML.
+                        _metricas = {
+                            "empresa": ctx.get("empresa") or empresa,
+                            "ticker": ctx.get("ticker"),
+                            "moneda": ctx.get("moneda"),
+                            "precio_mercado": ctx.get("precio_mercado"),
+                            "vps_modelo": ctx.get("vps_modelo"),
+                            "upside": ctx.get("upside"),
+                            "wacc_calc": ctx.get("wacc_calc"),
+                            "ke_calc": ctx.get("ke_calc"),
+                            "roic_calc": ctx.get("roic_calc"),
+                            "de_ratio": ctx.get("de_ratio"),
+                            "g": ctx.get("g"),
+                            "val_ev": ctx.get("val_ev"),
+                            "val_equity": ctx.get("val_equity"),
+                        }
+                        if hasattr(L, "generar_recomendacion_comite_ia"):
+                            respuesta = L.generar_recomendacion_comite_ia(
+                                empresa,
+                                api_key=key_eff,
+                                proveedor=prov_ia or "gemini",
+                                metricas=_metricas,
+                            )
+                        else:
+                            # Fallback: no pasar el prompt como «pregunta» al asistente genérico
+                            respuesta = L.asistente_consulta_financiera(
+                                "Resume la tesis de inversión de esta empresa en 4 apartados "
+                                "(CFO, mercado, riesgos, decisión) sin repetir el prompt.",
+                                empresa,
+                                api_key=key_eff,
+                                proveedor=prov_ia or "gemini",
+                            )
+                        if hasattr(L, "_sanear_salida_comite_ia"):
+                            try:
+                                respuesta = L._sanear_salida_comite_ia(
+                                    L._html_a_texto(respuesta, 20000) if hasattr(L, "_html_a_texto") else respuesta
+                                )
+                                # Re-envolver si quedó texto plano
+                                if respuesta and not str(respuesta).strip().startswith("<"):
+                                    import html as _html_mod
+                                    respuesta = (
+                                        '<div class="section-card" style="border-left:4px solid #14B8A6">'
+                                        f"<pre style='white-space:pre-wrap;color:#E8EEF7'>"
+                                        f"{_html_mod.escape(str(respuesta))}</pre></div>"
+                                    )
+                            except Exception:
+                                pass
+                        respuesta = _strip_prompt_echo_html(respuesta)
                         st.session_state["tab4_comite_ia_html"] = respuesta
                         try:
                             _struct = (
@@ -4159,6 +4240,19 @@ def main():
                             _txt = (_struct or {}).get("texto") or (
                                 L._html_a_texto(respuesta, 800) if hasattr(L, "_html_a_texto") else str(respuesta)[:800]
                             )
+                            # Evitar guardar el prompt si por algún motivo llegó al HTML
+                            _up = (_txt or "").upper()
+                            if "ACTÚA COMO UN COMITÉ" in _up or "ACTUA COMO UN COMITE" in _up or "CONTEXTO DE ENTRADA" in _up:
+                                _txt = (_struct or {}).get("texto") or ""
+                                if not _txt and _struct:
+                                    partes = []
+                                    if _struct.get("recomendacion"):
+                                        partes.append(f"Recomendación final: {_struct['recomendacion']}")
+                                    if _struct.get("puntaje"):
+                                        partes.append(f"Puntaje: {_struct['puntaje']}")
+                                    for i, p in enumerate((_struct.get("monitoreo") or [])[:3], 1):
+                                        partes.append(f"{i}. {p}")
+                                    _txt = "\n".join(partes)
                             L.guardar_resultado_tab("comite_ia", empresa, {
                                 "texto": _txt,
                                 "struct": _struct,
@@ -4173,11 +4267,21 @@ def main():
                         st.session_state["tab4_comite_ia_html"] = None
 
             if st.session_state.get("tab4_comite_ia_html"):
-                st.markdown("###### Salida del comité")
-                _html(st.session_state["tab4_comite_ia_html"])
-                _explain(
-                    "<b>Uso:</b> deliberación IA complementaria. No es asesoría de inversión ni orden de compra/venta."
-                )
+                _raw_c = st.session_state["tab4_comite_ia_html"]
+                _clean_c = _strip_prompt_echo_html(_raw_c)
+                # Si era solo el prompt, no mostrar basura y limpiar sesión
+                _up_c = str(_clean_c or "").upper().replace("Ó", "O")
+                if "ACTUA COMO UN COMITE" in _up_c and "INSTRUCCIONES Y FORMATO" in _up_c:
+                    st.session_state.pop("tab4_comite_ia_html", None)
+                    st.warning("Se descartó una salida que solo repetía el prompt. Genera de nuevo el comité.")
+                else:
+                    if _clean_c != _raw_c:
+                        st.session_state["tab4_comite_ia_html"] = _clean_c
+                    st.markdown("###### Salida del comité")
+                    _html(_clean_c)
+                    _explain(
+                        "<b>Uso:</b> deliberación IA complementaria. No es asesoría de inversión ni orden de compra/venta."
+                    )
 
     with tab5:
         st.markdown("##### VPN · TIR · Payback")
