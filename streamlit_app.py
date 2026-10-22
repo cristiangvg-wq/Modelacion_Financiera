@@ -2297,7 +2297,7 @@ def _market_tape_quotes():
 
 
 def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="COP"):
-    """Comité IA automático. Usado por Generar todo y Solo pestaña 4. Retorna (ok, msg)."""
+    """Comité IA (4+). Usado tras tab4 en Generar todo y en Solo pestaña 4. Retorna (ok, msg)."""
     try:
         prov_ia = (
             st.session_state.get("tab4_iaprov")
@@ -2409,6 +2409,8 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
             except Exception:
                 pass
 
+        t4 = res.get("tab4")
+        # Prefer tab2 escenarios if tab7 aún no existe (orden 4+ antes de tab7)
         monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
         if not monedas_ok:
             upside = 0.0
@@ -3145,21 +3147,12 @@ def main():
 
         empresa = st.selectbox("Emisor", options=catalogo, key="select_empresa", label_visibility="collapsed")
         if empresa != st.session_state.get("empresa_sel"):
+            # No asignar select_empresa aquí (el widget ya existe). Solo sincronizar estado y recargar.
             st.session_state["empresa_sel"] = empresa
-            for _k in (
-                "resultados", "tab6_empresa", "tab4_comite_ia_html", "tab4_comite_ia_texto",
-                "tab4_comite_ia_struct", "ficha_html", "precio_mercado_alineado",
-                "moneda_precio_alineada", "fx_mismatch", "params",
-            ):
-                st.session_state.pop(_k, None)
+            _cargar_params_empresa(empresa)
             st.session_state["resultados"] = {}
-            st.session_state["params"] = {}
             try:
                 L.reset_resultados_sesion(empresa)
-            except Exception:
-                pass
-            try:
-                _cargar_params_empresa(empresa)
             except Exception:
                 pass
             st.rerun()
@@ -3592,14 +3585,16 @@ def main():
             pass
         progress = st.progress(0, text="Iniciando…")
         errores = []
+        # Orden: 1 → 2 → 3 → 4 → 4+ (Comité IA) → 5 → 6 → 7 (última)
         pasos = [
-            ("1 · Pronóstico FCFF", 1 / 7),
-            ("2 · Escenarios DCF", 2 / 7),
-            ("3 · Auditoría", 3 / 7),
-            ("4 · Recomendación", 4 / 7),
-            ("5 · VPN / TIR", 5 / 7),
-            ("6 · Sector", 6 / 7),
-            ("7 · Informe PDF", 7 / 7),
+            ("1 · Pronóstico FCFF", 1 / 8),
+            ("2 · Escenarios DCF", 2 / 8),
+            ("3 · Auditoría", 3 / 8),
+            ("4 · Recomendación", 4 / 8),
+            ("4+ · Comité interdisciplinario (IA)", 5 / 8),
+            ("5 · VPN / TIR", 6 / 8),
+            ("6 · Sector", 7 / 8),
+            ("7 · Informe PDF", 8 / 8),
         ]
         try:
             progress.progress(pasos[0][1], text=pasos[0][0])
@@ -3639,7 +3634,18 @@ def main():
             except Exception as e:
                 errores.append(f"Pestaña 4: {e}")
 
+            # 4+ Comité IA inmediatamente después de la pestaña 4
             progress.progress(pasos[4][1], text=pasos[4][0])
+            try:
+                ok_c, msg_c = _ejecutar_comite_ia_sesion(
+                    empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
+                )
+                if not ok_c:
+                    errores.append(f"Comité IA (4+): {msg_c}")
+            except Exception as e:
+                errores.append(f"Comité IA (4+): {e}")
+
+            progress.progress(pasos[5][1], text=pasos[5][0])
             try:
                 st.session_state["resultados"]["tab5"] = L.tab5_vpn_tir(
                     empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
@@ -3648,14 +3654,15 @@ def main():
             except Exception as e:
                 errores.append(f"Pestaña 5: {e}")
 
-            progress.progress(pasos[5][1], text=pasos[5][0])
+            progress.progress(pasos[6][1], text=pasos[6][0])
             try:
                 st.session_state["resultados"]["tab6"] = L.tab6_comparacion_sectorial(empresa)
                 st.session_state["tab6_empresa"] = empresa
             except Exception as e:
                 errores.append(f"Pestaña 6: {e}")
 
-            progress.progress(pasos[6][1], text=pasos[6][0])
+            # 7 Informe PDF — última ejecución
+            progress.progress(pasos[7][1], text=pasos[7][0])
             try:
                 st.session_state["resultados"]["tab7"] = L.tab7_informe_ejecutivo(
                     empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
@@ -3665,23 +3672,12 @@ def main():
             except Exception as e:
                 errores.append(f"Pestaña 7: {e}")
 
-            # Comité IA automático (tras resultados cuantitativos)
-            try:
-                progress.progress(0.96, text="4+ · Comité interdisciplinario (IA)…")
-                ok_c, msg_c = _ejecutar_comite_ia_sesion(
-                    empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
-                )
-                if not ok_c:
-                    errores.append(f"Comité IA: {msg_c}")
-            except Exception as e:
-                errores.append(f"Comité IA: {e}")
-
             progress.progress(1.0, text="Listo")
             if errores:
                 st.warning("Algunas pestañas fallaron:\n- " + "\n- ".join(errores))
             else:
                 st.success(
-                    "Todos los resultados generados (incluye deliberación del comité IA en pestaña 4). "
+                    "Pipeline completo: 1→2→3→4→4+(Comité IA)→5→6→7. "
                     "Revisa cada pestaña."
                 )
             st.rerun()
@@ -3729,9 +3725,9 @@ def main():
                                     empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
                                 )
                                 if not ok_c:
-                                    st.warning(f"Comité IA: {msg_c}")
+                                    st.warning(f"Comité IA (4+): {msg_c}")
                             except Exception as _e_c:
-                                st.warning(f"Comité IA: {_e_c}")
+                                st.warning(f"Comité IA (4+): {_e_c}")
                         elif i == 4:
                             st.session_state.setdefault("resultados", {})["tab5"] = L.tab5_vpn_tir(
                                 empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
@@ -3739,7 +3735,6 @@ def main():
                             )
                         elif i == 5:
                             st.session_state.setdefault("resultados", {})["tab6"] = L.tab6_comparacion_sectorial(empresa)
-                            st.session_state["tab6_empresa"] = empresa
                         elif i == 6:
                             st.session_state.setdefault("resultados", {})["tab7"] = L.tab7_informe_ejecutivo(
                                 empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
@@ -3913,10 +3908,7 @@ def main():
 
     with tab4:
         st.markdown("##### Recomendación de comité")
-        st.caption(
-            "Resultados con Generar todo o pestaña 4. "
-            "El **Comité IA** se ejecuta automáticamente al final de Generar todo y al correr solo la pestaña 4."
-        )
+        st.caption("Resultados generados con «Generar todo».")
         _metrics_tip_row([
             (
                 "Decisión",
@@ -4398,63 +4390,47 @@ def main():
 
     with tab6:
         st.markdown("##### Ranking sectorial")
-        st.caption(
-            f"Comparables del **mismo sector** que **{empresa}**. "
-            "Se recalcula al cambiar de empresa o con Generar todo / pestaña 6."
-        )
+        st.caption("Resultados generados con «Generar todo».")
         _metrics_tip_row([
             (
                 "Score",
                 "Puntaje relativo",
-                "Nota compuesta frente a pares del mismo sector (márgenes, ROIC, WACC, crecimiento, múltiplos).",
+                "Nota compuesta frente a pares del sector (márgenes, ROIC, WACC, crecimiento, múltiplos). "
+                "Más alto suele indicar mejor posición relativa, no una orden de compra.",
             ),
             (
                 "Margen EBITDA",
                 "De cada 100",
-                "De cada 100 de ventas, cuánto queda como utilidad operativa bruta.",
+                "De cada 100 de ventas, cuánto queda como utilidad operativa bruta antes de depreciaciones fuertes e intereses.",
             ),
             (
                 "EV / EBITDA",
                 "Múltiplo",
-                "Cuántas veces el mercado (o el modelo) paga la utilidad operativa.",
+                "Cuántas veces el mercado (o el modelo) paga la utilidad operativa. "
+                "Un múltiplo muy bajo puede ser oportunidad… o señal de problemas.",
             ),
         ], cols=3)
-        res_map = st.session_state.setdefault("resultados", {})
-        r = res_map.get("tab6")
-        if r is not None and st.session_state.get("tab6_empresa") and str(st.session_state.get("tab6_empresa")) != str(empresa):
-            r = None
-            res_map.pop("tab6", None)
-            st.session_state.pop("tab6_empresa", None)
-        if r is None or not isinstance(r, (list, tuple)):
-            try:
-                with st.spinner(f"Actualizando ranking del mismo sector · {empresa}…"):
-                    r = L.tab6_comparacion_sectorial(empresa)
-                    res_map["tab6"] = r
-                    st.session_state["tab6_empresa"] = empresa
-            except Exception as _e6:
-                st.warning(f"No se pudo actualizar el ranking sectorial: {_e6}")
-                r = None
+        r = st.session_state.get("resultados", {}).get("tab6")
         if r and isinstance(r, (list, tuple)):
-            st.caption(f"Focal: **{empresa}** (solo pares del mismo sector)")
             if len(r) > 0:
                 _html(r[0])
             if len(r) > 1:
-                _show_df(r[1], "Comparables mismo sector", csv_key=f"tab6_{abs(hash(str(empresa)))%10**8}")
+                _show_df(r[1], "Comparables", csv_key="tab6_sector")
                 if not _plotly_sector(r[1]):
                     if len(r) > 2:
                         _show_fig(r[2], "Sector")
             elif len(r) > 2:
                 _show_fig(r[2], "Sector")
             _chart_tip(
-                "Solo aparecen empresas del mismo sector que el emisor seleccionado. "
-                "Un múltiplo muy bajo puede ser oportunidad… o señal de problemas."
+                "Pasa el cursor por cada empresa: verás margen y múltiplo en palabras simples. "
+                "Compara con ‘vecinas’ del mismo oficio. Un múltiplo muy bajo puede ser oportunidad… o señal de problemas."
             )
             _explain(
-                "<b>Sector:</b> el ranking confronta la empresa con pares de su oficio, no con todo el mercado. "
-                "Margen EBITDA y EV/EBITDA se leen frente a esas vecinas."
+                "<b>Burbuja de lectura · Sector:</b> no mires la empresa sola: compárala con pares. "
+                "<b>Margen EBITDA</b> = de cada 100 de ventas, cuánto queda como utilidad operativa bruta. "
+                "<b>EV/EBITDA</b> = cuántas veces el mercado paga esa utilidad. "
+                "Si el ROIC supera al WACC, el negocio suele crear valor para los dueños."
             )
-        else:
-            st.info("Sin ranking del sector. Ejecuta Generar todo o la pestaña 6.")
 
     with tab7:
         st.markdown("##### Dashboard ejecutivo - Resumen para comite")
