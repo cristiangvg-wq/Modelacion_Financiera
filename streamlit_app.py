@@ -986,27 +986,105 @@ def _plotly_table(df, title="Tabla"):
 
 
 
-def _show_df(df, label=None):
-    """Preferir tabla Plotly; respaldo st.dataframe con ancho completo."""
+def _show_df(df, label=None, csv_key=None):
+    """Preferir tabla Plotly; respaldo st.dataframe con ancho completo. CSV opcional."""
     if df is None:
         return
     title = label or "Datos"
     if _plotly_table(df, title=title):
-        return
-    if label:
-        st.markdown(
-            f'<div class="tf-section-title" style="margin:0.35rem 0 0.5rem 0">{title}</div>',
-            unsafe_allow_html=True,
-        )
-    try:
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    except TypeError:
+        pass
+    else:
+        if label:
+            st.markdown(
+                f'<div class="tf-section-title" style="margin:0.35rem 0 0.5rem 0">{title}</div>',
+                unsafe_allow_html=True,
+            )
         try:
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        except TypeError:
+            try:
+                st.dataframe(df, use_container_width=True)
+            except Exception:
+                st.write(df)
         except Exception:
             st.write(df)
+    # Export CSV
+    if csv_key and hasattr(df, "to_csv"):
+        try:
+            csv_bytes = df.to_csv(index=True).encode("utf-8")
+            st.download_button(
+                f"⬇ CSV · {title}",
+                csv_bytes,
+                file_name=f"{csv_key}.csv",
+                mime="text/csv",
+                key=f"dl_{csv_key}",
+                use_container_width=False,
+            )
+        except Exception:
+            pass
+
+
+def _banner_calidad_datos(empresa, archivo=None, usar_publicos=True):
+    """Banner persistente de calidad/origen de datos."""
+    try:
+        msg = ""
+        tk = None
+        try:
+            emp = L.resolver_empresa(empresa) if hasattr(L, "resolver_empresa") else None
+            if emp:
+                tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
+                if emp.get("fuente"):
+                    msg = str(emp.get("fuente"))
+                elif empresa in getattr(L, "EMPRESAS", {}):
+                    msg = "Serie de catálogo/curada (ilustrativa)"
+        except Exception:
+            pass
+        if archivo is not None:
+            msg = "Estados / Excel del usuario"
+        if not msg:
+            msg = "Mixto / revisar fuente"
+        try:
+            proc = L.procedencia_datos(msg, ticker_yf=tk, mkt=None)
+            nivel = proc.get("nivel_calidad", "MEDIA")
+            fuente = proc.get("fuente_financiera", msg)
+        except Exception:
+            nivel, fuente = "MEDIA", msg
+        color = {"ALTA": "#34D399", "MEDIA": "#FBBF24", "MEDIA-BAJA": "#F59E0B", "BAJA": "#F87171"}.get(nivel, "#94A3B8")
+        st.markdown(
+            f'<div class="tf-info" style="border-color:{color}">'
+            f'<b>Calidad de datos · {nivel}</b> — {fuente}. '
+            f'El acabado profesional no implica EEFF auditados. Valida supuestos antes de decidir.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     except Exception:
-        st.write(df)
+        pass
+
+
+def _wizard_flujo():
+    """Strip de 4 pasos (workflow)."""
+    st.markdown(
+        """
+        <div class="tf-kpi-grid" style="margin-bottom:0.85rem">
+          <div class="tf-kpi"><div class="label">Paso 1</div><div class="value" style="font-size:1rem">Emisor / datos</div><div class="sub">Catálogo · Yahoo · Excel</div></div>
+          <div class="tf-kpi"><div class="label">Paso 2</div><div class="value" style="font-size:1rem">Capital y WACC</div><div class="sub">D/E · CAPM · g · bridge</div></div>
+          <div class="tf-kpi accent"><div class="label">Paso 3</div><div class="value" style="font-size:1rem">Generar modelo</div><div class="sub">Todo o por pestaña</div></div>
+          <div class="tf-kpi"><div class="label">Paso 4</div><div class="value" style="font-size:1rem">Informe</div><div class="sub">Auditoría · PDF · comité</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _mostrar_reconciliacion_deuda(deuda_neta, caja, deuda_es_bruta=False):
+    try:
+        if hasattr(L, "reconciliar_deuda_bridge"):
+            rec = L.reconciliar_deuda_bridge(deuda_neta=deuda_neta, caja=caja, deuda_es_bruta=deuda_es_bruta)
+            with st.expander("Reconciliación deuda · puente EV→Equity", expanded=False):
+                st.caption("Evita doble conteo de caja. Preferible pasar deuda ya neta.")
+                _show_df(rec.get("df"), "Puente de deuda", csv_key="reconciliacion_deuda")
+    except Exception:
+        pass
 
 
 def _plotly_comparacion_drivers(df_hist, title="Comparación de drivers · original vs normalizado"):
@@ -2670,6 +2748,12 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # Workflow 4 pasos
+    try:
+        _wizard_flujo()
+    except Exception:
+        pass
+
     # Cinta de mercado (tickers + variación del día)
     try:
         _render_market_tape()
@@ -2847,6 +2931,24 @@ def main():
             st.session_state["tour_done"] = False
             st.session_state["tour_step"] = 1
             st.rerun()
+        with st.expander("Self-test núcleo valoración", expanded=False):
+            if st.button("Correr pruebas unitarias", key="btn_self_test", use_container_width=True):
+                try:
+                    if hasattr(L, "self_test_valuation_core"):
+                        rows = L.self_test_valuation_core()
+                        import pandas as _pd
+                        df_t = _pd.DataFrame(
+                            [{"Prueba": n, "OK": "✓" if ok else "✗", "Detalle": d} for n, ok, d in rows]
+                        )
+                        _show_df(df_t, "Resultado self-test")
+                        if all(ok for _, ok, _ in rows):
+                            st.success("Núcleo WACC / g / DCF / bridge OK.")
+                        else:
+                            st.error("Alguna prueba falló — revisa el motor.")
+                    else:
+                        st.warning("self_test_valuation_core no disponible en logic.")
+                except Exception as e:
+                    st.error(str(e))
 
     # Re-bind from session if expanders caused scope issues — always compute from widgets via session keys
     # Streamlit widgets already wrote to session; read explicit values we set above in this run
@@ -2975,6 +3077,15 @@ def main():
         f"(miles de millones). {_align_msg}. Calibra supuestos antes de interpretar.</div>",
         unsafe_allow_html=True,
     )
+    try:
+        _banner_calidad_datos(empresa, archivo=archivo, usar_publicos=usar_publicos)
+    except Exception:
+        pass
+    try:
+        _deuda_bruta_flag = bool((st.session_state.get("params") or {}).get("deuda_es_bruta", False))
+        _mostrar_reconciliacion_deuda(deuda_neta, caja, deuda_es_bruta=_deuda_bruta_flag)
+    except Exception:
+        pass
 
     # Semáforo en vivo (supuestos)
     try:
@@ -3076,7 +3187,16 @@ def main():
 
     # ----- Generar todo (único botón) -----
     st.markdown("##### Ejecución del modelo")
-    st.caption("Un solo botón calcula las 7 pestañas. CAPM se alinea al mercado del emisor (US/CO/…). Validaciones de WACC vs g y bridge deuda neta mejoran la exactitud.")
+    st.caption(
+        "Calcula las 7 pestañas de una vez o solo la que necesites. "
+        "CAPM se alinea al mercado del emisor (US/CO/…). Validaciones de WACC vs g y bridge deuda neta mejoran la exactitud."
+    )
+    modo_ejec = st.radio(
+        "Alcance",
+        ["Todo el modelo (7 pestañas)", "Solo pestaña seleccionada abajo"],
+        horizontal=True,
+        key="modo_ejecucion",
+    )
     metodo = st.radio(
         "Método de pronóstico (pestaña 1)",
         [
@@ -3185,7 +3305,60 @@ def main():
             st.error(str(e))
             st.code(traceback.format_exc())
 
-    # ----- 7 TABS (solo visualización; los datos se generan con «Generar todo») -----
+    # ----- Ejecución por pestaña (opcional) -----
+    if st.session_state.get("modo_ejecucion", "").startswith("Solo"):
+        st.markdown("###### Ejecutar una sola pestaña")
+        ctabs = st.columns(7)
+        _tab_labels = ["1 FCFF", "2 DCF", "3 Aud.", "4 Rec.", "5 VPN", "6 Sec.", "7 Inf."]
+        _tab_keys = ["tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7"]
+        for i, col in enumerate(ctabs):
+            with col:
+                if st.button(_tab_labels[i], key=f"btn_solo_{_tab_keys[i]}", use_container_width=True):
+                    try:
+                        _alinear_moneda_y_precio(empresa)
+                    except Exception:
+                        pass
+                    try:
+                        if i == 0:
+                            st.session_state.setdefault("resultados", {})["tab1"] = L.tab1_carga_y_pronostico(
+                                empresa, archivo, horizonte, metodo, tax, usar_publicos
+                            )
+                        elif i == 1:
+                            st.session_state.setdefault("resultados", {})["tab2"] = L.tab2_simulacion_politicas(
+                                empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                                deuda_neta, rf, erp, crp, usar_publicos,
+                                caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
+                            )
+                        elif i == 2:
+                            st.session_state.setdefault("resultados", {})["tab3"] = L.tab3_auditoria_teorica(
+                                empresa, archivo, horizonte, de_ratio, kd, tax, g, beta_u,
+                                capital_invertido, rf, erp, crp, usar_publicos,
+                            )
+                        elif i == 3:
+                            st.session_state.setdefault("resultados", {})["tab4"] = L.tab4_recomendacion(
+                                empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                                capital_invertido, deuda_neta, rf, erp, crp, usar_publicos,
+                                caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
+                            )
+                        elif i == 4:
+                            st.session_state.setdefault("resultados", {})["tab5"] = L.tab5_vpn_tir(
+                                empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                                inversion_inicial, rf, erp, crp, usar_publicos,
+                            )
+                        elif i == 5:
+                            st.session_state.setdefault("resultados", {})["tab6"] = L.tab6_comparacion_sectorial(empresa)
+                        elif i == 6:
+                            st.session_state.setdefault("resultados", {})["tab7"] = L.tab7_informe_ejecutivo(
+                                empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                                capital_invertido, deuda_neta, inversion_inicial, rf, erp, crp, usar_publicos,
+                                caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
+                            )
+                        st.success(f"Pestaña {_tab_labels[i]} lista.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+
+    # ----- 7 TABS (visualización; datos con «Generar todo» o botones individuales) -----
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
         [
             "1 · Pronóstico",
@@ -3208,10 +3381,10 @@ def main():
             c_a, c_b = st.columns(2)
             with c_a:
                 if len(r) > 1:
-                    _show_df(r[1], "Historial")
+                    _show_df(r[1], "Historial", csv_key="tab1_historial")
             with c_b:
                 if len(r) > 2:
-                    _show_df(r[2], "Proyección")
+                    _show_df(r[2], "Proyección", csv_key="tab1_proyeccion")
             # Fan chart Plotly nativo (histórico + proyección + banda)
             df_h = r[1] if len(r) > 1 else None
             df_p = r[2] if len(r) > 2 else None
@@ -3250,7 +3423,7 @@ def main():
             if len(r) > 0:
                 _html(r[0])
             if len(r) > 1:
-                _show_df(r[1], "Por escenario")
+                _show_df(r[1], "Por escenario", csv_key="tab2_escenarios")
                 if not _plotly_escenarios(r[1]):
                     if len(r) > 2:
                         _show_fig(r[2], "EV vs Equity")
@@ -3262,9 +3435,11 @@ def main():
             )
             _explain(
                 "<b>Burbuja de lectura · Escenarios:</b> es como preguntar “¿y si va mal, normal o bien?”. "
+                "Ahora los escenarios también mueven <b>drivers</b> (ingresos, margen EBITDA, CAPEX, NWC), "
+                "no solo escalan el FCFF. "
                 "<b>EV</b> = precio de toda la empresa (como el de una casa antes de la hipoteca). "
                 "<b>Equity</b> = lo que les quedaría a los dueños tras pagar deudas. "
-                "Si solo el escenario optimista se ve bien, el caso es frágil: conviene revisar supuestos."
+                "Revisa la columna <b>TV / EV %</b> y el <b>método de valor terminal</b>: si el TV domina, el caso es sensible a g y WACC."
             )
 
     with tab3:
@@ -3275,7 +3450,7 @@ def main():
             if len(r) > 0:
                 _html(r[0])
             if len(r) > 1:
-                _show_df(r[1], "Pruebas")
+                _show_df(r[1], "Pruebas", csv_key="tab3_pruebas")
             _explain(
                 "<b>En palabras simples:</b> la auditoría es una lista de chequeo. "
                 "Si muchas pruebas salen en rojo (por ejemplo g casi igual al WACC, o poca historia), "
@@ -3567,13 +3742,27 @@ def main():
             prov_ia = st.session_state.get("tab4_iaprov") or st.session_state.get("iaprov") or "gemini"
             key_ui = (st.session_state.get("tab4_iakey") or "").strip() or (st.session_state.get("iakey") or "")
 
-            if st.button("▶ Deliberar en el comité (IA)", type="primary", key="btn_tab4_comite_ia", use_container_width=True):
+            _res_ok = st.session_state.get("resultados") or {}
+            _tiene_base = bool(_res_ok.get("tab2") or _res_ok.get("tab7") or _res_ok.get("tab4"))
+            if not _tiene_base:
+                st.warning(
+                    "Ejecuta **Generar todo** (o al menos pestañas 2 / 4 / 7) antes del comité IA. "
+                    "Sin números del modelo la deliberación no está anclada."
+                )
+            if st.button(
+                "▶ Deliberar en el comité (IA)",
+                type="primary",
+                key="btn_tab4_comite_ia",
+                use_container_width=True,
+                disabled=not _tiene_base,
+            ):
                 ctx = _extraer_kpis_comite()
                 if not ctx.get("monedas_alineadas", True):
                     st.warning(
                         f"Moneda del modelo ({ctx.get('moneda')}) ≠ cotización ({ctx.get('moneda_precio')}). "
                         "El comité tratará el upside como no comparable hasta alinear FX."
                     )
+                    st.info("Comité bloqueado parcialmente: puedes continuar, pero el upside se fuerza a 0 en el prompt.")
                 prompt = _prompt_comite_ia(ctx)
                 with st.spinner("El comité interdisciplinario está deliberando…"):
                     try:
@@ -3607,7 +3796,7 @@ def main():
             if len(r) > 0:
                 _html(r[0])
             if len(r) > 1:
-                _show_df(r[1], "Flujos")
+                _show_df(r[1], "Flujos", csv_key="tab5_flujos")
                 if not _plotly_vpn_flows(r[1]):
                     if len(r) > 2:
                         _show_fig(r[2], "Recuperación")
@@ -3637,7 +3826,7 @@ def main():
             if len(r) > 0:
                 _html(r[0])
             if len(r) > 1:
-                _show_df(r[1], "Comparables")
+                _show_df(r[1], "Comparables", csv_key="tab6_sector")
                 if not _plotly_sector(r[1]):
                     if len(r) > 2:
                         _show_fig(r[2], "Sector")
@@ -3712,7 +3901,7 @@ def main():
 
             with st.expander("Detalle de KPIs y lectura sencilla", expanded=False):
                 if kpi_df is not None:
-                    _show_df(kpi_df, "KPIs ejecutivos")
+                    _show_df(kpi_df, "KPIs ejecutivos", csv_key="tab7_kpis")
             with st.expander("Narrativa completa del informe", expanded=False):
                 if len(r) > 0:
                     _html(r[0])

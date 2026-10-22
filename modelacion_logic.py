@@ -4459,6 +4459,153 @@ def _nopat_final(df, fac=1.0):
     return float(_escalar_fcff([float(df["NOPAT"].iloc[-1])], fac)[0])
 
 
+def aplicar_shocks_drivers_proyeccion(df_proj, tax=0.35, shock=None):
+    """
+    Escenario por drivers (no solo escalado de FCFF).
+    shock keys (multiplicadores, 1.0 = base):
+      g_ingresos, margen_ebitda, capex_factor, nwc_factor
+    Recalcula EBIT, NOPAT, FCFF por identidad contable.
+    """
+    if df_proj is None or not hasattr(df_proj, "copy"):
+        return df_proj
+    shock = shock or {}
+    d = df_proj.copy()
+    g_fac = float(shock.get("g_ingresos", 1.0) or 1.0)
+    m_fac = float(shock.get("margen_ebitda", 1.0) or 1.0)
+    cx_fac = float(shock.get("capex_factor", 1.0) or 1.0)
+    nwc_fac = float(shock.get("nwc_factor", 1.0) or 1.0)
+
+    if "Ingresos" in d.columns and abs(g_fac - 1.0) > 1e-12:
+        ing0 = float(d["Ingresos"].iloc[0])
+        # Reescala la senda de ingresos: primer año * g_fac sobre el crecimiento implícito
+        ings = [float(x) for x in d["Ingresos"].tolist()]
+        if len(ings) >= 1 and ings[0] != 0:
+            # aplicar factor de nivel al primer año y preservar ratios de crecimiento relativos
+            base_ratios = ings[0] / g_fac if g_fac else ings[0]
+            # interpretación: g_fac < 1 → ingresos más bajos en todo el horizonte
+            ings = [x * g_fac for x in ings]
+            d["Ingresos"] = ings
+
+    if "EBITDA" in d.columns and "Ingresos" in d.columns:
+        # margen * m_fac, acotado
+        for i in range(len(d)):
+            ing = float(d["Ingresos"].iloc[i])
+            ebitda_old = float(d["EBITDA"].iloc[i]) if "EBITDA" in d.columns else 0.0
+            margen = (ebitda_old / ing) if ing else 0.0
+            margen = float(np.clip(margen * m_fac, -0.5, 0.85))
+            d.iloc[i, d.columns.get_loc("EBITDA")] = ing * margen
+
+    if "CAPEX" in d.columns:
+        d["CAPEX"] = pd.to_numeric(d["CAPEX"], errors="coerce").fillna(0.0) * cx_fac
+
+    if "Delta_NWC" in d.columns:
+        d["Delta_NWC"] = pd.to_numeric(d["Delta_NWC"], errors="coerce").fillna(0.0) * nwc_fac
+
+    # Reconstruir EBIT / Dep / NOPAT / FCFF
+    if "EBITDA" in d.columns and "Depreciacion" in d.columns:
+        dep = pd.to_numeric(d["Depreciacion"], errors="coerce").fillna(0.0)
+        d["EBIT"] = pd.to_numeric(d["EBITDA"], errors="coerce").fillna(0.0) - dep
+    elif "EBITDA" in d.columns:
+        d["EBIT"] = pd.to_numeric(d["EBITDA"], errors="coerce").fillna(0.0)
+
+    if "EBIT" in d.columns:
+        ebit = pd.to_numeric(d["EBIT"], errors="coerce").fillna(0.0)
+        d["NOPAT"] = ebit - float(tax) * np.maximum(ebit, 0.0)
+
+    if all(c in d.columns for c in ("NOPAT", "Depreciacion", "CAPEX", "Delta_NWC")):
+        d["FCFF"] = (
+            pd.to_numeric(d["NOPAT"], errors="coerce").fillna(0.0)
+            + pd.to_numeric(d["Depreciacion"], errors="coerce").fillna(0.0)
+            - pd.to_numeric(d["CAPEX"], errors="coerce").fillna(0.0)
+            - pd.to_numeric(d["Delta_NWC"], errors="coerce").fillna(0.0)
+        )
+    return d
+
+
+def reconciliar_deuda_bridge(deuda_neta=0, caja=0, deuda_bruta=None, deuda_es_bruta=False):
+    """
+    Tabla de reconciliación del puente EV→Equity.
+    Convención preferida: deuda_neta = deuda financiera − caja operativa (no sumar caja otra vez).
+    Si deuda_es_bruta=True, el input `deuda_neta` se interpreta como bruta y se resta caja.
+    """
+    cj = float(caja or 0)
+    if deuda_bruta is not None:
+        db = float(deuda_bruta)
+        dn_puente = db - cj
+        modo = "Deuda bruta explícita − caja"
+    elif deuda_es_bruta:
+        db = float(deuda_neta or 0)
+        dn_puente = db - cj
+        modo = "Input tratado como deuda bruta − caja"
+    else:
+        dn_puente = float(deuda_neta or 0)
+        db = dn_puente + cj
+        modo = "Deuda ya neta (no se suma caja otra vez)"
+    filas = [
+        {"Concepto": "Deuda financiera bruta", "Valor": round(db, 2)},
+        {"Concepto": "(-) Caja / equivalentes", "Valor": round(cj, 2)},
+        {"Concepto": "(=) Deuda neta en el puente", "Valor": round(dn_puente, 2)},
+        {"Concepto": "Modo", "Valor": modo},
+    ]
+    import pandas as _pd
+    df = _pd.DataFrame(filas)
+    return {
+        "deuda_bruta": db,
+        "caja": cj,
+        "deuda_neta_puente": dn_puente,
+        "deuda_es_bruta": bool(deuda_es_bruta),
+        "df": df,
+    }
+
+
+def self_test_valuation_core():
+    """
+    Pruebas unitarias mínimas del núcleo (WACC, ancla g, DCF simple).
+    Retorna lista de (nombre, ok, detalle).
+    """
+    results = []
+    try:
+        w, we, wd = calcular_wacc(1.0, 0.08, 0.12, 0.25)
+        # we=0.5, wd=0.5 → 0.5*0.12 + 0.5*0.08*0.75 = 0.06 + 0.03 = 0.09
+        ok = abs(w - 0.09) < 1e-9 and abs(we - 0.5) < 1e-12
+        results.append(("WACC D/E=1, kd=8%, ke=12%, t=25%", ok, f"wacc={w:.6f} (esp. 0.09)"))
+    except Exception as e:
+        results.append(("WACC básico", False, str(e)))
+    try:
+        g_use, g_cap = anclar_g_terminal(0.06, 0.08, g_max_macro=0.04, margen_seguridad=0.01)
+        ok = g_use <= 0.04 + 1e-12 and g_use < 0.08 - 0.01 + 1e-9
+        results.append(("anclar_g_terminal(0.06, wacc=0.08, techo=0.04)", ok, f"g_use={g_use}, g_cap={g_cap}"))
+    except Exception as e:
+        results.append(("anclar_g_terminal", False, str(e)))
+    try:
+        val = valoracion_dcf(
+            [100.0, 100.0, 100.0],
+            wacc=0.10,
+            g=0.03,
+            deuda_neta=0,
+            mid_year=False,
+            g_max_macro=0.05,
+            nopat_final=None,
+        )
+        # TV = 100*1.03/(0.10-0.03) = 1471.428...
+        # PV factors end-year: 1/1.1, 1/1.1^2, 1/1.1^3; TV disc at n=3
+        tv = 100.0 * 1.03 / 0.07
+        pv_fcff = 100/1.1 + 100/1.1**2 + 100/1.1**3
+        pv_tv = tv / 1.1**3
+        ev_esp = pv_fcff + pv_tv
+        ok = abs(val["EV"] - ev_esp) < 0.05 and abs(val["TV_Gordon"] - tv) < 0.05
+        results.append(("DCF Gordon 3 años mid_year=False", ok, f"EV={val['EV']:.2f} esp={ev_esp:.2f}"))
+    except Exception as e:
+        results.append(("DCF Gordon simple", False, str(e)))
+    try:
+        rec = reconciliar_deuda_bridge(deuda_neta=100, caja=20, deuda_es_bruta=False)
+        ok = abs(rec["deuda_neta_puente"] - 100) < 1e-9
+        results.append(("Reconciliación deuda neta", ok, str(rec["deuda_neta_puente"])))
+    except Exception as e:
+        results.append(("Reconciliación deuda", False, str(e)))
+    return results
+
+
 def metricas_valor_firma(fcff_series, capital_invertido, val):
     """Métricas a nivel de FIRMA, consistentes con el DCF:
       MVA = EV − capital invertido ;  TIR implícita = TIR de [−K, FCFF_1..FCFF_N + TV].
@@ -6048,6 +6195,12 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
         wacc, we, wd = calcular_wacc(de_ratio, kd, ke, tax)
         g_pes = max(0.005, float(g) - 0.01)
         g_opt = min(float(g) + 0.01, wacc - 0.005) if wacc > 0.02 else float(g)
+        # Escenarios por shocks de drivers (+ ajuste WACC/g). Fallback: escalado FCFF legacy.
+        _SHOCKS = {
+            "Pesimista": {"g_ingresos": 0.90, "margen_ebitda": 0.92, "capex_factor": 1.15, "nwc_factor": 1.10},
+            "Base":      {"g_ingresos": 1.00, "margen_ebitda": 1.00, "capex_factor": 1.00, "nwc_factor": 1.00},
+            "Optimista": {"g_ingresos": 1.08, "margen_ebitda": 1.06, "capex_factor": 0.92, "nwc_factor": 0.95},
+        }
         escenarios = {}
         for nombre, fac, g_e, w_adj in [
             ("Pesimista", 0.75, g_pes, wacc + 0.015),
@@ -6056,20 +6209,35 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
         ]:
             acc_res = resolver_acciones_millones(nombre_empresa, acciones)
             bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res, exit_multiple)
-            # Propagar deuda_es_bruta desde params de la empresa si existe
             try:
                 _emp2 = resolver_empresa(nombre_empresa) or {}
                 if (_emp2.get("params") or {}).get("deuda_es_bruta"):
                     bp["deuda_es_bruta"] = True
             except Exception:
                 pass
-            ebitda_out = float(df_proj["EBITDA"].iloc[-1]) * fac if "EBITDA" in df_proj.columns else None
+            try:
+                df_esc_i = aplicar_shocks_drivers_proyeccion(df_proj, tax=tax, shock=_SHOCKS.get(nombre, {}))
+                fcff_i = [float(x) for x in df_esc_i["FCFF"].values]
+                nopat_i = float(df_esc_i["NOPAT"].iloc[-1]) if "NOPAT" in df_esc_i.columns else _nopat_final(df_proj, fac)
+                ebitda_out = float(df_esc_i["EBITDA"].iloc[-1]) if "EBITDA" in df_esc_i.columns else None
+            except Exception:
+                df_esc_i = df_proj
+                fcff_i = list(_escalar_fcff(df_proj["FCFF"].values, fac))
+                nopat_i = _nopat_final(df_proj, fac)
+                ebitda_out = float(df_proj["EBITDA"].iloc[-1]) * fac if "EBITDA" in df_proj.columns else None
             precio = resolver_precio_mercado(nombre_empresa)
-            val = valorar_con_bridge(_escalar_fcff(df_proj["FCFF"].values, fac), w_adj, g_e, bp, ebitda_salida=ebitda_out, precio_mercado=precio, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj, fac))
+            val = valorar_con_bridge(
+                fcff_i, w_adj, g_e, bp,
+                ebitda_salida=ebitda_out, precio_mercado=precio,
+                mid_year=bool(mid_year), g_max_macro=float(g_max_macro),
+                nopat_final=nopat_i,
+            )
             val = forzar_vps_upside(val, nombre_empresa, acciones, precio=precio)
             escenarios[nombre] = val
             escenarios[nombre]["g"] = g_e
             escenarios[nombre]["WACC"] = w_adj
+            escenarios[nombre]["shock_drivers"] = _SHOCKS.get(nombre, {})
+            escenarios[nombre]["tv_metodo"] = val.get("tv_metodo", "Gordon / valor-conductor")
         df_esc = pd.DataFrame({
             "Escenario": list(escenarios.keys()),
             "WACC (%)": [v["WACC"] * 100 for v in escenarios.values()],
@@ -6078,6 +6246,11 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
             "Equity Value": [v["Equity_Value"] for v in escenarios.values()],
             "PV FCFF": [v["PV_FCFF"] for v in escenarios.values()],
             "PV Terminal": [v["PV_TV"] for v in escenarios.values()],
+            "TV / EV %": [
+                (100.0 * float(v.get("PV_TV") or 0) / float(v["EV"])) if float(v.get("EV") or 0) else 0.0
+                for v in escenarios.values()
+            ],
+            "Método TV": [str(v.get("tv_metodo") or "—") for v in escenarios.values()],
         }).round(1)
         fig, ax = plt.subplots(figsize=(10, 5))
         x = np.arange(3)
