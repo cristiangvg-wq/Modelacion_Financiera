@@ -7396,234 +7396,232 @@ def tab6_comparacion_sectorial(nombre_empresa):
 
 
 def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
-    """Genera un PDF ejecutivo con reportlab (texto + tablas + rutas a imágenes)."""
+    """
+    PDF ejecutivo v2 — dashboard para comité (sin narrativa HTML larga).
+    Secciones: decisión, KPIs, escenarios, auditoría, sector, (opcional) extracto comité IA.
+    """
     from reportlab.lib.pagesizes import letter
-    from reportlab.lib.units import inch, cm
+    from reportlab.lib.units import inch
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        Image, PageBreak, HRFlowable, KeepTogether
+        Image, HRFlowable,
     )
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+    import numpy as np
 
     doc = SimpleDocTemplate(
         ruta_pdf, pagesize=letter,
-        leftMargin=0.7*inch, rightMargin=0.7*inch,
-        topMargin=0.6*inch, bottomMargin=0.6*inch
+        leftMargin=0.7 * inch, rightMargin=0.7 * inch,
+        topMargin=0.55 * inch, bottomMargin=0.55 * inch,
     )
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="TituloMain", parent=styles["Heading1"],
-                              fontSize=18, textColor=colors.HexColor("#0A2540"),
-                              spaceAfter=8, alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name="Subtitulo", parent=styles["Heading2"],
-                              fontSize=13, textColor=colors.HexColor("#0A2540"),
-                              spaceBefore=14, spaceAfter=6))
-    styles.add(ParagraphStyle(name="Cuerpo", parent=styles["Normal"],
-                              fontSize=10, textColor=colors.HexColor("#1E293B"),
-                              leading=14, alignment=TA_JUSTIFY))
-    styles.add(ParagraphStyle(name="Simple", parent=styles["Normal"],
-                              fontSize=10, textColor=colors.HexColor("#065F46"),
-                              backColor=colors.HexColor("#ECFDF5"),
-                              leading=13, spaceBefore=4, spaceAfter=6,
-                              leftIndent=4, rightIndent=4))
-    styles.add(ParagraphStyle(name="Decision", parent=styles["Heading2"],
-                              fontSize=14, textColor=colors.HexColor(datos["decision_color"]),
-                              alignment=TA_CENTER, spaceBefore=8, spaceAfter=8))
-    styles.add(ParagraphStyle(name="Pie", parent=styles["Normal"],
-                              fontSize=8, textColor=colors.HexColor("#64748B"),
-                              alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name="KPI", parent=styles["Normal"],
-                              fontSize=9, textColor=colors.HexColor("#0F172A"), leading=12, alignment=0))
-    styles.add(ParagraphStyle(name="KPIHeader", parent=styles["Normal"],
-                              fontSize=9, textColor=colors.white, leading=12, alignment=0))
+    styles.add(ParagraphStyle(
+        name="TituloMain", parent=styles["Heading1"],
+        fontSize=16, textColor=colors.HexColor("#0A2540"),
+        spaceAfter=4, alignment=TA_CENTER,
+    ))
+    styles.add(ParagraphStyle(
+        name="Subtitulo", parent=styles["Heading2"],
+        fontSize=12, textColor=colors.HexColor("#0F766E"),
+        spaceBefore=12, spaceAfter=5,
+    ))
+    styles.add(ParagraphStyle(
+        name="Cuerpo", parent=styles["Normal"],
+        fontSize=9.5, textColor=colors.HexColor("#1E293B"),
+        leading=13, alignment=TA_JUSTIFY,
+    ))
+    styles.add(ParagraphStyle(
+        name="Simple", parent=styles["Normal"],
+        fontSize=9.5, textColor=colors.HexColor("#065F46"),
+        backColor=colors.HexColor("#ECFDF5"),
+        leading=12, spaceBefore=3, spaceAfter=5,
+        leftIndent=3, rightIndent=3,
+    ))
+    styles.add(ParagraphStyle(
+        name="Decision", parent=styles["Heading2"],
+        fontSize=13, textColor=colors.HexColor(datos.get("decision_color") or "#0A2540"),
+        alignment=TA_CENTER, spaceBefore=6, spaceAfter=6,
+    ))
+    styles.add(ParagraphStyle(
+        name="Pie", parent=styles["Normal"],
+        fontSize=8, textColor=colors.HexColor("#64748B"),
+        alignment=TA_CENTER,
+    ))
+    styles.add(ParagraphStyle(
+        name="KPI", parent=styles["Normal"],
+        fontSize=8.5, textColor=colors.HexColor("#0F172A"), leading=11,
+    ))
+    styles.add(ParagraphStyle(
+        name="KPIHeader", parent=styles["Normal"],
+        fontSize=8.5, textColor=colors.white, leading=11,
+    ))
+    styles.add(ParagraphStyle(
+        name="Badge", parent=styles["Normal"],
+        fontSize=9, textColor=colors.HexColor("#0F766E"),
+        alignment=TA_CENTER, spaceAfter=6,
+    ))
+
+    def _esc(s):
+        return (
+            str(s or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+
+    def _tbl(data, col_widths):
+        flow = []
+        for ri, row in enumerate(data):
+            flow.append([
+                Paragraph(_esc(c), styles["KPIHeader"] if ri == 0 else styles["KPI"])
+                for c in row
+            ])
+        t = Table(flow, colWidths=col_widths)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F766E")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1F5F9")]),
+        ]))
+        return t
 
     story = []
-    story.append(Paragraph("Informe Ejecutivo - Resumen para Comite", styles["TituloMain"]))
-    story.append(Paragraph(f"<b>{nombre_empresa}</b>", styles["TituloMain"]))
+    # —— Portada corta ——
+    story.append(Paragraph("Informe Ejecutivo · Dashboard para Comité", styles["TituloMain"]))
+    story.append(Paragraph(f"<b>{_esc(nombre_empresa)}</b>", styles["TituloMain"]))
     story.append(Paragraph(
-        f"Generado: {datos['fecha']} · Horizonte: {datos['horizonte']} años · Proyección: Drivers + identidad FCFF · "
-        f"Herramienta pedagógica (no es asesoría de inversión)",
-        styles["Pie"]
+        f"<b>Versión PDF 2.1</b> · {_esc(datos.get('fecha', ''))} · "
+        f"Horizonte {datos.get('horizonte', '—')} años · Drivers + identidad FCFF · "
+        f"Sin narrativa HTML completa",
+        styles["Badge"],
     ))
-    story.append(Spacer(1, 8))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#0A2540")))
+    story.append(Paragraph(
+        "Documento pedagógico de apoyo a decisión. No es asesoría de inversión ni orden de compra/venta.",
+        styles["Pie"],
+    ))
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#0F766E")))
 
-    # 1. Qué es este informe (dashboard ejecutivo, sin narrativa larga)
-    story.append(Paragraph("1. ¿Qué es este informe?", styles["Subtitulo"]))
+    # 1. Decisión
+    story.append(Paragraph("1. Decisión del modelo (cuantitativa)", styles["Subtitulo"]))
+    story.append(Paragraph(_esc(datos.get("decision", "—")), styles["Decision"]))
+    if datos.get("decision_just"):
+        story.append(Paragraph(_esc(datos["decision_just"]), styles["Cuerpo"]))
+    if datos.get("decision_simple"):
+        story.append(Paragraph(
+            f"<b>En palabras simples:</b> {_esc(datos['decision_simple'])}",
+            styles["Simple"],
+        ))
+    score = datos.get("score", "—")
+    razones = datos.get("razones") or []
     story.append(Paragraph(
-        "Resumen ejecutivo para comité: decisión del modelo, números clave (WACC, ROIC, EV, Equity, VPS), "
-        "escenarios, coherencia de supuestos y posición sectorial. "
-        "No incluye la narrativa HTML completa de la aplicación ni constituye asesoría de inversión.",
-        styles["Cuerpo"]
+        f"Puntaje de viabilidad: <b>{_esc(score)}/7</b>"
+        + (f". Razones: {_esc('; '.join(razones))}." if razones else "."),
+        styles["Cuerpo"],
     ))
 
-    # 2. Decisión
-    story.append(Paragraph("2. Decisión recomendada (lectura rápida)", styles["Subtitulo"]))
-    story.append(Paragraph(datos["decision"], styles["Decision"]))
-    story.append(Paragraph(datos["decision_just"], styles["Cuerpo"]))
-    story.append(Paragraph(
-        f"<b>En palabras sencillas:</b> {datos['decision_simple']}",
-        styles["Simple"]
-    ))
-    story.append(Paragraph(
-        f"Puntaje de viabilidad: <b>{datos['score']}/7</b>. "
-        f"Razones principales: {'; '.join(datos['razones'])}",
-        styles["Cuerpo"]
-    ))
-
-    # 3. KPIs
-    story.append(Paragraph("3. Números clave (y qué significan)", styles["Subtitulo"]))
+    # 2. KPIs
+    story.append(Paragraph("2. Números clave", styles["Subtitulo"]))
     vps = datos.get("vps")
     up = datos.get("upside_pct")
     px = datos.get("precio_mercado")
     vps_s = f"{vps:,.2f}" if vps is not None else "N/D"
-    up_s = f"{float(up):+.1f}%" if up is not None and np.isfinite(float(up)) else "N/D"
+    try:
+        up_s = f"{float(up):+.1f}%" if up is not None and np.isfinite(float(up)) else "N/D"
+    except Exception:
+        up_s = "N/D"
     px_s = f"{px:,.2f}" if px is not None else "N/D"
     mon = datos.get("moneda") or ""
     kpi_data = [
-        ["Indicador", "Valor", "Que significa"],
-        ["WACC", f"{datos['wacc']*100:.2f}%", "Costo promedio del capital"],
-        ["g terminal", f"{datos['g']*100:.2f}%", "Crecimiento de largo plazo"],
-        ["ROIC", f"{datos['roic']*100:.2f}%", "Retorno del capital invertido"],
-        ["D/E", f"{datos['de_ratio']:.2f}", "Apalancamiento"],
-        ["EV base", f"{datos['ev_base']:,.0f}", f"Enterprise Value (miles M {mon})"],
-        ["Equity base", f"{datos['eq_base']:,.0f}", "Valor para accionistas base"],
-        ["Equity pesimista", f"{datos.get('eq_pes', 0):,.0f}", "Escenario adverso"],
-        ["Equity optimista", f"{datos.get('eq_opt', 0):,.0f}", "Escenario favorable"],
-        ["VPS modelo", vps_s, "Valor por accion del DCF"],
-        ["Precio mercado", px_s, "Ultima cotizacion"],
-        ["Upside", up_s, "VPS vs precio"],
-        ["VPN proyecto", f"{datos['vpn']:,.1f}", "Valor presente neto del proyecto"],
-        ["TIR", datos['tir_str'], "Rentabilidad anual implicita"],
-        ["Payback", datos['payback_str'], "Anios para recuperar inversion"],
-        ["FCFF promedio", f"{datos['fcff_prom']:,.0f}", "Dinero libre promedio / anio"],
+        ["Indicador", "Valor", "Qué significa"],
+        ["WACC", f"{float(datos.get('wacc') or 0)*100:.2f}%", "Costo promedio del capital"],
+        ["g terminal", f"{float(datos.get('g') or 0)*100:.2f}%", "Crecimiento de largo plazo"],
+        ["ROIC", f"{float(datos.get('roic') or 0)*100:.2f}%", "Retorno del capital invertido"],
+        ["D/E", f"{float(datos.get('de_ratio') or 0):.2f}", "Apalancamiento"],
+        ["EV base", f"{float(datos.get('ev_base') or 0):,.0f}", f"Valor del negocio (miles M {mon})"],
+        ["Equity base", f"{float(datos.get('equity_base') or 0):,.0f}", "Valor para los dueños"],
+        ["VPS modelo", vps_s, "Valor por acción del DCF"],
+        ["Precio mercado", px_s, "Última cotización (si hay)"],
+        ["Upside %", up_s, "VPS vs precio (solo si misma moneda)"],
+        ["VPN proyecto", f"{datos.get('vpn', '—')}", "Valor presente del proyecto"],
+        ["TIR / Payback", f"{datos.get('tir', '—')} / {datos.get('payback', '—')}", "Rentabilidad y años de recupero"],
     ]
-    def _pdf_cell(txt, header=False):
-        s = "" if txt is None else str(txt).strip()
-        if not s or s.lower() in ("nan", "none"):
-            s = "—"
-        st_name = "KPIHeader" if header else "KPI"
-        return Paragraph(s.replace("\n", "<br/>"), styles[st_name])
-
-    kpi_flow = [[_pdf_cell(c, header=True) for c in kpi_data[0]]]
-    for row in kpi_data[1:]:
-        kpi_flow.append([_pdf_cell(x) for x in row])
-    t = Table(kpi_flow, colWidths=[2.0*inch, 1.5*inch, 3.3*inch])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A2540")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
-        ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#0F172A")),
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1F5F9")]),
-    ]))
-    story.append(t)
+    story.append(_tbl(kpi_data, [1.5 * inch, 1.4 * inch, 3.3 * inch]))
     story.append(Paragraph(
-        "<b>En palabras sencillas:</b> Si el ROIC es mayor que el WACC, la empresa crea valor "
-        "(rinde más de lo que cuesta el dinero). Si el VPN es positivo y la TIR supera el WACC, "
-        "el proyecto evaluado también aporta valor.",
-        styles["Simple"]
+        "<b>Lectura rápida:</b> si ROIC &gt; WACC el negocio crea valor con estos supuestos; "
+        "VPN &gt; 0 y TIR &gt; WACC apuntan a que el proyecto aporta valor en pesos de hoy.",
+        styles["Simple"],
     ))
 
-    # 4. Gráficos
-    story.append(Paragraph("4. Calidad de datos y atípicos", styles["Subtitulo"]))
+    # 3. Calidad de datos (corto)
+    story.append(Paragraph("3. Calidad de datos", styles["Subtitulo"]))
     story.append(Paragraph(
-        datos.get("nota_normalizacion_texto")
-        or "Sin información de normalización en este informe.",
-        styles["Cuerpo"]
+        _esc(datos.get("nota_normalizacion_texto") or "Sin nota de normalización en esta corrida."),
+        styles["Cuerpo"],
     ))
-    story.append(Spacer(1, 8))
 
-    story.append(Paragraph("5. Gráficos explicativos", styles["Subtitulo"]))
-    for titulo, ruta, explicacion in datos.get("imagenes", []):
-        if ruta and os.path.exists(ruta):
-            story.append(Paragraph(titulo, styles["Cuerpo"]))
-            try:
-                # Gráficos de normalización suelen ser más altos (varias series)
-                h = 4.2*inch if "normalizacion" in str(ruta).lower() or "atipic" in str(titulo).lower() else 2.8*inch
-                img = Image(ruta, width=6.2*inch, height=h)
-                story.append(img)
-            except Exception:
-                story.append(Paragraph("(No se pudo insertar la imagen)", styles["Pie"]))
-            story.append(Paragraph(f"<b>Cómo leerlo:</b> {explicacion}", styles["Simple"]))
-            story.append(Spacer(1, 6))
+    # 4. Gráficos (si hay)
+    imgs = datos.get("imagenes") or []
+    if imgs:
+        story.append(Paragraph("4. Gráficos", styles["Subtitulo"]))
+        for titulo, ruta, explicacion in imgs:
+            if ruta and os.path.exists(ruta):
+                story.append(Paragraph(_esc(titulo), styles["Cuerpo"]))
+                try:
+                    h = 3.6 * inch if "normalizacion" in str(ruta).lower() or "atipic" in str(titulo).lower() else 2.6 * inch
+                    story.append(Image(ruta, width=6.2 * inch, height=h))
+                except Exception:
+                    story.append(Paragraph("(No se pudo insertar la imagen)", styles["Pie"]))
+                if explicacion:
+                    story.append(Paragraph(f"<b>Cómo leerlo:</b> {_esc(explicacion)}", styles["Simple"]))
+                story.append(Spacer(1, 4))
 
     # 5. Escenarios
-    story.append(Paragraph("6. Escenarios de valoración", styles["Subtitulo"]))
+    story.append(Paragraph("5. Escenarios de valoración", styles["Subtitulo"]))
     esc_data = [["Escenario", "WACC %", "g %", "EV", "Equity"]]
     for row in datos.get("escenarios") or []:
         esc_data.append([("—" if x is None or str(x).strip() == "" else str(x)) for x in row])
-    esc_flow = []
-    for ri, row in enumerate(esc_data):
-        esc_flow.append([
-            Paragraph(str(c), styles["KPIHeader"] if ri == 0 else styles["KPI"])
-            for c in row
-        ])
-    t2 = Table(esc_flow, colWidths=[1.4*inch, 1.0*inch, 1.0*inch, 1.5*inch, 1.5*inch])
-    t2.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A2540")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
-        ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#0F172A")),
-        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1F5F9")]),
-    ]))
-    story.append(t2)
+    if len(esc_data) > 1:
+        story.append(_tbl(esc_data, [1.3 * inch, 1.0 * inch, 0.9 * inch, 1.5 * inch, 1.5 * inch]))
     story.append(Paragraph(
-        "<b>En palabras sencillas:</b> El escenario pesimista asume peores flujos y mayor costo de capital; "
-        "el optimista, lo contrario. Comparar los tres evita confiar solo en un número único.",
-        styles["Simple"]
+        "Pesimista = peores flujos / capital más caro; optimista = lo contrario. "
+        "Si solo el optimista se ve bien, la tesis es frágil.",
+        styles["Simple"],
     ))
 
     # 6. Auditoría
-    story.append(Paragraph("7. ¿El modelo es coherente?", styles["Subtitulo"]))
-    for prueba, interp in datos["pruebas"]:
-        story.append(Paragraph(f"• <b>{prueba}</b>: {interp}", styles["Cuerpo"]))
-    story.append(Paragraph(
-        "<b>En palabras sencillas:</b> Estas pruebas no dicen si la acción está 'barata' o 'cara'. "
-        "Dicen si los supuestos se contradicen entre sí (por ejemplo, crecer más rápido que el costo del dinero).",
-        styles["Simple"]
-    ))
+    story.append(Paragraph("6. Coherencia de supuestos", styles["Subtitulo"]))
+    for prueba, interp in (datos.get("pruebas") or []):
+        story.append(Paragraph(f"• <b>{_esc(prueba)}</b>: {_esc(interp)}", styles["Cuerpo"]))
+    if not datos.get("pruebas"):
+        story.append(Paragraph("Sin pruebas de auditoría en esta corrida.", styles["Cuerpo"]))
 
     # 7. Sector
-    story.append(Paragraph("8. Posición en el sector", styles["Subtitulo"]))
-    story.append(Paragraph(datos["sector_texto"], styles["Cuerpo"]))
+    story.append(Paragraph("7. Posición sectorial", styles["Subtitulo"]))
     story.append(Paragraph(
-        "<b>En palabras sencillas:</b> Un ranking alto sugiere mejores márgenes, retornos o múltiplos relativos, "
-        "pero no garantiza una buena compra por sí solo.",
-        styles["Simple"]
+        _esc(datos.get("sector_texto") or "Sin comparación sectorial en esta corrida."),
+        styles["Cuerpo"],
     ))
 
-    # 8. Decisión de compra explicada
-    story.append(Paragraph("9. ¿Tiene sentido 'comprar' o aprobar la política?", styles["Subtitulo"]))
-    story.append(Paragraph(datos["compra_texto"], styles["Cuerpo"]))
-    if datos.get("veredicto_mercado"):
-        story.append(Paragraph(
-            f"<b>Lectura del mercado ({datos.get('veredicto_mercado_etiqueta', '')}):</b> {datos['veredicto_mercado']}",
-            styles["Simple"]
-        ))
-    story.append(Paragraph(
-        f"<b>Resumen final:</b> {datos['compra_simple']}",
-        styles["Simple"]
-    ))
+    # 8. Cierre corto (sin veredicto de mercado largo tipo contraste)
+    story.append(Paragraph("8. Uso del resultado", styles["Subtitulo"]))
+    compra_simple = datos.get("compra_simple") or (
+        "Apoyo a discusión de comité; no es una orden de compra o venta."
+    )
+    story.append(Paragraph(_esc(compra_simple), styles["Simple"]))
+    # No incluir el bloque largo de veredicto_mercado / contraste en el PDF v2
 
-    # Resumen opcional del Comité IA (pestaña 4): solo recomendación, puntaje y monitoreo
+    # 9. Extracto Comité IA (estructurado)
     comite_struct = datos.get("comite_ia_struct") or {}
     comite_txt = (datos.get("comite_ia_resumen") or "").strip()
     if not comite_struct and comite_txt:
@@ -7631,44 +7629,48 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
             comite_struct = extraer_resumen_comite_ia(comite_txt)
         except Exception:
             comite_struct = {}
-    if comite_struct.get("ok") or comite_txt:
-        story.append(Paragraph("10. Resumen del Comité interdisciplinario (IA)", styles["Subtitulo"]))
+    if comite_struct.get("ok") or (comite_txt and (comite_struct.get("recomendacion") or comite_struct.get("puntaje"))):
+        story.append(Paragraph("9. Extracto Comité interdisciplinario (IA)", styles["Subtitulo"]))
         story.append(Paragraph(
-            "Extracto automático del módulo de deliberación IA (CFO / mercado / riesgos): "
-            "solo recomendación, puntaje y hasta 3 puntos de monitoreo. "
-            "Apoyo a la discusión; no sustituye el modelo cuantitativo ni es orden de compra/venta.",
-            styles["Cuerpo"]
+            "Solo recomendación, puntaje y hasta 3 puntos de monitoreo. "
+            "Complemento narrativo; no sustituye el DCF.",
+            styles["Cuerpo"],
         ))
-        rec = comite_struct.get("recomendacion")
-        pje = comite_struct.get("puntaje")
+        if comite_struct.get("recomendacion"):
+            story.append(Paragraph(
+                f"<b>Recomendación final:</b> {_esc(comite_struct['recomendacion'])}",
+                styles["Simple"],
+            ))
+        if comite_struct.get("puntaje"):
+            story.append(Paragraph(
+                f"<b>Puntaje de viabilidad:</b> {_esc(comite_struct['puntaje'])}",
+                styles["Simple"],
+            ))
         mons = comite_struct.get("monitoreo") or []
-        if rec:
-            story.append(Paragraph(f"<b>Recomendación final:</b> {rec}", styles["Simple"]))
-        if pje:
-            story.append(Paragraph(f"<b>Puntaje de viabilidad:</b> {pje}", styles["Simple"]))
         if mons:
             story.append(Paragraph("<b>Puntos de monitoreo:</b>", styles["Cuerpo"]))
             for i, p in enumerate(mons[:3], 1):
-                story.append(Paragraph(f"{i}. {p}", styles["Cuerpo"]))
-        elif comite_txt and not (rec or pje):
-            safe = (
-                comite_txt[:800].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("\n", "<br/>")
-            )
-            story.append(Paragraph(safe, styles["Simple"]))
+                story.append(Paragraph(f"{i}. {_esc(p)}", styles["Cuerpo"]))
+    else:
+        story.append(Paragraph("9. Extracto Comité interdisciplinario (IA)", styles["Subtitulo"]))
+        story.append(Paragraph(
+            "No hay deliberación IA en esta sesión. "
+            "Ejecuta el comité en la pestaña 4 y vuelve a generar el informe (pestaña 7) para incluir el extracto.",
+            styles["Pie"],
+        ))
 
-    story.append(Spacer(1, 16))
+    story.append(Spacer(1, 12))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#94A3B8")))
     story.append(Paragraph(
-        "Documento generado automáticamente con fines pedagógicos. "
-        "Dashboard ejecutivo (sin narrativa HTML completa). "
-        "Los datos históricos de respaldo se basan en reportes públicos (escala: miles de millones, moneda del emisor). "
-        "No constituye recomendación de inversión ni asesoría financiera.",
-        styles["Pie"]
+        "PDF v2.1 · Dashboard ejecutivo · Generado automáticamente · "
+        "Escala típica: miles de millones en la moneda del emisor · "
+        "No constituye recomendación de inversión.",
+        styles["Pie"],
     ))
 
     doc.build(story)
     return ruta_pdf
+
 
 
 def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
@@ -8063,7 +8065,10 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             nota_norm = ""
 
         # PDF
-        pdf_path = os.path.join(tmpdir, f"Informe_Ejecutivo_{short}.pdf".replace(" ", "_"))
+        _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        pdf_path = os.path.join(
+            tmpdir, f"Informe_Ejecutivo_v21_{short}_{_ts}.pdf".replace(" ", "_")
+        )
         vps = val_base.get("value_per_share")
         upside = val_base.get("upside_pct")
         datos_pdf = {
@@ -8148,7 +8153,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 {nota_norm}
 {result_note("¿Esto es una orden de compra?",
     compra_simple + " El modelo es pedagógico: usa supuestos y series de respaldo. No reemplaza due diligence ni asesoría profesional.")}
-{contraste7.get("html", "")}
+<!-- contraste retirado del informe HTML v2 -->
 <div class="section-card">
 <b>Números clave</b>
 <ul style="color:#E8EEF7;line-height:1.6">

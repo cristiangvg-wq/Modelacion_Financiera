@@ -3105,7 +3105,11 @@ def main():
                         else:
                             st.error("Alguna prueba falló — revisa el motor.")
                     else:
-                        st.warning("self_test_valuation_core no disponible en logic.")
+                        st.warning(
+                            "self_test_valuation_core no está en el modelacion_logic que carga la app. "
+                            "Sustituye modelacion_logic.py por la versión actualizada de artifacts "
+                            "(debe incluir def self_test_valuation_core) y reinicia Streamlit."
+                        )
                 except Exception as e:
                     st.error(str(e))
 
@@ -4323,7 +4327,11 @@ def main():
                             type="primary",
                             use_container_width=True,
                         )
-                    st.caption("El PDF incluye decision, KPIs, escenarios, auditoria, sector y graficos.")
+                    st.caption(
+                        "PDF v2.1 · dashboard (decisión, KPIs, escenarios, auditoría, sector; "
+                        "extracto comité IA solo si lo generaste en pestaña 4). "
+                        "Si ves un PDF viejo: pulsa otra vez **Generar todo** o la pestaña 7 tras actualizar modelacion_logic.py."
+                    )
                 else:
                     st.info("PDF no disponible en esta corrida.")
             else:
