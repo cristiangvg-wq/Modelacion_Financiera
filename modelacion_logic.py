@@ -6650,7 +6650,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
 </div>
 {tip("Checklist mínimo antes de una decisión real: (1) cifras auditadas, (2) CAPM calibrado al mercado, (3) deuda y CAPEX del guidance oficial, (4) liquidez del título en BVC, (5) límites de riesgo del mandato.")}
 """
-        # Salida 1 (decisión): tarjeta + alertas/soportes + análisis IA de mercado.
+        # Salida 1 (decisión): tarjeta + alertas/soportes (sin módulo contraste modelo vs mercado).
         # Salida 3 (memo): resumen numérico + sensibilidad + puente EV→Equity. Sin bloques repetidos.
         resumen = resumen + formatear_bridge_html(val_base, moneda_modelo=mon_modelo, moneda_precio=mon_precio, nombre_empresa=nombre_empresa)
         try:

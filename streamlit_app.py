@@ -889,6 +889,66 @@ def _html(x, max_chars=120000):
     st.markdown(s, unsafe_allow_html=True)
 
 
+
+def _strip_contraste_html(html) -> str:
+    """Elimina el bloque MÓDULO IA · CONTRASTE MODELO vs MERCADO de HTML (pestaña 4)."""
+    if html is None:
+        return html
+    s = str(html)
+    up = s.upper().replace("Ó", "O")
+    if "CONTRASTE MODELO" not in s and "CONTRASTE MODELO" not in up and "MODULO IA" not in up:
+        return s
+    import re
+    # Contenedor exterior del módulo (plantilla con borde #1E40AF) o cualquier div que abra el título
+    start_m = re.search(
+        r'<div[^>]*>\s*<div[^>]*>\s*M[ÓO]DULO\s+IA\s*[·.\-–]\s*CONTRASTE\s+MODELO\s+vs\s+MERCADO',
+        s,
+        flags=re.I | re.S,
+    )
+    if not start_m:
+        start_m = re.search(
+            r'M[ÓO]DULO\s+IA\s*[·.\-–]\s*CONTRASTE\s+MODELO\s+vs\s+MERCADO',
+            s,
+            flags=re.I,
+        )
+        if not start_m:
+            return s
+        start = s.rfind("<div", 0, start_m.start())
+        if start < 0:
+            start = start_m.start()
+    else:
+        start = start_m.start()
+
+    # Cierre: disclaimer + </div> del contenedor exterior
+    end_pat = re.compile(
+        r"Este\s+m[oó]dulo\s+no\s+constituye\s+asesor[ií]a\s+de\s+inversi[oó]n.*?</p>\s*</div>",
+        re.I | re.S,
+    )
+    em = end_pat.search(s, start)
+    if em:
+        return (s[:start] + "\n" + s[em.end():]).strip()
+
+    # Balanceo de <div> desde start
+    i = start
+    depth = 0
+    opened = False
+    while i < len(s):
+        if s.startswith("<div", i):
+            depth += 1
+            opened = True
+            gt = s.find(">", i)
+            i = len(s) if gt < 0 else gt + 1
+            continue
+        if s.startswith("</div>", i):
+            depth -= 1
+            i += 6
+            if opened and depth <= 0:
+                return (s[:start] + "\n" + s[i:]).strip()
+            continue
+        i += 1
+    return s[:start].strip()
+
+
 def _plotly_table(df, title="Tabla"):
     """Tabla Plotly: texto a la izquierda, sin celdas vacías, anchos legibles, título sin cortar."""
     try:
@@ -3656,11 +3716,11 @@ def main():
         r = st.session_state.get("resultados", {}).get("tab4")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
-                _html(r[0])
+                _html(_strip_contraste_html(r[0]))
             if len(r) > 1:
                 _show_df(r[1], "Gobernanza")
             if len(r) > 2:
-                _html(r[2])
+                _html(_strip_contraste_html(r[2]))
             _explain(
                 "<b>En palabras simples:</b> la recomendación resume si, con estos números, tiene sentido "
                 "llevar el caso a un comité. No es una orden de compra: es un marco para discutir riesgos y valor. "
