@@ -4051,6 +4051,24 @@ def main():
                             prompt, empresa, api_key=key_eff, proveedor=prov_ia or "gemini",
                         )
                         st.session_state["tab4_comite_ia_html"] = respuesta
+                        try:
+                            _struct = (
+                                L.extraer_resumen_comite_ia(respuesta)
+                                if hasattr(L, "extraer_resumen_comite_ia")
+                                else {}
+                            )
+                            _txt = (_struct or {}).get("texto") or (
+                                L._html_a_texto(respuesta, 800) if hasattr(L, "_html_a_texto") else str(respuesta)[:800]
+                            )
+                            L.guardar_resultado_tab("comite_ia", empresa, {
+                                "texto": _txt,
+                                "struct": _struct,
+                                "proveedor": prov_ia or "gemini",
+                            })
+                            st.session_state["tab4_comite_ia_texto"] = _txt
+                            st.session_state["tab4_comite_ia_struct"] = _struct
+                        except Exception:
+                            pass
                     except Exception as e:
                         st.error(str(e))
                         st.session_state["tab4_comite_ia_html"] = None
@@ -4276,9 +4294,7 @@ def main():
             with st.expander("Detalle de KPIs y lectura sencilla", expanded=False):
                 if kpi_df is not None:
                     _show_df(kpi_df, "KPIs ejecutivos", csv_key="tab7_kpis")
-            with st.expander("Narrativa completa del informe", expanded=False):
-                if len(r) > 0:
-                    _html(r[0])
+            # Narrativa HTML completa retirada: el dashboard + PDF cubren la lectura ejecutiva.
 
             st.markdown("###### Resumen grafico")
             if not _plotly_informe_panel(
@@ -4291,7 +4307,7 @@ def main():
             else:
                 _chart_tip(
                     "A) FCFF  B) Escenarios  C) Flujos / VPN  D) Sector. "
-                    "Mismos numeros que el PDF ejecutivo."
+                    "Mismos numeros clave que el PDF ejecutivo (sin narrativa larga)."
                 )
 
             st.markdown("###### Exportar para directivos")

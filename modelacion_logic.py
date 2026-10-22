@@ -477,6 +477,127 @@ def _html_a_texto(html, max_len=2500):
     return t
 
 
+
+def extraer_resumen_comite_ia(html_o_texto, max_monitoreo=3):
+    """
+    Extrae del output del Comité IA solo lo útil para el PDF ejecutivo:
+      - Recomendación final
+      - Puntaje de viabilidad
+      - Hasta N puntos de monitoreo / factores críticos
+    Devuelve dict + texto plano corto listo para informe.
+    """
+    import re
+    raw = _html_a_texto(html_o_texto, max_len=12000) if html_o_texto else ""
+    if not raw:
+        return {
+            "recomendacion": None,
+            "puntaje": None,
+            "monitoreo": [],
+            "texto": "",
+            "ok": False,
+        }
+
+    def _limpia(s):
+        s = re.sub(r"[*#_`]+", "", str(s or "")).strip()
+        s = re.sub(r"\s+", " ", s)
+        return s.strip(" -:;|")
+
+    recomendacion = None
+    puntaje = None
+    monitoreo = []
+
+    # RECOMENDACIÓN FINAL
+    for pat in (
+        r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：]\s*([^\n]+)",
+        r"Recomendaci[oó]n\s+final\s*[:：]\s*([^\n]+)",
+        r"\b(INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b",
+    ):
+        mm = re.search(pat, raw, flags=re.I)
+        if mm:
+            recomendacion = _limpia(mm.group(1) if mm.lastindex else mm.group(0))
+            break
+
+    # PUNTAJE
+    for pat in (
+        r"PUNTAJE\s+DE\s+VIABILIDAD\s*[:：]\s*([^\n]+)",
+        r"Puntaje\s+de\s+viabilidad\s*[:：]\s*([^\n]+)",
+        r"PUNTAJE\s*[:：]\s*([0-9]+(?:\s*/\s*10)?)",
+        r"\b([0-9]{1,2})\s*/\s*10\b",
+    ):
+        mm = re.search(pat, raw, flags=re.I)
+        if mm:
+            puntaje = _limpia(mm.group(1))
+            # normalizar a "x/10" si solo es número
+            if re.fullmatch(r"[0-9]{1,2}", puntaje or ""):
+                puntaje = f"{puntaje}/10"
+            break
+
+    # Bloque de monitoreo / factores críticos
+    bloque = None
+    for pat in (
+        r"(?:FACTORES\s+CR[IÍ]TICOS|PUNTOS\s+DE\s+MONITOREO|Puntos\s+de\s+monitoreo|"
+        r"Factores\s+cr[ií]ticos)[^\n]*\n(.*?)(?=\n\s*##|\n\s*[A-ZÁÉÍÓÚ]{3,}\s*$|$)",
+        r"(?:FACTORES\s+CR[IÍ]TICOS|PUNTOS\s+DE\s+MONITOREO)[:\s]*(.*)",
+    ):
+        mm = re.search(pat, raw, flags=re.I | re.S)
+        if mm:
+            bloque = mm.group(1)
+            break
+
+    if bloque:
+        lineas = []
+        for ln in bloque.splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            # bullets / numeración
+            ln2 = re.sub(r"^[•\-\*\d\.)\(]+\s*", "", ln).strip()
+            if len(ln2) < 8:
+                continue
+            if re.match(r"^(DELIBERACI|AN[AÁ]LISIS|DECISI[OÓ]N|RECOMENDACI)", ln2, re.I):
+                break
+            lineas.append(_limpia(ln2))
+            if len(lineas) >= int(max_monitoreo):
+                break
+        monitoreo = lineas
+
+    # Fallback monitoreo: buscar frases con "monitore" o "riesgo" cerca del final
+    if not monitoreo:
+        cand = re.findall(
+            r"(?:^|\n)\s*(?:\d+[\.\)]\s*|•\s*|\-\s*)([^\n]{20,180})",
+            raw[-2500:],
+        )
+        for c in cand:
+            c2 = _limpia(c)
+            if c2 and c2 not in monitoreo:
+                monitoreo.append(c2)
+            if len(monitoreo) >= int(max_monitoreo):
+                break
+
+    partes = []
+    if recomendacion:
+        partes.append(f"Recomendación final: {recomendacion}")
+    if puntaje:
+        partes.append(f"Puntaje de viabilidad: {puntaje}")
+    if monitoreo:
+        partes.append("Puntos de monitoreo:")
+        for i, p in enumerate(monitoreo, 1):
+            partes.append(f"  {i}. {p}")
+    texto = "\n".join(partes).strip()
+    ok = bool(recomendacion or puntaje or monitoreo)
+    if not ok:
+        # último recurso: primeras ~400 chars del texto plano
+        texto = (raw[:400] + "…") if len(raw) > 400 else raw
+    return {
+        "recomendacion": recomendacion,
+        "puntaje": puntaje,
+        "monitoreo": monitoreo,
+        "texto": texto,
+        "ok": ok,
+    }
+
+
+
 def _df_a_registros(df, max_rows=12):
     try:
         if df is None:
@@ -7328,12 +7449,12 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
     story.append(Spacer(1, 8))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#0A2540")))
 
-    # 1. Qué es este informe
+    # 1. Qué es este informe (dashboard ejecutivo, sin narrativa larga)
     story.append(Paragraph("1. ¿Qué es este informe?", styles["Subtitulo"]))
     story.append(Paragraph(
-        "Este documento resume, en lenguaje sencillo, cuánto dinero libre podría generar la empresa, "
-        "cuánto valdría bajo distintos escenarios, si el modelo es coherente, cómo se compara con el sector "
-        "y si un proyecto de inversión tendría sentido. Está pensado para personas que no viven de las finanzas.",
+        "Resumen ejecutivo para comité: decisión del modelo, números clave (WACC, ROIC, EV, Equity, VPS), "
+        "escenarios, coherencia de supuestos y posición sectorial. "
+        "No incluye la narrativa HTML completa de la aplicación ni constituye asesoría de inversión.",
         styles["Cuerpo"]
     ))
 
@@ -7502,11 +7623,46 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
         styles["Simple"]
     ))
 
+    # Resumen opcional del Comité IA (pestaña 4): solo recomendación, puntaje y monitoreo
+    comite_struct = datos.get("comite_ia_struct") or {}
+    comite_txt = (datos.get("comite_ia_resumen") or "").strip()
+    if not comite_struct and comite_txt:
+        try:
+            comite_struct = extraer_resumen_comite_ia(comite_txt)
+        except Exception:
+            comite_struct = {}
+    if comite_struct.get("ok") or comite_txt:
+        story.append(Paragraph("10. Resumen del Comité interdisciplinario (IA)", styles["Subtitulo"]))
+        story.append(Paragraph(
+            "Extracto automático del módulo de deliberación IA (CFO / mercado / riesgos): "
+            "solo recomendación, puntaje y hasta 3 puntos de monitoreo. "
+            "Apoyo a la discusión; no sustituye el modelo cuantitativo ni es orden de compra/venta.",
+            styles["Cuerpo"]
+        ))
+        rec = comite_struct.get("recomendacion")
+        pje = comite_struct.get("puntaje")
+        mons = comite_struct.get("monitoreo") or []
+        if rec:
+            story.append(Paragraph(f"<b>Recomendación final:</b> {rec}", styles["Simple"]))
+        if pje:
+            story.append(Paragraph(f"<b>Puntaje de viabilidad:</b> {pje}", styles["Simple"]))
+        if mons:
+            story.append(Paragraph("<b>Puntos de monitoreo:</b>", styles["Cuerpo"]))
+            for i, p in enumerate(mons[:3], 1):
+                story.append(Paragraph(f"{i}. {p}", styles["Cuerpo"]))
+        elif comite_txt and not (rec or pje):
+            safe = (
+                comite_txt[:800].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\n", "<br/>")
+            )
+            story.append(Paragraph(safe, styles["Simple"]))
+
     story.append(Spacer(1, 16))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#94A3B8")))
     story.append(Paragraph(
         "Documento generado automáticamente con fines pedagógicos. "
-        "Los datos históricos de respaldo se basan en reportes públicos (escala: miles de millones (moneda del emisor)). "
+        "Dashboard ejecutivo (sin narrativa HTML completa). "
+        "Los datos históricos de respaldo se basan en reportes públicos (escala: miles de millones, moneda del emisor). "
         "No constituye recomendación de inversión ni asesoría financiera.",
         styles["Pie"]
     ))
@@ -7954,6 +8110,18 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
                 "(Hampel + winsorización). Ver gráfico E y la nota en el informe HTML."
                 if nota_norm else
                 "No se requirió normalización de atípicos en los drivers del histórico usado."
+            ),
+            "comite_ia_resumen": (
+                ((RESULTADOS_SESION.get("tabs") or {}).get("comite_ia") or {}).get("texto")
+                if (RESULTADOS_SESION.get("empresa") in (None, nombre_empresa)
+                    or str(RESULTADOS_SESION.get("empresa")) == str(nombre_empresa))
+                else None
+            ),
+            "comite_ia_struct": (
+                ((RESULTADOS_SESION.get("tabs") or {}).get("comite_ia") or {}).get("struct")
+                if (RESULTADOS_SESION.get("empresa") in (None, nombre_empresa)
+                    or str(RESULTADOS_SESION.get("empresa")) == str(nombre_empresa))
+                else None
             ),
         }
         try:
