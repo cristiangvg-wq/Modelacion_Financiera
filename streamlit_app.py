@@ -24,11 +24,11 @@ except ImportError:
     HAS_MPL = False
     plt = None
 
-# API key Gemini: UI → Secrets → env → fallback prestablecido.
-_DEFAULT_GEMINI_API_KEY = "AQ.Ab8RN6Lq_5w77l3GlbR4hlmYW9vFRDZjPxv5wn8Iaw4WluWMUA"
-
+# API key Gemini: UI → Streamlit Secrets → variable de entorno.
+# Nunca incluir secretos en el repositorio. Si antes se versionó una clave,
+# revocarla/rotarla en el proveedor aunque ya se haya quitado del código.
 def _resolve_gemini_key(ui_key=None):
-    """Orden: input UI → st.secrets → env → clave prestablecida."""
+    """Orden: input UI → st.secrets → env; no hay clave embebida de respaldo."""
     if ui_key and str(ui_key).strip():
         return str(ui_key).strip()
     try:
@@ -39,7 +39,7 @@ def _resolve_gemini_key(ui_key=None):
     env = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
     if env:
         return env
-    return _DEFAULT_GEMINI_API_KEY
+    return None
 
 
 

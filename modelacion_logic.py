@@ -3699,9 +3699,26 @@ def generar_fan_chart(df_hist, df_proj, mc_or_std, horizonte=5, nombre_empresa="
 
 
 def calcular_wacc(de, kd, ke, t):
-    we = 1 / (1 + de)
-    wd = de / (1 + de)
-    return we * ke + wd * kd * (1 - t), we, wd
+    """WACC con D/E y costos expresados como fracciones (no porcentajes enteros).
+
+    Valida dominios para evitar resultados aparentemente válidos producidos por
+    tasas mal digitadas (p. ej. 12 en vez de 0.12) o estructura de capital imposible.
+    """
+    de, kd, ke, t = map(float, (de, kd, ke, t))
+    if not all(np.isfinite(x) for x in (de, kd, ke, t)):
+        raise ValueError("D/E, Kd, Ke y tasa fiscal deben ser valores finitos.")
+    if de < 0:
+        raise ValueError("D/E no puede ser negativo.")
+    if kd < 0 or ke < 0:
+        raise ValueError("Kd y Ke deben ser tasas no negativas en formato decimal.")
+    if not 0 <= t <= 1:
+        raise ValueError("La tasa fiscal debe estar entre 0 y 1 (p. ej. 0.35).")
+    we = 1.0 / (1.0 + de)
+    wd = de / (1.0 + de)
+    wacc = we * ke + wd * kd * (1.0 - t)
+    if not np.isfinite(wacc) or wacc <= 0:
+        raise ValueError("WACC resultante debe ser finito y mayor que cero.")
+    return wacc, we, wd
 
 
 def costo_equity_capm(beta_l, rf=0.09, erp=0.06, crp=0.0):
@@ -4320,9 +4337,16 @@ def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, accio
     except Exception:
         return ["WACC o g no numéricos"]
     if not np.isfinite(w) or w <= 0:
-        msgs.append(f"WACC inválido ({w}). Debe ser > 0.")
+        msgs.append(f"WACC inválido ({w}). Debe ser finito y > 0.")
+        return msgs
     if not np.isfinite(g):
         msgs.append("g terminal no finito.")
+        return msgs
+    if not np.isfinite(float(g_max_macro)) or float(g_max_macro) < 0:
+        msgs.append("El techo macro de g debe ser finito y no negativo.")
+        return msgs
+    if g < 0:
+        msgs.append("g terminal negativo: representa contracción perpetua; revisar si se desea modelar así. La función de anclaje actual usa un piso de 0%.")
     g_use, g_cap = anclar_g_terminal(g, w, g_max_macro=g_max_macro)
     if g >= w - 1e-6:
         msgs.append(f"g ({g*100:.2f}%) ≥ WACC ({w*100:.2f}%): Gordon no definido; se anclará a {g_use*100:.2f}%.")
@@ -4377,15 +4401,31 @@ def valoracion_dcf(
     Gordon es el caso base. El múltiplo de salida se informa como escenario independiente;
     no se promedian metodologías diferentes sin una ponderación justificada.
     """
-    fcff_series = [float(x) for x in list(fcff_series)]
+    try:
+        fcff_series = [float(x) for x in list(fcff_series)]
+        wacc = float(wacc)
+        g = float(g)
+        g_max_macro = float(g_max_macro)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("FCFF, WACC, g y techo macro deben ser numéricos.") from exc
     n = len(fcff_series)
-    wacc = float(wacc)
-    if not np.isfinite(wacc) or wacc <= -1:
-        raise ValueError("WACC inválido: debe ser finito y mayor que -100%.")
-    if not np.isfinite(float(g)):
+    if not np.isfinite(wacc) or wacc <= 0:
+        raise ValueError("WACC inválido: debe ser finito y estrictamente mayor que cero.")
+    if not np.isfinite(g):
         raise ValueError("La tasa g terminal debe ser finita.")
+    if not np.isfinite(g_max_macro) or g_max_macro < 0:
+        raise ValueError("El techo macro de g debe ser finito y no negativo.")
     if not all(np.isfinite(x) for x in fcff_series):
         raise ValueError("La serie FCFF contiene valores no finitos.")
+    if not fcff_series:
+        raise ValueError("La serie FCFF está vacía; no se puede calcular un DCF.")
+    # Validar todos los componentes del puente antes de valorar; NaN no debe
+    # propagarse silenciosamente hasta el Equity Value.
+    bridge_inputs = (deuda_neta, caja, nci, otros_claims, asociados)
+    if not all(np.isfinite(float(x or 0)) for x in bridge_inputs):
+        raise ValueError("Deuda, caja, NCI, otros claims y asociados deben ser finitos.")
+    if acciones is not None and (not np.isfinite(float(acciones)) or float(acciones) <= 0):
+        raise ValueError("El número de acciones debe ser finito y mayor que cero.")
     g_use, g_cap = anclar_g_terminal(g, wacc, g_max_macro=g_max_macro)
 
     empty = {
@@ -4407,20 +4447,18 @@ def valoracion_dcf(
 
     pv_fcff = sum(f * d for f, d in zip(fcff_series, dfs))
 
-    # Terminal Gordon: si el último FCFF ≤ 0, no perpetuar un flujo negativo
+    # Terminal Gordon: no sustituir un FCFF final negativo por un promedio histórico
+    # positivo. Esa heurística puede inflar materialmente el valor terminal y ocultar
+    # deterioro. Si no se aporta NOPAT normalizado, el TV se fija en cero y se informa.
     fcff_tv = float(fcff_series[-1])
     nota_tv = None
     if fcff_tv <= 0:
-        positivos = [f for f in fcff_series if f > 0]
-        if positivos:
-            fcff_tv = float(np.mean(positivos))
-            nota_tv = (
-                f"FCFF final del horizonte ≤ 0 ({fcff_series[-1]:,.1f}); "
-                f"TV Gordon usa promedio de FCFF positivos ({fcff_tv:,.1f})."
-            )
-        else:
-            fcff_tv = 0.0
-            nota_tv = "Todos los FCFF del horizonte son ≤ 0; TV Gordon = 0."
+        fcff_tv = 0.0
+        nota_tv = (
+            f"FCFF final del horizonte es no positivo ({fcff_series[-1]:,.1f}); "
+            "TV Gordon = 0 porque no se proporcionó un NOPAT terminal normalizado. "
+            "Revise el horizonte, la recuperación operativa y la reinversión antes de usar el resultado."
+        )
 
     if wacc > g_use + 1e-6:
         tv_gordon = fcff_tv * (1 + g_use) / (wacc - g_use) if fcff_tv > 0 else 0.0
@@ -4759,6 +4797,46 @@ def reconciliar_deuda_bridge(deuda_neta=0, caja=0, deuda_bruta=None, deuda_es_br
     }
 
 
+def auditar_consistencia_historica(df, tolerancia_abs=1.0):
+    """Audita identidades contables básicas sin modificar datos de entrada.
+
+    La tolerancia está en las unidades de la serie (p. ej. COP miles de millones).
+    Retorna hallazgos por año para que el usuario concilie con EEFF y definiciones.
+    No asume que diferencias pequeñas sean errores: puede haber reclasificaciones.
+    """
+    hallazgos = []
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return [{"Prueba": "Serie histórica", "Estado": "ERROR", "Detalle": "No hay datos históricos para auditar."}]
+    def _col(name):
+        return name if name in df.columns else None
+    # Solo evalúa identidades cuando todas las columnas necesarias existen.
+    checks = [
+        ("FCFF = NOPAT + Depreciación - CAPEX - ΔNWC", ["NOPAT", "Depreciacion", "CAPEX", "Delta_NWC", "FCFF"],
+         lambda r: float(r["NOPAT"]) + float(r["Depreciacion"]) - float(r["CAPEX"]) - float(r["Delta_NWC"]) - float(r["FCFF"])),
+        ("EBITDA ≈ EBIT + Depreciación", ["EBITDA", "EBIT", "Depreciacion"],
+         lambda r: float(r["EBIT"]) + float(r["Depreciacion"]) - float(r["EBITDA"])),
+    ]
+    for label, cols, residual_fn in checks:
+        if not all(_col(c) for c in cols):
+            hallazgos.append({"Prueba": label, "Estado": "NO EVALUABLE", "Detalle": "Faltan columnas requeridas; no se infiere consistencia."})
+            continue
+        for idx, row in df.iterrows():
+            try:
+                vals = [float(row[c]) for c in cols]
+                if not all(np.isfinite(v) for v in vals):
+                    hallazgos.append({"Prueba": label, "Estado": "ERROR", "Detalle": f"Fila {idx}: contiene NaN/inf."})
+                    continue
+                residual = residual_fn(row)
+                if abs(residual) > float(tolerancia_abs):
+                    year = row.get("Año", row.get("Year", idx))
+                    hallazgos.append({"Prueba": label, "Estado": "REVISAR", "Detalle": f"Año/fila {year}: residuo {residual:,.3f}; conciliar con estados financieros y definición de partidas."})
+            except (TypeError, ValueError, KeyError):
+                hallazgos.append({"Prueba": label, "Estado": "ERROR", "Detalle": f"Fila {idx}: no se pudo calcular la identidad."})
+    if not hallazgos:
+        hallazgos.append({"Prueba": "Identidades contables", "Estado": "OK", "Detalle": f"Identidades revisadas dentro de tolerancia absoluta {tolerancia_abs}."})
+    return hallazgos
+
+
 def self_test_valuation_core():
     """
     Pruebas unitarias mínimas del núcleo (WACC, ancla g, DCF simple).
@@ -4804,6 +4882,31 @@ def self_test_valuation_core():
         results.append(("Reconciliación deuda neta", ok, str(rec["deuda_neta_puente"])))
     except Exception as e:
         results.append(("Reconciliación deuda", False, str(e)))
+    try:
+        try:
+            valoracion_dcf([100.0], wacc=0.0, g=0.02)
+            ok = False
+            detail = "No rechazó WACC cero"
+        except ValueError:
+            ok = True
+            detail = "WACC cero rechazado correctamente"
+        results.append(("DCF rechaza WACC cero", ok, detail))
+    except Exception as e:
+        results.append(("DCF rechaza WACC cero", False, str(e)))
+    try:
+        val = valoracion_dcf([100.0, -10.0], wacc=0.10, g=0.02, mid_year=False)
+        ok = abs(val["TV_Gordon"]) < 1e-12 and "TV Gordon = 0" in str(val.get("bridge", {}).get("Nota TV", ""))
+        results.append(("DCF no extrapola FCFF positivo si el último es negativo", ok, f"TV={val['TV_Gordon']:.4f}"))
+    except Exception as e:
+        results.append(("DCF no extrapola FCFF positivo si el último es negativo", False, str(e)))
+    try:
+        calcular_wacc(-0.2, 0.08, 0.12, 0.25)
+        ok = False
+        detail = "No rechazó D/E negativo"
+    except ValueError:
+        ok = True
+        detail = "D/E negativo rechazado correctamente"
+    results.append(("WACC rechaza D/E negativo", ok, detail))
     return results
 
 
@@ -6637,34 +6740,33 @@ def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             pruebas.append(("✅ g coherente", f"Crecimiento sostenible estimado ≈ {g_sost*100:.2f}% (muy parecido a tu g)."))
         else:
             pruebas.append(("⚠️ g poco coherente", f"Tu g={g*100:.2f}% vs sostenible {g_sost*100:.2f}%."))
-        if de_ratio <= 1.5:
-            pruebas.append(("✅ Deuda moderada", f"D/E={de_ratio:.2f} razonable para infraestructura."))
+        if de_ratio < 0:
+            pruebas.append(("❌ D/E inválido", f"D/E={de_ratio:.2f} no puede ser negativo."))
+        elif de_ratio <= 1.5:
+            pruebas.append(("ℹ️ D/E dentro de umbral orientativo", f"D/E={de_ratio:.2f}. El riesgo debe compararse con empresas del mismo sector, país y modelo de negocio; 1.5 no es un límite universal."))
         else:
-            pruebas.append(("⚠️ Deuda elevada", f"D/E={de_ratio:.2f} aumenta el riesgo."))
-        # Coyuntura tasas locales (COP): rf demasiado bajo sesga WACC a la baja y EV al alza
+            pruebas.append(("⚠️ D/E elevado frente al umbral orientativo", f"D/E={de_ratio:.2f}. Evaluar cobertura de intereses, vencimientos, volatilidad de caja y comparables sectoriales; no es una conclusión automática."))
+        # La tasa libre de riesgo depende de moneda, plazo y fecha de valoración.
+        # Evitar reglas fijas con cifras de mercado que envejecen y no aplican a USD.
         try:
-            rf_f = float(rf)
-            if rf_f < 0.10:
-                pruebas.append((
-                    "⚠️ rf bajo vs TES/BanRep",
-                    f"rf={rf_f*100:.1f}% está por debajo de la coyuntura local (~11–13% TES 10a / BanRep ~12% en 2026). "
-                    "Un rf artificialmente bajo infla el DCF. Calibre a curva local o documente si el modelo es en USD.",
-                ))
-            elif rf_f >= 0.10:
-                pruebas.append((
-                    "✅ rf en rango local",
-                    f"rf={rf_f*100:.1f}% coherente con un ancla de tasas locales elevadas (no usar CRP extra si rf ya es TES).",
-                ))
+            rf_f, erp_f, crp_f = float(rf), float(erp), float(crp or 0)
+            if not all(np.isfinite(x) for x in (rf_f, erp_f, crp_f)) or min(rf_f, erp_f, crp_f) < 0:
+                pruebas.append(("❌ Parámetros CAPM inválidos", "rf, ERP y CRP deben ser finitos y no negativos."))
+            else:
+                pruebas.append(("ℹ️ CAPM: validar fuente y fecha", f"rf={rf_f*100:.2f}%, ERP={erp_f*100:.2f}%, CRP={crp_f*100:.2f}%. Documentar moneda, plazo, fecha de corte y fuente; comprobar que CRP no esté duplicada en rf/ERP."))
         except Exception:
-            pass
-        try:
-            if float(crp or 0) > 0.005 and float(rf) >= 0.10:
-                pruebas.append((
-                    "⚠️ Posible doble conteo CRP",
-                    f"CRP={float(crp)*100:.1f}% con rf local alto puede sobredescontar. Si rf≈TES, CRP suele ir en 0.",
-                ))
-        except Exception:
-            pass
+            pruebas.append(("❌ Parámetros CAPM inválidos", "No fue posible convertir rf, ERP y CRP a tasas numéricas."))
+        # Auditoría de identidades contables de la serie histórica: no corrige los
+        # datos; deja hallazgos explícitos para conciliación con los estados financieros.
+        hallazgos_hist = auditar_consistencia_historica(df_hist)
+        hallazgos_revisar = [h for h in hallazgos_hist if h.get("Estado") in ("REVISAR", "ERROR")]
+        if hallazgos_revisar:
+            pruebas.append(("⚠️ Conciliación histórica requerida",
+                            f"Se detectaron {len(hallazgos_revisar)} diferencia(s) en identidades contables. "
+                            + " | ".join(h["Detalle"] for h in hallazgos_revisar[:3])))
+        else:
+            pruebas.append(("ℹ️ Identidades históricas", "; ".join(h.get("Detalle", h.get("Estado", "")) for h in hallazgos_hist[:2])))
+
         explicacion = f"""
 <div style="background:#151C2C;border-left:5px solid {COLOR_ACCENT};padding:18px 22px;border-radius:0 12px 12px 0">
 <h3 style="color:{COLOR_PRIMARY};margin-top:0">Auditoría del modelo · {nombre_empresa}</h3>
