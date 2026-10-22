@@ -2445,9 +2445,15 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
                 "Actualiza el archivo y reinicia Streamlit."
             )
 
+        _audit_ctx = L.auditar_contexto_comite_ia(_metricas) if hasattr(L, "auditar_contexto_comite_ia") else {"ok": True, "errors": [], "warnings": []}
+        if _audit_ctx.get("errors"):
+            return False, "Comité IA bloqueado por errores: " + "; ".join(_audit_ctx["errors"])
         respuesta = L.generar_recomendacion_comite_ia(
             empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas,
         )
+        _audit_resp = L.auditar_respuesta_comite_ia(respuesta) if hasattr(L, "auditar_respuesta_comite_ia") else {"ok": True, "errors": [], "warnings": []}
+        if _audit_resp.get("errors"):
+            return False, "Salida IA inválida: " + "; ".join(_audit_resp["errors"])
         if hasattr(L, "_sanear_salida_comite_ia"):
             try:
                 plain = L._html_a_texto(respuesta, 20000) if hasattr(L, "_html_a_texto") else str(respuesta)
@@ -4278,7 +4284,20 @@ def main():
                             "g": ctx.get("g"),
                             "val_ev": ctx.get("val_ev"),
                             "val_equity": ctx.get("val_equity"),
+                            # Trazabilidad explícita: el UI no presume unidad ni fuente si no están documentadas.
+                            "unidad_modelo": (st.session_state.get("params") or {}).get("unidad_modelo"),
+                            "unidad_precio": "por acción",
+                            "fuente_precio": st.session_state.get("fuente_precio_mercado"),
+                            "fecha_precio": st.session_state.get("fecha_precio_mercado"),
+                            "fuente_valoracion": st.session_state.get("version_modelo_valoracion"),
                         }
+                        _audit_ia = L.auditar_contexto_comite_ia(_metricas) if hasattr(L, "auditar_contexto_comite_ia") else {"ok": True, "errors": [], "warnings": []}
+                        if _audit_ia.get("errors"):
+                            st.error("Comité IA bloqueado por errores matemáticos: " + "; ".join(_audit_ia["errors"]))
+                            st.session_state["tab4_comite_ia_html"] = None
+                            st.stop()
+                        if _audit_ia.get("warnings"):
+                            st.warning("Auditoría previa del comité: " + "; ".join(_audit_ia["warnings"]))
                         if hasattr(L, "generar_recomendacion_comite_ia"):
                             respuesta = L.generar_recomendacion_comite_ia(
                                 empresa,
@@ -4295,6 +4314,13 @@ def main():
                                 api_key=key_eff,
                                 proveedor=prov_ia or "gemini",
                             )
+                        _audit_resp = L.auditar_respuesta_comite_ia(respuesta) if hasattr(L, "auditar_respuesta_comite_ia") else {"ok": True, "errors": [], "warnings": []}
+                        if _audit_resp.get("errors"):
+                            st.error("Salida IA no válida: " + "; ".join(_audit_resp["errors"]))
+                            st.session_state["tab4_comite_ia_html"] = None
+                            st.stop()
+                        if _audit_resp.get("warnings"):
+                            st.warning("Auditoría de salida IA: " + "; ".join(_audit_resp["warnings"]))
                         st.session_state["tab4_comite_ia_html"] = respuesta
                         try:
                             _struct = (
