@@ -2295,116 +2295,7 @@ def _market_tape_quotes():
     return rows
 
 
-def _clear_market_caches() -> None:
-    """Invalida cachés de cinta y datos de mercado en sesión."""
-    try:
-        _market_tape_quotes.clear()
-    except Exception:
-        pass
-    for _k in (
-        "ficha_html",
-        "precio_mercado_alineado",
-        "moneda_precio_alineada",
-        "fx_mismatch",
-        "_market_last_fetch_ts",
-    ):
-        st.session_state.pop(_k, None)
-
-
-def _ensure_market_refresh_interval(seconds: int = 300) -> None:
-    """Si pasaron ≥ seconds, limpia caché de cinta para forzar nuevo fetch."""
-    import time as _time
-    now = _time.time()
-    last = float(st.session_state.get("_market_last_fetch_ts") or 0)
-    if last <= 0 or (now - last) >= float(seconds):
-        try:
-            _market_tape_quotes.clear()
-        except Exception:
-            pass
-        st.session_state["_market_last_fetch_ts"] = now
-
-
-def _install_auto_refresh(seconds: int = 300) -> None:
-    """Recarga la app cada `seconds` para refrescar cinta y ficha."""
-    try:
-        from streamlit_autorefresh import st_autorefresh  # type: ignore
-        st_autorefresh(interval=int(seconds) * 1000, key="tf_market_autorefresh")
-        return
-    except Exception:
-        pass
-    try:
-        import streamlit.components.v1 as components
-        ms = int(seconds) * 1000
-        components.html(
-            f"""
-            <script>
-            (function() {{
-              try {{
-                var k = 'tf_market_autorefresh_armed';
-                if (window.parent && !window.parent[k]) {{
-                  window.parent[k] = true;
-                  setTimeout(function() {{
-                    try {{ window.parent[k] = false; window.parent.location.reload(); }}
-                    catch (e) {{ try {{ window.top.location.reload(); }} catch (e2) {{}} }}
-                  }}, {ms});
-                }}
-              }} catch (e) {{}}
-            }})();
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
-    except Exception:
-        pass
-
-
-def _strip_prompt_echo_html(html: str) -> str:
-    """Quita eco del prompt del comité / 'Consulta:' antes de mostrar en UI."""
-    if not html:
-        return html
-    s = str(html)
-    up = s.upper().replace("Ó", "O").replace("Í", "I")
-    # Bloque Consulta: empresa — prompt...
-    import re as _re
-    s = _re.sub(
-        r'(?is)<div[^>]*>\s*<b>\s*Consulta:\s*</b>.*?</div>',
-        '',
-        s,
-        count=1,
-    )
-    if (
-        "ACTUA COMO UN COMITE" in up
-        or "CONTEXTO DE ENTRADA" in up
-        or "INSTRUCCIONES Y FORMATO DE SALIDA" in up
-    ):
-        # Recortar hasta deliberación
-        m = _re.search(
-            r'(?is)(##\s*1\.?\s*DELIBERACI[OÓ]N|1\.?\s*DELIBERACI[OÓ]N\s+DEL\s+COMIT|APORTES\s+DEL\s+CFO)',
-            s,
-        )
-        if m and m.start() > 40:
-            # conservar wrapper HTML previo corto si existe
-            head = ""
-            card = _re.search(r'(?is)(<div class="section-card"[^>]*>.*?</div>\s*)', s[: m.start()])
-            # Mejor: tomar desde el marker y re-envolver mínimo
-            body = s[m.start():]
-            s = (
-                '<div class="section-card" style="border-left:4px solid #14B8A6">'
-                '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px">'
-                "COMITÉ INTERDISCIPLINARIO (IA) · deliberación</div>"
-                f"{body}</div>"
-            )
-        elif "[...]" in s and len(s) < 5000:
-            return (
-                '<div class="result-note">La respuesta del modelo solo repitió el prompt. '
-                "Pulsa de nuevo «Deliberar en el comité».</div>"
-            )
-    return s
-
-
 def _render_market_tape() -> None:
-    _ensure_market_refresh_interval(300)
     data = _market_tape_quotes()
     parts = []
 
@@ -2420,6 +2311,7 @@ def _render_market_tape() -> None:
     for d in data:
         chg = d.get("chg")
         px = d.get("px")
+        # `chg` ya viene en puntos porcentuales (NO multiplicar otra vez).
         if not _finite(chg):
             cls, chg_txt = "tf-flat", "—"
         else:
@@ -2440,7 +2332,6 @@ def _render_market_tape() -> None:
         f'<div class="tf-tape-wrap"><div class="tf-tape">{inner}</div></div>',
         unsafe_allow_html=True,
     )
-    st.caption("Cinta de mercado · se actualiza automáticamente cada 5 minutos.")
 
 
 def _section_start(title: str) -> None:
@@ -2974,15 +2865,9 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
     # Limpiar datos de la empresa anterior (evita precio/ticker AAPL en ficha ISA)
     for _k in (
         "precio_mercado_alineado", "moneda_precio_alineada", "fx_mismatch",
-        "tab4_comite_ia_html", "tab4_comite_ia_texto", "tab4_comite_ia_struct",
-        "tab4_comite_empresa", "resultados", "ficha_html", "params",
-        "_market_last_fetch_ts",
+        "tab4_comite_ia_html", "tab4_comite_empresa", "resultados",
     ):
         st.session_state.pop(_k, None)
-    try:
-        _clear_market_caches()
-    except Exception:
-        pass
     st.session_state["resultados"] = {}
     st.session_state["params"] = {}
     if params_tuple is not None and len(params_tuple) >= 14:
@@ -3028,11 +2913,7 @@ def main():
     except Exception:
         pass
 
-    # Cinta de mercado + auto-refresh 5 min
-    try:
-        _install_auto_refresh(300)
-    except Exception:
-        pass
+    # Cinta de mercado (tickers + variación del día)
     try:
         _render_market_tape()
     except Exception:
@@ -3080,24 +2961,14 @@ def main():
 
         empresa = st.selectbox("Emisor", options=catalogo, key="select_empresa", label_visibility="collapsed")
         if empresa != st.session_state.get("empresa_sel"):
+            # No asignar select_empresa aquí (el widget ya existe). Solo sincronizar estado y recargar.
             st.session_state["empresa_sel"] = empresa
-            for _k in (
-                "ficha_html", "resultados", "tab4_comite_ia_html", "tab4_comite_ia_texto",
-                "tab4_comite_ia_struct", "precio_mercado_alineado", "moneda_precio_alineada",
-                "fx_mismatch", "params",
-            ):
-                st.session_state.pop(_k, None)
+            _cargar_params_empresa(empresa)
             st.session_state["resultados"] = {}
-            st.session_state["params"] = {}
-            try:
-                _clear_market_caches()
-            except Exception:
-                pass
             try:
                 L.reset_resultados_sesion(empresa)
             except Exception:
                 pass
-            _cargar_params_empresa(empresa)
             st.rerun()
 
         if st.session_state.get("params") is None:
@@ -3107,11 +2978,9 @@ def main():
         with st.expander("Ficha", expanded=True):
             # Ficha SIEMPRE regenerada (no HTML cacheado con métricas N/D o ticker ajeno)
             try:
-                _ensure_market_refresh_interval(300)
                 _ficha_live = L.card_empresa_seleccionada(empresa)
                 st.session_state["ficha_html"] = _ficha_live
                 _html(_ficha_live)
-                st.caption("Ficha · precio y múltiplos se refrescan con la app cada 5 minutos.")
             except Exception as _e_ficha:
                 if st.session_state.get("ficha_html"):
                     _html(st.session_state["ficha_html"])
@@ -3790,40 +3659,76 @@ def main():
             )
 
     with tab3:
-        st.markdown("##### Coherencia de supuestos")
-        st.caption("Resultados generados con «Generar todo».")
+        st.markdown("##### Coherencia de supuestos y de procesos")
+        st.caption(
+            "Resultados con «Generar todo». Primero se audita **cómo** se procesaron los datos; "
+            "después, si los **supuestos** son coherentes entre sí."
+        )
         _metrics_tip_row([
             (
-                "Auditoría",
-                "Lista de chequeo",
-                "Revisa si los supuestos son razonables: por ejemplo si el crecimiento g no está demasiado cerca del WACC, "
-                "o si hay suficiente historia de datos.",
+                "Procesos",
+                "Camino de los datos",
+                "Controles de entrada, identidad FCFF, proyección, capital y sesión. "
+                "Dicen si el procesamiento es adecuado, no si debes comprar la acción.",
             ),
             (
-                "g vs WACC",
-                "Regla clave",
-                "El crecimiento de largo plazo (g) debe ser menor que el costo de capital (WACC). "
-                "Si no, la fórmula del valor terminal se rompe o se vuelve explosiva.",
+                "Supuestos",
+                "g · WACC · ROIC",
+                "El crecimiento de largo plazo (g) debe ser menor que el WACC. "
+                "ROIC vs WACC indica si el negocio crea valor con estos números.",
             ),
             (
                 "Semáforo",
                 "Verde / ámbar / rojo",
-                "Resumen visual de alertas. Rojo no es 'no inviertas': es 'revisa este supuesto antes de decidir'.",
+                "Rojo = corrige el modelo o los datos antes de confiar en el DCF. "
+                "No es una orden de compra o venta.",
             ),
         ], cols=3)
         r = st.session_state.get("resultados", {}).get("tab3")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
                 _html(r[0])
-            if len(r) > 1:
-                _show_df(r[1], "Pruebas", csv_key="tab3_pruebas")
+            # Tabla de procesos (si la corrida nueva la trae)
+            if len(r) > 2 and r[2] is not None:
+                st.markdown("###### Controles de proceso")
+                _show_df(r[2], "Auditoría de procesos", csv_key="tab3_procesos")
+                _explain(
+                    "<b>Cómo leer la auditoría de procesos:</b> cada fila es un control del pipeline "
+                    "(entrada → FCFF → proyección → capital → sesión). "
+                    "<b>✅</b> el paso se ve sano · <b>⚠️</b> documenta o ajusta · <b>❌</b> corrige antes de usar el valor. "
+                    "El score resume la calidad del <i>procesamiento</i>, no el atractivo de la acción."
+                )
+            if len(r) > 1 and r[1] is not None:
+                st.markdown("###### Coherencia de supuestos")
+                _show_df(r[1], "Pruebas de supuestos", csv_key="tab3_pruebas")
             _explain(
-                "<b>En palabras simples:</b> la auditoría es una lista de chequeo. "
-                "Si muchas pruebas salen en rojo (por ejemplo g casi igual al WACC, o poca historia), "
-                "el modelo puede estar ‘forzado’ y conviene ajustar supuestos antes de decidir."
+                "<b>En palabras simples:</b> primero mira si los datos se procesaron bien (tabla de procesos). "
+                "Luego mira si g, WACC y deuda tienen lógica entre sí. "
+                "Muchos rojos = modelo forzado o datos incompletos; no es un veredicto de mercado."
             )
+            # Semáforo de supuestos (existente) + intento de semáforo de procesos
             _semaforo(_semaforo_desde_checks(g, w["wacc"], de_ratio, st.session_state.get("n_hist", 0), tax))
+            try:
+                if len(r) > 2 and r[2] is not None and hasattr(r[2], "iterrows"):
+                    items = []
+                    for _, row in r[2].iterrows():
+                        est = str(row.get("Estado", ""))
+                        if est.startswith("❌"):
+                            items.append(("bad", str(row.get("Control", "Control")), str(row.get("Evidencia", ""))[:120]))
+                        elif est.startswith("⚠️"):
+                            items.append(("warn", str(row.get("Control", "Control")), str(row.get("Evidencia", ""))[:120]))
+                    # solo mostrar alertas de proceso (fallos/warnings), máx 4
+                    if items:
+                        st.caption("Alertas de proceso (resumen)")
+                        _semaforo(items[:4])
+            except Exception:
+                pass
             _analogy("g")
+        else:
+            st.info(
+                "Aún no hay auditoría. Configura la empresa y pulsa **Generar todo** "
+                "(o ejecuta solo la pestaña 3)."
+            )
 
     with tab4:
         st.markdown("##### Recomendación de comité")
@@ -4214,22 +4119,6 @@ def main():
                                 api_key=key_eff,
                                 proveedor=prov_ia or "gemini",
                             )
-                        if hasattr(L, "_sanear_salida_comite_ia"):
-                            try:
-                                respuesta = L._sanear_salida_comite_ia(
-                                    L._html_a_texto(respuesta, 20000) if hasattr(L, "_html_a_texto") else respuesta
-                                )
-                                # Re-envolver si quedó texto plano
-                                if respuesta and not str(respuesta).strip().startswith("<"):
-                                    import html as _html_mod
-                                    respuesta = (
-                                        '<div class="section-card" style="border-left:4px solid #14B8A6">'
-                                        f"<pre style='white-space:pre-wrap;color:#E8EEF7'>"
-                                        f"{_html_mod.escape(str(respuesta))}</pre></div>"
-                                    )
-                            except Exception:
-                                pass
-                        respuesta = _strip_prompt_echo_html(respuesta)
                         st.session_state["tab4_comite_ia_html"] = respuesta
                         try:
                             _struct = (
@@ -4267,21 +4156,11 @@ def main():
                         st.session_state["tab4_comite_ia_html"] = None
 
             if st.session_state.get("tab4_comite_ia_html"):
-                _raw_c = st.session_state["tab4_comite_ia_html"]
-                _clean_c = _strip_prompt_echo_html(_raw_c)
-                # Si era solo el prompt, no mostrar basura y limpiar sesión
-                _up_c = str(_clean_c or "").upper().replace("Ó", "O")
-                if "ACTUA COMO UN COMITE" in _up_c and "INSTRUCCIONES Y FORMATO" in _up_c:
-                    st.session_state.pop("tab4_comite_ia_html", None)
-                    st.warning("Se descartó una salida que solo repetía el prompt. Genera de nuevo el comité.")
-                else:
-                    if _clean_c != _raw_c:
-                        st.session_state["tab4_comite_ia_html"] = _clean_c
-                    st.markdown("###### Salida del comité")
-                    _html(_clean_c)
-                    _explain(
-                        "<b>Uso:</b> deliberación IA complementaria. No es asesoría de inversión ni orden de compra/venta."
-                    )
+                st.markdown("###### Salida del comité")
+                _html(st.session_state["tab4_comite_ia_html"])
+                _explain(
+                    "<b>Uso:</b> deliberación IA complementaria. No es asesoría de inversión ni orden de compra/venta."
+                )
 
     with tab5:
         st.markdown("##### VPN · TIR · Payback")

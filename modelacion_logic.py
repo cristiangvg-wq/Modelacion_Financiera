@@ -496,23 +496,6 @@ def extraer_resumen_comite_ia(html_o_texto, max_monitoreo=3):
             "texto": "",
             "ok": False,
         }
-    try:
-        raw = _sanear_salida_comite_ia(raw)
-    except Exception:
-        pass
-    _ru = (raw or "").upper().replace("Ó", "O").replace("Í", "I")
-    if (
-        "ACTUA COMO UN COMITE INTERDISCIPLINARIO" in _ru
-        and "INSTRUCCIONES Y FORMATO DE SALIDA" in _ru
-        and "[...]" in (raw or "")
-    ):
-        return {
-            "recomendacion": None,
-            "puntaje": None,
-            "monitoreo": [],
-            "texto": "",
-            "ok": False,
-        }
     # Si el texto es el prompt del comité (eco del asistente genérico), no usarlo
     _ru = raw.upper().replace("Ó", "O").replace("Í", "I")
     if (
@@ -1393,26 +1376,18 @@ def _proveedor_yahoo(ticker_yf):
             or _finite_or_none((info.get("defaultKeyStatistics") or {}).get("beta") if isinstance(info.get("defaultKeyStatistics"), dict) else None)
         )
 
-        # --- P/E (nunca pegRatio: no es precio/utilidad) ---
+        # --- P/E ---
         pe = (
             _finite_or_none(info.get("trailingPE"))
             or _finite_or_none(info.get("forwardPE"))
+            or _finite_or_none(info.get("pegRatio"))
         )
         if pe is None and precio and precio > 0:
             eps = (
                 _finite_or_none(info.get("trailingEps"))
                 or _finite_or_none(info.get("epsTrailingTwelveMonths"))
                 or _finite_or_none(info.get("epsCurrentYear"))
-                or _finite_or_none(info.get("epsForward"))
             )
-            if (eps is None or eps <= 0):
-                ni = _finite_or_none(info.get("netIncomeToCommon") or info.get("netIncome"))
-                sh = (
-                    _finite_or_none(info.get("sharesOutstanding"))
-                    or _finite_or_none(info.get("impliedSharesOutstanding"))
-                )
-                if ni is not None and sh and sh > 0 and ni > 0:
-                    eps = ni / sh
             if eps and eps > 0:
                 pe = precio / eps
 
@@ -6175,50 +6150,6 @@ def _metricas_comite_para_ia(nombre_empresa):
     return out
 
 
-
-def _sanear_salida_comite_ia(texto):
-    """Elimina eco del prompt / instrucciones si el modelo las repitió en la respuesta."""
-    if not texto:
-        return texto
-    import re as _re
-    s = str(texto).strip()
-    up = s.upper().replace("Ó", "O").replace("Í", "I")
-
-    markers = (
-        r"##\s*1\.?\s*DELIBERACI[OÓ]N",
-        r"1\.?\s*DELIBERACI[OÓ]N\s+DEL\s+COMIT[EÉ]",
-        r"APORTES\s+DEL\s+CFO",
-        r"RECOMENDACI[OÓ]N\s+FINAL\s*[:：]",
-    )
-    if (
-        "ACTUA COMO UN COMITE" in up
-        or "CONTEXTO DE ENTRADA" in up
-        or "INSTRUCCIONES Y FORMATO DE SALIDA" in up
-    ):
-        cut = None
-        for pat in markers:
-            m = _re.search(pat, s, flags=_re.I)
-            if m:
-                cut = m.start()
-                break
-        if cut is not None and cut > 0:
-            s = s[cut:].strip()
-        else:
-            if "[...]" in s and "RECOMENDACI" in up and len(s) < 4000:
-                return (
-                    "No se obtuvo una deliberación válida del modelo (respuesta vacía o eco del prompt). "
-                    "Reintenta el comité IA."
-                )
-    s = _re.sub(
-        r"(?is)<div[^>]*>\s*<b>\s*Consulta:\s*</b>.*?</div>",
-        "",
-        s,
-        count=1,
-    )
-    s = _re.sub(r"(?im)^\s*Consulta:\s*.*$", "", s, count=1)
-    return s.strip()
-
-
 def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gemini", metricas=None):
     """
     Deliberación tipo comité interdisciplinario (CFO / Mercado / CRO) usando el mismo
@@ -6276,9 +6207,7 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
         "Respondes siempre en español, con tono profesional de comité, crítico y equilibrado. "
         "No inventes cifras distintas a las del contexto numérico; si faltan datos, dilo explícitamente. "
         "Esto es apoyo a decisión, no una orden de compra/venta ni asesoría personalizada. "
-        "Sigue estrictamente el formato de secciones numeradas que pide el usuario. "
-        "IMPORTANTE: NUNCA repitas el prompt, las instrucciones, el contexto de entrada ni el texto "
-        "'Actúa como un Comité…'. Devuelve SOLO la deliberación final (secciones 1 a 4)."
+        "Sigue estrictamente el formato de secciones numeradas que pide el usuario."
     )
 
     user_content = f"""Actúa como un Comité Interdisciplinario de Inversión de alto nivel compuesto por tres expertos senior:
@@ -6336,9 +6265,6 @@ Entrega el resultado **estrictamente** bajo este formato:
             f"<b>No se pudo generar la deliberación del comité.</b><br>{_html.escape(str(err))}<br>"
             f"Revisa el proveedor y la API key en <b>Consulta IA</b> (mismo conector).</div>"
         )
-
-    # Si el modelo devolvió el prompt (eco), recortar hasta la deliberación real
-    texto = _sanear_salida_comite_ia(texto)
 
     cuerpo = _texto_a_html(texto) if "_texto_a_html" in dir() else None
     if cuerpo is None:
@@ -6669,6 +6595,409 @@ si los flujos, el crecimiento o el costo del dinero cambian.
         return f"Error: {e}", None, None
 
 
+
+def auditoria_procesos_info(
+    nombre_empresa,
+    archivo=None,
+    horizonte=5,
+    de_ratio=1.0,
+    kd=0.08,
+    tax=0.35,
+    g=0.03,
+    beta_u=0.5,
+    capital_invertido=10000,
+    rf=0.09,
+    erp=0.06,
+    crp=0.0,
+    usar_datos_publicos=True,
+    deuda_neta=None,
+    caja=None,
+    acciones=None,
+    g_max_macro=0.04,
+):
+    """
+    Auditoría teórica de *procesos*: verifica que el pipeline de información
+    (entrada → limpieza → identidad FCFF → proyección → WACC → coherencia de sesión)
+    sea adecuado. No es un veredicto de inversión.
+
+    Retorna dict con:
+      - df: DataFrame [Etapa, Control, Estado, Evidencia, Qué hacer]
+      - resumen: n_ok, n_warn, n_fail, score, nivel (ALTA/MEDIA/BAJA)
+      - html: bloque amigable para UI
+    """
+    import pandas as _pd
+    from html import escape as _esc
+
+    rows = []  # list of dicts
+
+    def _add(etapa, control, estado, evidencia, accion):
+        rows.append({
+            "Etapa": etapa,
+            "Control": control,
+            "Estado": estado,
+            "Evidencia": evidencia,
+            "Qué hacer": accion,
+        })
+
+    df_hist = None
+    mensaje = ""
+    mon_m = mon_p = "COP"
+    n_hist = 0
+
+    # ----- 1. Entrada / carga -----
+    try:
+        df_hist, mensaje = cargar_y_limpiar_excel(
+            archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos)
+        )
+        if df_hist is not None and hasattr(df_hist, "empty") and not df_hist.empty:
+            try:
+                df_hist, _ = _sanear_historico_tab1(df_hist)
+            except Exception:
+                pass
+            n_hist = int(len(df_hist))
+        if n_hist >= 5:
+            _add("1. Entrada", "Historia suficiente", "✅ OK",
+                 f"{n_hist} años utilizables tras limpieza.",
+                 "Nada: base histórica adecuada para proyectar.")
+        elif n_hist >= 3:
+            _add("1. Entrada", "Historia suficiente", "⚠️ Revisar",
+                 f"Solo {n_hist} años utilizables (mínimo recomendado: 5).",
+                 "Amplía el histórico o trata la proyección con más cautela.")
+        else:
+            _add("1. Entrada", "Historia suficiente", "❌ Fallo",
+                 f"Solo {n_hist} año(s) tras limpiar (se requieren ≥ 3).",
+                 "Carga un Excel con más años o elige otra fuente de datos.")
+    except Exception as e:
+        _add("1. Entrada", "Carga de datos", "❌ Fallo",
+             f"Error al cargar: {e}",
+             "Revisa el archivo o el ticker; sin datos el resto del modelo no es fiable.")
+        df_hist = None
+
+    # Procedencia
+    try:
+        emp = resolver_empresa(nombre_empresa) or {}
+        tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
+        try:
+            tk = ticker_canonico_empresa(nombre_empresa) or tk
+        except Exception:
+            pass
+        proc = procedencia_datos(mensaje or "", ticker_yf=tk, mkt=None)
+        nivel_q = proc.get("nivel_calidad", "MEDIA")
+        fuente = proc.get("fuente_financiera") or mensaje or "N/D"
+        if nivel_q == "ALTA":
+            _add("1. Entrada", "Origen de datos", "✅ OK",
+                 f"Calidad {nivel_q}: {fuente}",
+                 "Puedes apoyar el análisis en esta fuente; igual valida cifras críticas.")
+        elif nivel_q in ("MEDIA",):
+            _add("1. Entrada", "Origen de datos", "⚠️ Revisar",
+                 f"Calidad {nivel_q}: {fuente}",
+                 "Serie ilustrativa o mixta: confirma con EEFF auditados antes de un comité formal.")
+        else:
+            _add("1. Entrada", "Origen de datos", "⚠️ Revisar",
+                 f"Calidad {nivel_q}: {fuente}",
+                 "Prioriza Excel propio o fuentes auditadas.")
+    except Exception as e:
+        _add("1. Entrada", "Origen de datos", "⚠️ Revisar",
+             f"No se clasificó la fuente ({e}).",
+             "Documenta de dónde salen los números.")
+
+    # Monedas alineadas
+    try:
+        emp = resolver_empresa(nombre_empresa) or {}
+        tk = None
+        try:
+            tk = ticker_canonico_empresa(nombre_empresa)
+        except Exception:
+            tk = emp.get("ticker_yf")
+        mon_m, mon_p = monedas_alineadas_por_ticker(ticker=tk, nombre_empresa=nombre_empresa, emp=emp)
+        if str(mon_m).upper() == str(mon_p).upper():
+            _add("1. Entrada", "Moneda modelo vs cotización", "✅ OK",
+                 f"Modelo y precio en {mon_m}.",
+                 "El upside (si se calcula) es comparable en la misma moneda.")
+        else:
+            _add("1. Entrada", "Moneda modelo vs cotización", "❌ Fallo",
+                 f"Modelo {mon_m} ≠ cotización {mon_p}.",
+                 "No uses el upside hasta alinear FX o convertir cifras.")
+    except Exception as e:
+        _add("1. Entrada", "Moneda modelo vs cotización", "⚠️ Revisar",
+             str(e), "Verifica moneda del emisor y de la cotización.")
+
+    # Saltos de escala en ingresos
+    if df_hist is not None and not getattr(df_hist, "empty", True) and "Ingresos" in df_hist.columns:
+        try:
+            ing = _pd.to_numeric(df_hist["Ingresos"], errors="coerce").dropna()
+            if len(ing) >= 2:
+                ratios = (ing / ing.shift(1)).dropna()
+                max_jump = float(ratios.abs().max()) if len(ratios) else 1.0
+                if max_jump > 3.0:
+                    _add("1. Entrada", "Consistencia de unidades", "⚠️ Revisar",
+                         f"Salto máximo de ingresos año a año ≈ {max_jump:.1f}×.",
+                         "Puede ser error de unidades (millones vs miles de millones). Revisa el Excel.")
+                else:
+                    _add("1. Entrada", "Consistencia de unidades", "✅ OK",
+                         f"Máximo salto interanual de ingresos ≈ {max_jump:.2f}×.",
+                         "No se detecta un cambio brusco de escala.")
+        except Exception:
+            pass
+
+    # ----- 2. Identidad FCFF -----
+    if df_hist is not None and not getattr(df_hist, "empty", True):
+        cols_need = ["NOPAT", "Depreciacion", "CAPEX", "Delta_NWC", "FCFF"]
+        if all(c in df_hist.columns for c in cols_need):
+            try:
+                id_fcff = (
+                    _pd.to_numeric(df_hist["NOPAT"], errors="coerce")
+                    + _pd.to_numeric(df_hist["Depreciacion"], errors="coerce")
+                    - _pd.to_numeric(df_hist["CAPEX"], errors="coerce")
+                    - _pd.to_numeric(df_hist["Delta_NWC"], errors="coerce")
+                )
+                fcff = _pd.to_numeric(df_hist["FCFF"], errors="coerce")
+                mask = fcff.notna() & id_fcff.notna()
+                if mask.sum() >= 2:
+                    denom = fcff[mask].abs().replace(0, _pd.NA)
+                    rel = ((fcff[mask] - id_fcff[mask]).abs() / denom).dropna()
+                    med_err = float(rel.median()) if len(rel) else 0.0
+                    if med_err <= 0.08:
+                        _add("2. Identidad FCFF", "FCFF = NOPAT + Dep − CAPEX − ΔNWC", "✅ OK",
+                             f"Error relativo mediano ≈ {med_err*100:.1f}%.",
+                             "La identidad contable se cumple en el histórico.")
+                    elif med_err <= 0.25:
+                        _add("2. Identidad FCFF", "FCFF = NOPAT + Dep − CAPEX − ΔNWC", "⚠️ Revisar",
+                             f"Error relativo mediano ≈ {med_err*100:.1f}%.",
+                             "Hay desviaciones: revisa si CAPEX/NWC están estimados o hay partidas fuera del modelo.")
+                    else:
+                        _add("2. Identidad FCFF", "FCFF = NOPAT + Dep − CAPEX − ΔNWC", "❌ Fallo",
+                             f"Error relativo mediano ≈ {med_err*100:.1f}%.",
+                             "La serie FCFF no cuadra con sus componentes. No proyectes hasta reconciliar.")
+                else:
+                    _add("2. Identidad FCFF", "FCFF = NOPAT + Dep − CAPEX − ΔNWC", "⚠️ Revisar",
+                         "Pocos puntos con todos los componentes.",
+                         "Completa Depreciación, CAPEX y ΔNWC si es posible.")
+            except Exception as e:
+                _add("2. Identidad FCFF", "FCFF = NOPAT + Dep − CAPEX − ΔNWC", "⚠️ Revisar",
+                     str(e), "Revisa columnas del histórico.")
+        else:
+            missing = [c for c in cols_need if c not in (df_hist.columns if df_hist is not None else [])]
+            _add("2. Identidad FCFF", "Componentes disponibles", "⚠️ Revisar",
+                 f"Faltan columnas: {', '.join(missing) or 'N/D'}.",
+                 "El modelo puede estimar FCFF, pero conviene tener la identidad completa.")
+
+        # Márgenes plausibles
+        try:
+            if "Ingresos" in df_hist.columns and "EBITDA" in df_hist.columns:
+                ing = _pd.to_numeric(df_hist["Ingresos"], errors="coerce")
+                ebitda = _pd.to_numeric(df_hist["EBITDA"], errors="coerce")
+                m = (ebitda / ing.replace(0, _pd.NA)).dropna()
+                if len(m):
+                    mm = float(m.median())
+                    if -0.05 <= mm <= 0.75:
+                        _add("2. Identidad FCFF", "Margen EBITDA razonable", "✅ OK",
+                             f"Margen EBITDA mediano ≈ {mm*100:.1f}%.",
+                             "Dentro de un rango operativo habitual.")
+                    else:
+                        _add("2. Identidad FCFF", "Margen EBITDA razonable", "⚠️ Revisar",
+                             f"Margen EBITDA mediano ≈ {mm*100:.1f}%.",
+                             "Fuera de rango típico: revisa unidades o clasificación de EBITDA.")
+        except Exception:
+            pass
+
+        # Atípicos
+        try:
+            if "detectar_atipicos_drivers" in globals() or hasattr(__import__(__name__), "detectar_atipicos_drivers"):
+                pass
+            n_atip = 0
+            if "diagnosticar_atipicos_historico" in globals():
+                try:
+                    msg_a = diagnosticar_atipicos_historico(df_hist)
+                    if msg_a and "atípic" in str(msg_a).lower():
+                        n_atip = 1
+                except Exception:
+                    pass
+            # Hampel simple sobre FCFF
+            if "FCFF" in df_hist.columns:
+                s = _pd.to_numeric(df_hist["FCFF"], errors="coerce").dropna()
+                if len(s) >= 4:
+                    med = float(s.median())
+                    mad = float((s - med).abs().median()) or 1e-9
+                    thr = 3.5 * 1.4826 * mad
+                    n_atip = int(((s - med).abs() > thr).sum())
+            if n_atip == 0:
+                _add("2. Identidad FCFF", "Atípicos en FCFF", "✅ OK",
+                     "Sin puntos extremos claros en FCFF.",
+                     "La serie se ve estable para proyectar.")
+            else:
+                _add("2. Identidad FCFF", "Atípicos en FCFF", "⚠️ Revisar",
+                     f"{n_atip} año(s) con FCFF muy lejos de la mediana.",
+                     "Revisa eventos únicos (venta de activos, crisis). Usa la serie suavizada si aplica.")
+        except Exception:
+            pass
+
+    # ----- 3. Proyección / terminal -----
+    try:
+        g_f = float(g)
+        wacc_f = None
+        beta_l = beta_apalancado(float(beta_u), float(de_ratio), float(tax))
+        ke = costo_equity_capm(beta_l, rf=float(rf), erp=float(erp), crp=float(crp or 0))
+        wacc_f, _, _ = calcular_wacc(float(de_ratio), float(kd), ke, float(tax))
+        margen = wacc_f - g_f
+        if g_f < wacc_f - 0.005:
+            _add("3. Proyección", "g vs WACC (proceso terminal)", "✅ OK",
+                 f"g={g_f*100:.2f}% · WACC={wacc_f*100:.2f}% · margen={margen*100:.2f} pp.",
+                 "La perpetuidad está bien definida matemáticamente.")
+        elif g_f < wacc_f:
+            _add("3. Proyección", "g vs WACC (proceso terminal)", "⚠️ Revisar",
+                 f"g muy cerca del WACC (margen {margen*100:.2f} pp).",
+                 "El valor terminal se vuelve muy sensible; baja g o revisa WACC.")
+        else:
+            _add("3. Proyección", "g vs WACC (proceso terminal)", "❌ Fallo",
+                 f"g={g_f*100:.2f}% ≥ WACC={wacc_f*100:.2f}%.",
+                 "Corrige g o el costo de capital antes de usar el DCF.")
+        g_cap = float(g_max_macro or 0.04)
+        if g_f <= g_cap + 1e-9:
+            _add("3. Proyección", "Techo macro de g", "✅ OK",
+                 f"g ≤ techo macro ({g_cap*100:.1f}%).",
+                 "Disciplina de largo plazo respetada.")
+        else:
+            _add("3. Proyección", "Techo macro de g", "⚠️ Revisar",
+                 f"g={g_f*100:.2f}% supera el techo macro {g_cap*100:.1f}%.",
+                 "El modelo debería anclar g al techo; revisa el parámetro g_max_macro.")
+        h = int(horizonte or 5)
+        if 3 <= h <= 10:
+            _add("3. Proyección", "Horizonte explícito", "✅ OK",
+                 f"Horizonte = {h} años.",
+                 "Rango habitual para un DCF de comité.")
+        else:
+            _add("3. Proyección", "Horizonte explícito", "⚠️ Revisar",
+                 f"Horizonte = {h} años.",
+                 "Usa típicamente 5–10 años de proyección explícita.")
+    except Exception as e:
+        _add("3. Proyección", "Parámetros de proyección", "⚠️ Revisar",
+             str(e), "Revisa WACC, g y horizonte.")
+
+    # ----- 4. Capital y bridge -----
+    try:
+        de = float(de_ratio)
+        if de <= 2.5:
+            _add("4. Capital", "Apalancamiento D/E", "✅ OK" if de <= 1.8 else "⚠️ Revisar",
+                 f"D/E = {de:.2f}.",
+                 "Apalancamiento en zona manejable." if de <= 1.8 else "D/E alto: el equity será muy sensible.")
+        else:
+            _add("4. Capital", "Apalancamiento D/E", "❌ Fallo",
+                 f"D/E = {de:.2f}.",
+                 "Revisa estructura de capital; el puente a equity puede ser frágil.")
+    except Exception:
+        pass
+
+    try:
+        acc = acciones
+        if acc is None:
+            emp = resolver_empresa(nombre_empresa) or {}
+            acc = (emp.get("params") or {}).get("acciones")
+        acc_f = float(acc) if acc is not None else None
+        if acc_f is not None and acc_f > 0:
+            _add("4. Capital", "Acciones para VPS", "✅ OK",
+                 f"Acciones = {acc_f:g}.",
+                 "Se puede calcular valor por acción.")
+        else:
+            _add("4. Capital", "Acciones para VPS", "⚠️ Revisar",
+                 "Sin número de acciones (o es cero).",
+                 "No interprets VPS/upside hasta cargar acciones del emisor.")
+    except Exception:
+        pass
+
+    try:
+        dn = deuda_neta
+        cj = caja
+        if dn is None or cj is None:
+            emp = resolver_empresa(nombre_empresa) or {}
+            p = emp.get("params") or {}
+            if dn is None:
+                dn = p.get("deuda_neta")
+            if cj is None:
+                cj = p.get("caja")
+        if dn is not None:
+            _add("4. Capital", "Puente deuda / caja", "✅ OK",
+                 f"Deuda neta param.={float(dn):,.1f} · caja param.={float(cj or 0):,.1f}.",
+                 "Confirma si la deuda ya es neta para no restar caja dos veces.")
+        else:
+            _add("4. Capital", "Puente deuda / caja", "⚠️ Revisar",
+                 "Sin deuda neta en parámetros.",
+                 "Completa deuda y caja para un puente EV→Equity fiable.")
+    except Exception:
+        pass
+
+    # ----- 5. Sesión / trazabilidad -----
+    try:
+        emp_ses = (RESULTADOS_SESION or {}).get("empresa")
+        if emp_ses is None or str(emp_ses) == str(nombre_empresa):
+            _add("5. Trazabilidad", "Empresa de sesión", "✅ OK",
+                 f"Sesión alineada con «{nombre_empresa}».",
+                 "Los resultados en memoria corresponden a este emisor.")
+        else:
+            _add("5. Trazabilidad", "Empresa de sesión", "❌ Fallo",
+                 f"Memoria tiene «{emp_ses}» y ahora miras «{nombre_empresa}».",
+                 "Pulsa Generar todo de nuevo para no mezclar empresas.")
+    except Exception:
+        _add("5. Trazabilidad", "Empresa de sesión", "⚠️ Revisar",
+             "No se pudo leer RESULTADOS_SESION.",
+             "Reinicia la corrida si cambiaste de empresa.")
+
+    # Score
+    n_ok = sum(1 for r in rows if str(r["Estado"]).startswith("✅"))
+    n_warn = sum(1 for r in rows if str(r["Estado"]).startswith("⚠️"))
+    n_fail = sum(1 for r in rows if str(r["Estado"]).startswith("❌"))
+    # score 0-100
+    total = max(len(rows), 1)
+    score = int(round(100 * (n_ok + 0.45 * n_warn) / total))
+    if n_fail >= 2 or (n_fail >= 1 and n_ok < 3):
+        nivel = "BAJA"
+        color = "#F87171"
+    elif n_fail == 0 and n_warn <= 2 and score >= 75:
+        nivel = "ALTA"
+        color = "#34D399"
+    else:
+        nivel = "MEDIA"
+        color = "#FBBF24"
+
+    df = _pd.DataFrame(rows)
+    if not df.empty:
+        # orden amigable
+        df = df[["Etapa", "Control", "Estado", "Evidencia", "Qué hacer"]]
+
+    resumen = {
+        "n_ok": n_ok,
+        "n_warn": n_warn,
+        "n_fail": n_fail,
+        "score": score,
+        "nivel": nivel,
+        "color": color,
+        "n_hist": n_hist,
+        "mensaje_carga": mensaje,
+    }
+
+    html = f"""
+<div style="background:#151C2C;border:1px solid {color};border-radius:14px;padding:16px 18px;margin:0 0 12px 0">
+  <div style="font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:#94A3B8;font-weight:700">
+    Auditoría de procesos · calidad del procesamiento
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:baseline;margin-top:8px">
+    <div style="font-size:1.35rem;font-weight:700;color:{color}">Nivel {nivel}</div>
+    <div style="font-family:ui-monospace,monospace;color:#F1F5F9">Score {score}/100</div>
+    <div style="color:#CBD5E1;font-size:0.88rem">
+      ✅ {n_ok} · ⚠️ {n_warn} · ❌ {n_fail} controles
+    </div>
+  </div>
+  <p style="margin:10px 0 0 0;color:#E2E8F0;font-size:0.88rem;line-height:1.45">
+    Revisa la tabla de abajo: cada fila es un control del <b>camino de los datos</b>
+    (no un consejo de compra/venta). Rojo = corrige antes de confiar en el DCF;
+    ámbar = documenta o ajusta; verde = el proceso se ve sano.
+  </p>
+</div>
+"""
+    return {"df": df, "resumen": resumen, "html": html}
+
+
+
 def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, beta_u, capital_invertido, rf=0.09, erp=0.06, crp=0.0, usar_datos_publicos=True):
     try:
         horizonte = int(horizonte)
@@ -6741,16 +7070,55 @@ D/E={de_ratio:.2f} → {wd*100:.1f}% deuda y {we*100:.1f}% de los dueños. Costo
     "(por ejemplo, asumir un crecimiento mayor que el costo del dinero hace explotar el valor de largo plazo).")}
 """
         _df_pruebas = pd.DataFrame(pruebas, columns=["Prueba", "Interpretación sencilla"])
+
+        # Auditoría de procesos (pipeline de información)
+        df_proc = None
+        html_proc = ""
+        resumen_proc = {}
+        try:
+            emp_p = resolver_empresa(nombre_empresa) or {}
+            pp = emp_p.get("params") or {}
+            ap = auditoria_procesos_info(
+                nombre_empresa,
+                archivo=archivo,
+                horizonte=horizonte,
+                de_ratio=de_ratio,
+                kd=kd,
+                tax=tax,
+                g=g,
+                beta_u=beta_u,
+                capital_invertido=capital_invertido,
+                rf=rf,
+                erp=erp,
+                crp=crp,
+                usar_datos_publicos=usar_datos_publicos,
+                deuda_neta=pp.get("deuda_neta"),
+                caja=pp.get("caja"),
+                acciones=pp.get("acciones"),
+                g_max_macro=pp.get("g_max_macro", 0.04),
+            )
+            df_proc = ap.get("df")
+            html_proc = ap.get("html") or ""
+            resumen_proc = ap.get("resumen") or {}
+        except Exception as _e_ap:
+            html_proc = (
+                f"<div class='result-note'>No se pudo completar la auditoría de procesos: {_e_ap}</div>"
+            )
+
+        explicacion = html_proc + explicacion
         try:
             guardar_resultado_tab("3", nombre_empresa, {
                 "pruebas": _df_a_registros(_df_pruebas, 20),
-                "texto": _html_a_texto(explicacion, 2200),
+                "procesos": _df_a_registros(df_proc, 30) if df_proc is not None else None,
+                "proceso_nivel": resumen_proc.get("nivel"),
+                "proceso_score": resumen_proc.get("score"),
+                "texto": _html_a_texto(explicacion, 2800),
             })
         except Exception:
             pass
-        return explicacion, _df_pruebas
+        return explicacion, _df_pruebas, df_proc
     except Exception as e:
-        return f"Error: {e}", None
+        return f"Error: {e}", None, None
 
 
 def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u, capital_invertido, deuda_neta, rf=0.09, erp=0.06, crp=0.0, usar_datos_publicos=True, caja=0, nci=0, otros_claims=0, asociados=0, acciones=None, exit_multiple=0.0, mid_year=True, g_max_macro=0.05):
