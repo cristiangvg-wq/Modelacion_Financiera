@@ -2295,6 +2295,190 @@ def _market_tape_quotes():
     return rows
 
 
+
+def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="COP"):
+    """Comité IA automático. Usado por Generar todo y Solo pestaña 4. Retorna (ok, msg)."""
+    try:
+        prov_ia = (
+            st.session_state.get("tab4_iaprov")
+            or st.session_state.get("iaprov")
+            or "gemini"
+        )
+        key_ui = (st.session_state.get("tab4_iakey") or "").strip() or (st.session_state.get("iakey") or "")
+        key_eff = (
+            _resolve_gemini_key(key_ui)
+            if (prov_ia or "gemini") == "gemini"
+            else ((key_ui or "").strip() or None)
+        )
+        if prov_ia == "gemini" and not key_eff:
+            key_eff = _resolve_gemini_key(None)
+
+        def _sf(x, default=0.0):
+            try:
+                if x is None:
+                    return default
+                if isinstance(x, str):
+                    s = x.strip().replace("%", "").replace(",", "")
+                    if not s or s in ("—", "-", "N/A", "n/a"):
+                        return default
+                    return float(s)
+                v = float(x)
+                if v != v or abs(v) == float("inf"):
+                    return default
+                return v
+            except Exception:
+                return default
+
+        res = st.session_state.get("resultados") or {}
+        w = w if isinstance(w, dict) else {}
+        wacc_calc = float(w.get("wacc", 0.10) or 0.10)
+        ke_calc = float(w.get("ke", 0.12) or 0.12)
+        roic_calc = val_ev = val_equity = vps_modelo = precio_mercado = upside = 0.0
+        mon_m = str(moneda or "COP").upper()
+        try:
+            _alinear_moneda_y_precio(empresa)
+        except Exception:
+            pass
+        try:
+            if hasattr(L, "resolver_precio_mercado"):
+                precio_mercado = _sf(L.resolver_precio_mercado(empresa), 0.0)
+        except Exception:
+            pass
+        if precio_mercado <= 0:
+            precio_mercado = _sf(st.session_state.get("precio_mercado_alineado"), 0.0)
+        mon_px = str(
+            st.session_state.get("moneda_precio_alineada")
+            or (st.session_state.get("params") or {}).get("precio_moneda")
+            or mon_m
+        ).upper()
+
+        t7 = res.get("tab7")
+        kpi_map = {}
+        if t7 and isinstance(t7, (list, tuple)) and len(t7) > 1:
+            kpi_df = t7[1]
+            if kpi_df is not None and hasattr(kpi_df, "columns"):
+                cols = list(kpi_df.columns)
+                if "Indicador" in cols and "Valor" in cols:
+                    try:
+                        for _, row in kpi_df.iterrows():
+                            kpi_map[str(row["Indicador"])] = row["Valor"]
+                    except Exception:
+                        pass
+
+        def _k(name, *alts):
+            for n in (name,) + alts:
+                if n in kpi_map:
+                    return kpi_map[n]
+            return None
+
+        val_ev = _sf(_k("EV base", "EV"), val_ev)
+        val_equity = _sf(_k("Equity base", "Equity"), val_equity)
+        vps_modelo = _sf(_k("VPS modelo", "VPS", "Precio modelo"), vps_modelo)
+        if precio_mercado <= 0:
+            precio_mercado = _sf(_k("Precio mercado", "Precio actual", "Precio"), 0.0)
+        up_raw = _k("Upside %", "Upside")
+        if up_raw is not None:
+            upside = _sf(up_raw, 0.0)
+        wacc_k = _k("WACC %", "WACC")
+        if wacc_k is not None:
+            ww = _sf(wacc_k, wacc_calc * 100)
+            wacc_calc = ww / 100.0 if ww > 1.0 else ww
+        roic_k = _k("ROIC %", "ROIC")
+        if roic_k is not None:
+            rr = _sf(roic_k, 0.0)
+            roic_calc = rr / 100.0 if rr > 1.0 else rr
+
+        t2 = res.get("tab2")
+        if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
+            df2 = t2[1]
+            try:
+                cols = {str(c).lower(): c for c in df2.columns}
+                esc_c = cols.get("escenario") or cols.get("nombre") or df2.columns[0]
+                for _, row in df2.iterrows():
+                    label = str(row[esc_c]).lower()
+                    if "base" not in label and "central" not in label:
+                        continue
+                    for c in df2.columns:
+                        cl = str(c).lower()
+                        if cl == str(esc_c).lower():
+                            continue
+                        if ("ev" in cl or "empresa" in cl) and "ebitda" not in cl and val_ev == 0:
+                            val_ev = _sf(row[c], val_ev)
+                        if ("equity" in cl or "dueño" in cl or "patrimonio" in cl) and val_equity == 0:
+                            val_equity = _sf(row[c], val_equity)
+            except Exception:
+                pass
+
+        monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
+        if not monedas_ok:
+            upside = 0.0
+        if vps_modelo <= 0 and val_equity > 0:
+            try:
+                acc = (st.session_state.get("params") or {}).get("acciones")
+                if acc and float(acc) > 0:
+                    vps_modelo = val_equity / float(acc)
+            except Exception:
+                pass
+        if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
+            upside = 100.0 * (vps_modelo - precio_mercado) / precio_mercado
+
+        ticker_ctx = "—"
+        try:
+            ticker_ctx = _inferir_ticker_yf(empresa, {}) or "—"
+        except Exception:
+            pass
+
+        _metricas = {
+            "empresa": empresa, "ticker": ticker_ctx, "moneda": mon_m,
+            "moneda_precio": mon_px, "monedas_alineadas": monedas_ok,
+            "precio_mercado": precio_mercado, "vps_modelo": vps_modelo, "upside": upside,
+            "wacc_calc": wacc_calc, "ke_calc": ke_calc, "roic_calc": roic_calc,
+            "de_ratio": float(de_ratio or 0), "g": float(g or 0),
+            "val_ev": val_ev, "val_equity": val_equity, "decision_modelo": "—",
+        }
+
+        if not hasattr(L, "generar_recomendacion_comite_ia"):
+            return False, (
+                "modelacion_logic.py no tiene generar_recomendacion_comite_ia. "
+                "Actualiza el archivo y reinicia Streamlit."
+            )
+
+        respuesta = L.generar_recomendacion_comite_ia(
+            empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas,
+        )
+        if hasattr(L, "_sanear_salida_comite_ia"):
+            try:
+                plain = L._html_a_texto(respuesta, 20000) if hasattr(L, "_html_a_texto") else str(respuesta)
+                plain = L._sanear_salida_comite_ia(plain)
+                if plain and not str(plain).strip().startswith("<"):
+                    import html as _html_mod
+                    respuesta = (
+                        '<div class="section-card" style="border-left:4px solid #14B8A6">'
+                        f"<pre style='white-space:pre-wrap;color:#E8EEF7'>"
+                        f"{_html_mod.escape(str(plain))}</pre></div>"
+                    )
+            except Exception:
+                pass
+
+        st.session_state["tab4_comite_ia_html"] = respuesta
+        try:
+            _struct = L.extraer_resumen_comite_ia(respuesta) if hasattr(L, "extraer_resumen_comite_ia") else {}
+            _txt = (_struct or {}).get("texto") or (
+                L._html_a_texto(respuesta, 800) if hasattr(L, "_html_a_texto") else str(respuesta)[:800]
+            )
+            L.guardar_resultado_tab("comite_ia", empresa, {
+                "texto": _txt, "struct": _struct, "proveedor": prov_ia or "gemini",
+            })
+            st.session_state["tab4_comite_ia_texto"] = _txt
+            st.session_state["tab4_comite_ia_struct"] = _struct
+        except Exception:
+            pass
+        return True, "Comité IA generado."
+    except Exception as e:
+        st.session_state["tab4_comite_ia_html"] = None
+        return False, str(e)
+
+
 def _render_market_tape() -> None:
     data = _market_tape_quotes()
     parts = []
@@ -2961,12 +3145,21 @@ def main():
 
         empresa = st.selectbox("Emisor", options=catalogo, key="select_empresa", label_visibility="collapsed")
         if empresa != st.session_state.get("empresa_sel"):
-            # No asignar select_empresa aquí (el widget ya existe). Solo sincronizar estado y recargar.
             st.session_state["empresa_sel"] = empresa
-            _cargar_params_empresa(empresa)
+            for _k in (
+                "resultados", "tab6_empresa", "tab4_comite_ia_html", "tab4_comite_ia_texto",
+                "tab4_comite_ia_struct", "ficha_html", "precio_mercado_alineado",
+                "moneda_precio_alineada", "fx_mismatch", "params",
+            ):
+                st.session_state.pop(_k, None)
             st.session_state["resultados"] = {}
+            st.session_state["params"] = {}
             try:
                 L.reset_resultados_sesion(empresa)
+            except Exception:
+                pass
+            try:
+                _cargar_params_empresa(empresa)
             except Exception:
                 pass
             st.rerun()
@@ -3458,6 +3651,7 @@ def main():
             progress.progress(pasos[5][1], text=pasos[5][0])
             try:
                 st.session_state["resultados"]["tab6"] = L.tab6_comparacion_sectorial(empresa)
+                st.session_state["tab6_empresa"] = empresa
             except Exception as e:
                 errores.append(f"Pestaña 6: {e}")
 
@@ -3471,11 +3665,25 @@ def main():
             except Exception as e:
                 errores.append(f"Pestaña 7: {e}")
 
+            # Comité IA automático (tras resultados cuantitativos)
+            try:
+                progress.progress(0.96, text="4+ · Comité interdisciplinario (IA)…")
+                ok_c, msg_c = _ejecutar_comite_ia_sesion(
+                    empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
+                )
+                if not ok_c:
+                    errores.append(f"Comité IA: {msg_c}")
+            except Exception as e:
+                errores.append(f"Comité IA: {e}")
+
             progress.progress(1.0, text="Listo")
             if errores:
                 st.warning("Algunas pestañas fallaron:\n- " + "\n- ".join(errores))
             else:
-                st.success("Todos los resultados generados. Revisa cada pestaña.")
+                st.success(
+                    "Todos los resultados generados (incluye deliberación del comité IA en pestaña 4). "
+                    "Revisa cada pestaña."
+                )
             st.rerun()
         except Exception as e:
             st.error(str(e))
@@ -3516,6 +3724,14 @@ def main():
                                 capital_invertido, deuda_neta, rf, erp, crp, usar_publicos,
                                 caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
                             )
+                            try:
+                                ok_c, msg_c = _ejecutar_comite_ia_sesion(
+                                    empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
+                                )
+                                if not ok_c:
+                                    st.warning(f"Comité IA: {msg_c}")
+                            except Exception as _e_c:
+                                st.warning(f"Comité IA: {_e_c}")
                         elif i == 4:
                             st.session_state.setdefault("resultados", {})["tab5"] = L.tab5_vpn_tir(
                                 empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
@@ -3523,6 +3739,7 @@ def main():
                             )
                         elif i == 5:
                             st.session_state.setdefault("resultados", {})["tab6"] = L.tab6_comparacion_sectorial(empresa)
+                            st.session_state["tab6_empresa"] = empresa
                         elif i == 6:
                             st.session_state.setdefault("resultados", {})["tab7"] = L.tab7_informe_ejecutivo(
                                 empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
@@ -3696,7 +3913,10 @@ def main():
 
     with tab4:
         st.markdown("##### Recomendación de comité")
-        st.caption("Resultados generados con «Generar todo».")
+        st.caption(
+            "Resultados con Generar todo o pestaña 4. "
+            "El **Comité IA** se ejecuta automáticamente al final de Generar todo y al correr solo la pestaña 4."
+        )
         _metrics_tip_row([
             (
                 "Decisión",
@@ -4178,47 +4398,63 @@ def main():
 
     with tab6:
         st.markdown("##### Ranking sectorial")
-        st.caption("Resultados generados con «Generar todo».")
+        st.caption(
+            f"Comparables del **mismo sector** que **{empresa}**. "
+            "Se recalcula al cambiar de empresa o con Generar todo / pestaña 6."
+        )
         _metrics_tip_row([
             (
                 "Score",
                 "Puntaje relativo",
-                "Nota compuesta frente a pares del sector (márgenes, ROIC, WACC, crecimiento, múltiplos). "
-                "Más alto suele indicar mejor posición relativa, no una orden de compra.",
+                "Nota compuesta frente a pares del mismo sector (márgenes, ROIC, WACC, crecimiento, múltiplos).",
             ),
             (
                 "Margen EBITDA",
                 "De cada 100",
-                "De cada 100 de ventas, cuánto queda como utilidad operativa bruta antes de depreciaciones fuertes e intereses.",
+                "De cada 100 de ventas, cuánto queda como utilidad operativa bruta.",
             ),
             (
                 "EV / EBITDA",
                 "Múltiplo",
-                "Cuántas veces el mercado (o el modelo) paga la utilidad operativa. "
-                "Un múltiplo muy bajo puede ser oportunidad… o señal de problemas.",
+                "Cuántas veces el mercado (o el modelo) paga la utilidad operativa.",
             ),
         ], cols=3)
-        r = st.session_state.get("resultados", {}).get("tab6")
+        res_map = st.session_state.setdefault("resultados", {})
+        r = res_map.get("tab6")
+        if r is not None and st.session_state.get("tab6_empresa") and str(st.session_state.get("tab6_empresa")) != str(empresa):
+            r = None
+            res_map.pop("tab6", None)
+            st.session_state.pop("tab6_empresa", None)
+        if r is None or not isinstance(r, (list, tuple)):
+            try:
+                with st.spinner(f"Actualizando ranking del mismo sector · {empresa}…"):
+                    r = L.tab6_comparacion_sectorial(empresa)
+                    res_map["tab6"] = r
+                    st.session_state["tab6_empresa"] = empresa
+            except Exception as _e6:
+                st.warning(f"No se pudo actualizar el ranking sectorial: {_e6}")
+                r = None
         if r and isinstance(r, (list, tuple)):
+            st.caption(f"Focal: **{empresa}** (solo pares del mismo sector)")
             if len(r) > 0:
                 _html(r[0])
             if len(r) > 1:
-                _show_df(r[1], "Comparables", csv_key="tab6_sector")
+                _show_df(r[1], "Comparables mismo sector", csv_key=f"tab6_{abs(hash(str(empresa)))%10**8}")
                 if not _plotly_sector(r[1]):
                     if len(r) > 2:
                         _show_fig(r[2], "Sector")
             elif len(r) > 2:
                 _show_fig(r[2], "Sector")
             _chart_tip(
-                "Pasa el cursor por cada empresa: verás margen y múltiplo en palabras simples. "
-                "Compara con ‘vecinas’ del mismo oficio. Un múltiplo muy bajo puede ser oportunidad… o señal de problemas."
+                "Solo aparecen empresas del mismo sector que el emisor seleccionado. "
+                "Un múltiplo muy bajo puede ser oportunidad… o señal de problemas."
             )
             _explain(
-                "<b>Burbuja de lectura · Sector:</b> no mires la empresa sola: compárala con pares. "
-                "<b>Margen EBITDA</b> = de cada 100 de ventas, cuánto queda como utilidad operativa bruta. "
-                "<b>EV/EBITDA</b> = cuántas veces el mercado paga esa utilidad. "
-                "Si el ROIC supera al WACC, el negocio suele crear valor para los dueños."
+                "<b>Sector:</b> el ranking confronta la empresa con pares de su oficio, no con todo el mercado. "
+                "Margen EBITDA y EV/EBITDA se leen frente a esas vecinas."
             )
+        else:
+            st.info("Sin ranking del sector. Ejecuta Generar todo o la pestaña 6.")
 
     with tab7:
         st.markdown("##### Dashboard ejecutivo - Resumen para comite")
