@@ -4041,7 +4041,6 @@ def main():
                         "El comité tratará el upside como no comparable hasta alinear FX."
                     )
                     st.info("Comité bloqueado parcialmente: puedes continuar, pero el upside se fuerza a 0 en el prompt.")
-                prompt = _prompt_comite_ia(ctx)
                 with st.spinner("El comité interdisciplinario está deliberando…"):
                     try:
                         key_eff = (
@@ -4051,9 +4050,39 @@ def main():
                         )
                         if prov_ia == "gemini" and not key_eff:
                             key_eff = _resolve_gemini_key(None)
-                        respuesta = L.asistente_consulta_financiera(
-                            prompt, empresa, api_key=key_eff, proveedor=prov_ia or "gemini",
-                        )
+                        # Usar el endpoint dedicado del comité (no asistente_consulta_financiera):
+                        # ese último imprime «Consulta: …» + el prompt completo en el HTML.
+                        _metricas = {
+                            "empresa": ctx.get("empresa") or empresa,
+                            "ticker": ctx.get("ticker"),
+                            "moneda": ctx.get("moneda"),
+                            "precio_mercado": ctx.get("precio_mercado"),
+                            "vps_modelo": ctx.get("vps_modelo"),
+                            "upside": ctx.get("upside"),
+                            "wacc_calc": ctx.get("wacc_calc"),
+                            "ke_calc": ctx.get("ke_calc"),
+                            "roic_calc": ctx.get("roic_calc"),
+                            "de_ratio": ctx.get("de_ratio"),
+                            "g": ctx.get("g"),
+                            "val_ev": ctx.get("val_ev"),
+                            "val_equity": ctx.get("val_equity"),
+                        }
+                        if hasattr(L, "generar_recomendacion_comite_ia"):
+                            respuesta = L.generar_recomendacion_comite_ia(
+                                empresa,
+                                api_key=key_eff,
+                                proveedor=prov_ia or "gemini",
+                                metricas=_metricas,
+                            )
+                        else:
+                            # Fallback: no pasar el prompt como «pregunta» al asistente genérico
+                            respuesta = L.asistente_consulta_financiera(
+                                "Resume la tesis de inversión de esta empresa en 4 apartados "
+                                "(CFO, mercado, riesgos, decisión) sin repetir el prompt.",
+                                empresa,
+                                api_key=key_eff,
+                                proveedor=prov_ia or "gemini",
+                            )
                         st.session_state["tab4_comite_ia_html"] = respuesta
                         try:
                             _struct = (
@@ -4064,6 +4093,19 @@ def main():
                             _txt = (_struct or {}).get("texto") or (
                                 L._html_a_texto(respuesta, 800) if hasattr(L, "_html_a_texto") else str(respuesta)[:800]
                             )
+                            # Evitar guardar el prompt si por algún motivo llegó al HTML
+                            _up = (_txt or "").upper()
+                            if "ACTÚA COMO UN COMITÉ" in _up or "ACTUA COMO UN COMITE" in _up or "CONTEXTO DE ENTRADA" in _up:
+                                _txt = (_struct or {}).get("texto") or ""
+                                if not _txt and _struct:
+                                    partes = []
+                                    if _struct.get("recomendacion"):
+                                        partes.append(f"Recomendación final: {_struct['recomendacion']}")
+                                    if _struct.get("puntaje"):
+                                        partes.append(f"Puntaje: {_struct['puntaje']}")
+                                    for i, p in enumerate((_struct.get("monitoreo") or [])[:3], 1):
+                                        partes.append(f"{i}. {p}")
+                                    _txt = "\n".join(partes)
                             L.guardar_resultado_tab("comite_ia", empresa, {
                                 "texto": _txt,
                                 "struct": _struct,

@@ -496,6 +496,22 @@ def extraer_resumen_comite_ia(html_o_texto, max_monitoreo=3):
             "texto": "",
             "ok": False,
         }
+    # Si el texto es el prompt del comité (eco del asistente genérico), no usarlo
+    _ru = raw.upper().replace("Ó", "O").replace("Í", "I")
+    if (
+        "ACTUA COMO UN COMITE INTERDISCIPLINARIO" in _ru
+        or "CONTEXTO DE ENTRADA (CALCULADO POR EL MODELO" in _ru
+        or ("INSTRUCCIONES Y FORMATO DE SALIDA" in _ru and "RECOMENDACION FINAL" in _ru and "APORTES DEL CFO" in _ru and len(raw) < 3500)
+    ):
+        # Puede ser solo el prompt sin deliberación real
+        if "APORTES DEL CFO" in _ru and "[...]" in raw:
+            return {
+                "recomendacion": None,
+                "puntaje": None,
+                "monitoreo": [],
+                "texto": "",
+                "ok": False,
+            }
 
     def _limpia(s):
         s = re.sub(r"[*#_`]+", "", str(s or "")).strip()
@@ -2138,6 +2154,54 @@ def enriquecer_metricas_ficha(nombre_empresa=None, emp=None, ticker=None, mkt=No
                 out["beta"] = float(bu)
             out["beta_nota"] = " *"
 
+    # P/E de respaldo: precio / EPS estimado desde histórico (NOPAT o EBIT*(1-tax))
+    # cuando Yahoo no publica trailingPE (frecuente en tickers BVC .CL).
+    if out["pe"] is None and precio and precio > 0:
+        try:
+            acc = _finite_or_none(params.get("acciones"))
+            nopat = None
+            # 1) histórico de la ficha
+            hist = emp.get("historico") if isinstance(emp, dict) else None
+            if isinstance(hist, dict) and hist.get("NOPAT"):
+                try:
+                    vals = [float(x) for x in hist["NOPAT"] if x is not None]
+                    if vals:
+                        nopat = vals[-1]
+                except Exception:
+                    nopat = None
+            # 2) df histórico vía catálogo
+            if nopat is None and nombre_empresa:
+                try:
+                    dfh = df_historico_empresa(nombre_empresa)
+                    if dfh is not None and not dfh.empty and "NOPAT" in dfh.columns:
+                        nopat = float(dfh["NOPAT"].dropna().iloc[-1])
+                except Exception:
+                    pass
+            # 3) EBIT * (1-tax) del último año
+            if nopat is None and isinstance(hist, dict) and hist.get("EBIT"):
+                try:
+                    ebit = float(hist["EBIT"][-1])
+                    tax_e = float(params.get("tax") if params.get("tax") is not None else 0.35)
+                    nopat = ebit * (1.0 - tax_e)
+                except Exception:
+                    pass
+            if nopat is not None and abs(nopat) > 1e-9 and acc and acc > 0:
+                # Unidades catálogo BVC: cifras en miles de millones; acciones en millones
+                # EPS ≈ (NOPAT * 1e9) / (acciones * 1e6) = NOPAT * 1000 / acciones
+                if acc < 1e5:
+                    eps = (float(nopat) * 1000.0) / float(acc)
+                else:
+                    # acciones ya en unidades absolutas
+                    eps = (float(nopat) * 1e9) / float(acc)
+                if eps and eps > 0:
+                    pe_est = float(precio) / eps
+                    # Guardrail razonable para múltiplos accionarios
+                    if 0.5 <= pe_est <= 120:
+                        out["pe"] = pe_est
+                        out["pe_nota"] = " ≈"
+        except Exception:
+            pass
+
     return out
 
 
@@ -2270,7 +2334,7 @@ def card_empresa_seleccionada(nombre_empresa):
     {etiqueta_mercado} · {msg_mkt}
   </p>
 </div>
-{tip("<b>Precio</b> = cotización de una acción. <b>Capitalización</b> = precio × acciones (≈ si se estima con el catálogo). <b>Beta *</b> = estimada del modelo si Yahoo no la publica. <b>P/E</b> = solo si Yahoo trae EPS.")}
+{tip("<b>Precio</b> = cotización de una acción. <b>Capitalización</b> = precio × acciones (≈ si se estima con el catálogo). <b>Beta *</b> = estimada del modelo si Yahoo no la publica. <b>P/E ≈</b> = Yahoo trailingPE o, si no hay, precio / EPS estimado con el último NOPAT del histórico.")}
 """
 
 
@@ -7629,7 +7693,16 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
             comite_struct = extraer_resumen_comite_ia(comite_txt)
         except Exception:
             comite_struct = {}
-    if comite_struct.get("ok") or (comite_txt and (comite_struct.get("recomendacion") or comite_struct.get("puntaje"))):
+    _ct_up = (comite_txt or "").upper().replace("Ó", "O")
+    _parece_prompt = (
+        "ACTUA COMO UN COMITE" in _ct_up
+        or "CONTEXTO DE ENTRADA" in _ct_up
+        or ("INSTRUCCIONES Y FORMATO DE SALIDA" in _ct_up and "[...]" in (comite_txt or ""))
+    )
+    if (not _parece_prompt) and (
+        comite_struct.get("ok")
+        or (comite_txt and (comite_struct.get("recomendacion") or comite_struct.get("puntaje")))
+    ):
         story.append(Paragraph("9. Extracto Comité interdisciplinario (IA)", styles["Subtitulo"]))
         story.append(Paragraph(
             "Solo recomendación, puntaje y hasta 3 puntos de monitoreo. "
