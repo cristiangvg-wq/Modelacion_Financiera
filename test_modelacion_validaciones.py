@@ -159,5 +159,45 @@ class TestNucleoValoracion(unittest.TestCase):
             os.unlink(path)
 
 
+    def test_auditoria_bloquea_vps_fuera_de_escala_vs_precio(self):
+        ctx = {
+            "precio_mercado": 28500.0, "vps_modelo": 29.84, "upside": -99.895,
+            "wacc_calc": 0.1089, "ke_calc": 0.1647, "roic_calc": None,
+            "de_ratio": 1.20, "g": 0.03, "val_ev": 1000.0, "val_equity": 800.0,
+            "moneda": "COP", "moneda_precio": "COP",
+            "unidad_modelo": "COP miles de millones", "unidad_precio": "por acción",
+        }
+        audit = L.auditar_contexto_comite_ia(ctx)
+        self.assertFalse(audit["ok"])
+        self.assertTrue(any("VPS/precio fuera de rango de escala" in e for e in audit["errors"]))
+
+    def test_prompt_comite_no_convierte_metricas_ausentes_en_cero(self):
+        original_base = L._metricas_comite_para_ia
+        original_call = L._llamar_ia_redaccion
+        captured = {}
+        try:
+            L._metricas_comite_para_ia = lambda _name: {}
+            def fake_call(system, user, **kwargs):
+                captured["prompt"] = user
+                return "## 1. Deliberación\n## 2. Brecha\n## 3. Decisión\n## 4. Monitoreo"
+            L._llamar_ia_redaccion = fake_call
+            metrics = {
+                "empresa": "Test", "moneda": "COP", "moneda_precio": "COP",
+                "precio_mercado": 28500, "vps_modelo": 29.84, "upside": -99.895,
+                "wacc_calc": 0.1089, "ke_calc": 0.1647, "roic_calc": None,
+                "de_ratio": 1.2, "g": 0.03, "val_ev": 1000, "val_equity": 800,
+                "unidad_modelo": "COP miles de millones", "unidad_precio": "por acción",
+            }
+            L.generar_recomendacion_comite_ia("Test", metricas=metrics)
+            prompt = captured["prompt"]
+            self.assertIn("ROIC:** N/D", prompt)
+            self.assertIn("VPS/precio tiene error de escala", prompt)
+            self.assertIn("No recomiendes", prompt)
+        finally:
+            L._metricas_comite_para_ia = original_base
+            L._llamar_ia_redaccion = original_call
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

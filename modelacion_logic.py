@@ -6335,6 +6335,15 @@ def auditar_contexto_comite_ia(metricas):
             warnings.append(f"Upside informado ({given:.2f}%) no coincide con recálculo ({upside_calc:.2f}%)")
     else:
         warnings.append("Upside no calculable: precio mercado/VPS faltante o no positivo")
+    # Control de orden de magnitud: evita comparar VPS y precio si hay escala
+    # incompatible (p. ej. VPS en miles de COP frente a cotización en COP).
+    if price is not None and vps is not None and price > 0 and vps > 0:
+        ratio_vps_px = vps / price
+        if ratio_vps_px < 0.01 or ratio_vps_px > 100.0:
+            errors.append(
+                f"VPS/precio fuera de rango de escala (ratio={ratio_vps_px:.6g}); "
+                "verificar unidad de equity, acciones y moneda antes de interpretar upside"
+            )
     if not m.get("fuente_precio") or not m.get("fecha_precio"):
         warnings.append("Precio de mercado sin fuente y/o fecha de corte explícitas")
     if not m.get("fuente_valoracion"):
@@ -6388,26 +6397,30 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
             m[k] = v
     audit_ctx = auditar_contexto_comite_ia(m)
 
-    def _f(key, default=0.0):
+    def _f(key, default=None):
         v = m.get(key)
         try:
-            if v is None:
-                return float(default)
-            return float(v)
-        except Exception:
-            return float(default)
+            if v is None or isinstance(v, bool):
+                return default
+            v = float(v)
+            return v if math.isfinite(v) else default
+        except (TypeError, ValueError):
+            return default
+
+    def _fmt_num(value, decimals=2, suffix=""):
+        return "N/D" if value is None else f"{value:,.{decimals}f}{suffix}"
 
     empresa = m.get("empresa") or nombre_empresa or "N/D"
-    precio_mercado = _f("precio_mercado", 0.0)
-    vps_modelo = _f("vps_modelo", 0.0)
-    upside = _f("upside", 0.0)
-    wacc_calc = _f("wacc_calc", 0.0)
-    ke_calc = _f("ke_calc", 0.0)
-    roic_calc = _f("roic_calc", 0.0)
-    de_ratio = _f("de_ratio", 0.0)
-    g = _f("g", 0.0)
-    val_ev = _f("val_ev", 0.0)
-    val_equity = _f("val_equity", 0.0)
+    precio_mercado = _f("precio_mercado")
+    vps_modelo = _f("vps_modelo")
+    upside = _f("upside")
+    wacc_calc = _f("wacc_calc")
+    ke_calc = _f("ke_calc")
+    roic_calc = _f("roic_calc")
+    de_ratio = _f("de_ratio")
+    g = _f("g")
+    val_ev = _f("val_ev")
+    val_equity = _f("val_equity")
     mon = m.get("moneda") or ""
     ticker = m.get("ticker") or ""
 
@@ -6446,12 +6459,13 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 ### CONTEXTO DE ENTRADA (Calculado por el Modelo Cuantitativo)
 - **Empresa Objetivo / Ticker:** {empresa}{f' ({ticker})' if ticker else ''}
 - **Moneda del modelo:** {mon or 'N/D'}
-- **Precio Actual de Mercado:** {precio_mercado:,.2f}
-- **Valor por Acción Según el Modelo (VPS):** {vps_modelo:,.2f} (Upside calculado: {upside:+.2f}%)
-- **WACC Calculado:** {wacc_calc*100:.2f}% | **Ke (CAPM):** {ke_calc*100:.2f}% | **ROIC:** {roic_calc*100:.2f}%
-- **Estructura D/E:** {de_ratio:.2f} | **Crecimiento Terminal (g):** {g*100:.2f}%
-- **Valor del Negocio (EV Base):** {val_ev:,.2f}
-- **Valor del Equity Base:** {val_equity:,.2f}
+- **Precio Actual de Mercado:** {_fmt_num(precio_mercado)} {mon}
+- **Valor por Acción Según el Modelo (VPS):** {_fmt_num(vps_modelo)} {mon}/acción | **Upside:** {_fmt_num(upside, 2, '%')}
+- **WACC Calculado:** {_fmt_num(wacc_calc*100 if wacc_calc is not None else None, 2, '%')} | **Ke (CAPM):** {_fmt_num(ke_calc*100 if ke_calc is not None else None, 2, '%')} | **ROIC:** {_fmt_num(roic_calc*100 if roic_calc is not None else None, 2, '%')}
+- **Estructura D/E:** {_fmt_num(de_ratio)} | **Crecimiento Terminal (g):** {_fmt_num(g*100 if g is not None else None, 2, '%')}
+- **Valor del Negocio (EV Base):** {_fmt_num(val_ev)} {mon}
+- **Valor del Equity Base:** {_fmt_num(val_equity)} {mon}
+- **Unidad/escala del modelo:** {m.get('unidad_modelo') or 'N/D'} | **Unidad precio:** {m.get('unidad_precio') or 'N/D'}
 {('- **Datos incompletos en el modelo:** ' + ', '.join(faltantes)) if faltantes else ''}
 
 ---
@@ -6463,6 +6477,7 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 - Upside recalculado desde VPS/precio: {f"{audit_ctx["upside_recalculado"]:+.2f}%" if audit_ctx["upside_recalculado"] is not None else "N/D"}
 
 REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles.
+REGLAS DE MONITOREO: cada punto debe citar un indicador disponible y su valor, explicar por qué importa y definir qué dato futuro confirmaría/invalidaría la tesis. No afirmes “ROIC 0.00%” como dato observado si el ROIC está ausente; usa “ROIC no disponible” y solicita NOPAT/capital invertido. No recomiendes “exigir que ROIC repunte” sin evidencia de tendencia o plan operativo. No atribuyas presión de tasas ni refinanciación sin vencimientos, costo de deuda, cobertura de intereses o fuente macro fechada. Si VPS/precio tiene error de escala, no uses upside ni precio objetivo: la primera acción debe ser conciliar equity, acciones diluidas, moneda y escala. Evita frases genéricas como “vigilar de cerca” si no hay métrica/umbral/periodicidad.
 
 ### INSTRUCCIONES Y FORMATO DE SALIDA
 Simula una deliberación crítica entre los tres miembros del comité contrastando estos números con la realidad del mercado.
