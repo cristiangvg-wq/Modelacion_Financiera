@@ -511,30 +511,39 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
   border: none !important;
 }
 
-/* Tooltips KPI */
-.tf-kpi[data-tip]:hover::after {
+/* Tooltips KPI y métricas (hover) */
+.tf-kpi[data-tip],
+.tf-metric-tip[data-tip] {
+  cursor: help;
+  position: relative;
+}
+.tf-kpi[data-tip]:hover::after,
+.tf-metric-tip[data-tip]:hover::after {
   content: attr(data-tip);
   position: absolute;
   left: 50%;
   bottom: calc(100% + 12px);
   transform: translateX(-50%);
-  width: min(280px, 72vw);
+  width: min(320px, 82vw);
+  max-width: 340px;
   background: #0F172A;
   color: #F1F5F9;
   border: 1px solid #14B8A6;
   border-radius: 12px;
-  padding: 11px 13px;
-  font-size: 0.78rem;
+  padding: 12px 14px;
+  font-size: 0.8rem;
   font-weight: 400;
-  line-height: 1.4;
+  line-height: 1.45;
   letter-spacing: 0;
   text-transform: none;
-  z-index: 100;
-  box-shadow: 0 16px 36px rgba(0,0,0,0.5);
+  z-index: 10050;
+  box-shadow: 0 16px 36px rgba(0,0,0,0.55);
   pointer-events: none;
   white-space: normal;
+  text-align: left;
 }
-.tf-kpi[data-tip]:hover::before {
+.tf-kpi[data-tip]:hover::before,
+.tf-metric-tip[data-tip]:hover::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -542,7 +551,58 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
   transform: translateX(-50%);
   border: 6px solid transparent;
   border-top-color: #14B8A6;
-  z-index: 101;
+  z-index: 10051;
+}
+.tf-metric-tip {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  box-shadow: var(--shadow-soft);
+  min-height: 78px;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.tf-metric-tip:hover {
+  border-color: var(--border-glow);
+  transform: translateY(-1px);
+}
+.tf-metric-tip .m-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.tf-metric-tip .m-value {
+  font-family: var(--mono);
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #F8FAFC;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.tf-metric-tip .m-hint {
+  margin-top: 4px;
+  font-size: 0.68rem;
+  color: #5EEAD4;
+  opacity: 0.85;
+}
+.tf-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0.5rem 0 1rem 0;
+}
+@media (max-width: 960px) {
+  .tf-metrics-row { grid-template-columns: repeat(2, 1fr); }
+}
+.tf-metrics-row.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.tf-metrics-row.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .tf-explain {
@@ -2010,6 +2070,45 @@ def _kpi_row(items: list[tuple]) -> None:
     st.markdown(f'<div class="tf-kpi-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
 
 
+def _esc_tip(tip: str) -> str:
+    """Escapa comillas para atributo data-tip HTML."""
+    if not tip:
+        return ""
+    s = str(tip).replace("&", "&amp;").replace('"', "&quot;").replace("'", "&#39;")
+    s = s.replace("<", "").replace(">", "")
+    return s
+
+
+def _metric_tip_card(label: str, value: str, tip: str, hint: str = "Pasa el cursor") -> str:
+    tip_a = _esc_tip(tip)
+    val = str(value) if value is not None else "—"
+    return (
+        f'<div class="tf-metric-tip" data-tip="{tip_a}">'
+        f'<div class="m-label">{label}</div>'
+        f'<div class="m-value">{val}</div>'
+        f'<div class="m-hint">{hint}</div></div>'
+    )
+
+
+def _metrics_tip_row(items: list[tuple], cols: int = 4) -> None:
+    """Fila de métricas con explicación al pasar el cursor.
+    items: (label, value, tip)
+    """
+    cards = []
+    for it in items:
+        label, value = it[0], it[1]
+        tip = it[2] if len(it) > 2 else ""
+        cards.append(_metric_tip_card(label, value, tip))
+    if cols == 3:
+        cls = "tf-metrics-row cols-3"
+    elif cols == 2:
+        cls = "tf-metrics-row cols-2"
+    else:
+        cls = "tf-metrics-row"
+    st.markdown(f'<div class="{cls}">{"".join(cards)}</div>', unsafe_allow_html=True)
+    st.caption("💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.")
+
+
 def _explain(text: str) -> None:
     """Callout didáctico bajo resultados clave."""
     st.markdown(f'<div class="tf-explain">{text}</div>', unsafe_allow_html=True)
@@ -3032,28 +3131,32 @@ def main():
                 f"{w['wacc']*100:.2f}%",
                 "costo capital",
                 True,
-                "WACC: rentabilidad mínima exigida por deuda y equity. Si el ROIC supera el WACC, el negocio crea valor.",
+                "Es el costo promedio del dinero de la empresa: lo que exigen quienes prestaron (deuda) y los dueños (acciones). "
+                "Si el negocio gana más que este porcentaje (ROIC > WACC), suele estar creando valor.",
             ),
             (
                 "Ke (CAPM)",
                 f"{w['ke']*100:.2f}%",
                 f"βL {w['beta_l']:.2f}",
                 False,
-                "Ke (CAPM): costo del equity = rf + β apalancado × ERP + CRP. Es la rentabilidad que piden los accionistas.",
+                "Es la rentabilidad que piden los accionistas por el riesgo de esta empresa. "
+                "Se calcula con tasa libre de riesgo + riesgo de mercado (beta) + prima del país si aplica.",
             ),
             (
                 "Horizonte",
                 f"{horizonte} a",
                 f"g {g*100:.1f}%",
                 False,
-                "Años de proyección explícita de FCFF. Después se aplica valor terminal (Gordon) con g ≤ techo macro.",
+                "Cuántos años proyectamos el dinero libre (FCFF) año a año. "
+                "Después se estima un valor a largo plazo (valor terminal) con un crecimiento g moderado.",
             ),
             (
                 "Emisor",
                 empresa.split("—")[0].strip()[:18],
                 str(sector)[:22],
                 False,
-                f"Empresa en análisis: {empresa}. Sector/industria usados para peers y ranking comparativo.",
+                f"Empresa que estás analizando: {empresa}. "
+                "El sector sirve para compararla con empresas parecidas (peers).",
             ),
         ]
     )
@@ -3115,11 +3218,20 @@ def main():
             st.caption("Mueve los sliders y compara el valor base con el nuevo (sin reproyectar FCFF).")
             sw = st.slider("WACC de prueba", 0.06, 0.18, float(w["wacc"]), 0.0025, key="sens_wacc")
             sg = st.slider("g de prueba", 0.005, 0.06, float(g), 0.0025, key="sens_g")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric("WACC base → prueba", f"{sw*100:.2f}%", delta=f"{(sw - w['wacc'])*100:+.2f} pp")
-            with col_b:
-                st.metric("g base → prueba", f"{sg*100:.2f}%", delta=f"{(sg - g)*100:+.2f} pp")
+            _metrics_tip_row([
+                (
+                    "WACC de prueba",
+                    f"{sw*100:.2f}% ({(sw - w['wacc'])*100:+.2f} pp)",
+                    "Costo de capital que estás probando. Si lo subes, el valor del negocio suele bajar "
+                    "porque el futuro 'vale menos' en pesos de hoy.",
+                ),
+                (
+                    "g de prueba",
+                    f"{sg*100:.2f}% ({(sg - g)*100:+.2f} pp)",
+                    "Crecimiento de largo plazo que estás probando. Si lo subes, el valor terminal suele subir, "
+                    "pero si se acerca mucho al WACC el resultado se vuelve frágil e inestable.",
+                ),
+            ], cols=2)
             _analogy("WACC")
             if st.button("Ver impacto en valoración", key="btn_sens", use_container_width=True, type="primary"):
                 try:
@@ -3374,6 +3486,29 @@ def main():
     with tab1:
         st.markdown("##### Proyección de FCFF")
         st.caption(f"Método usado: **{metodo}**. Usa el botón «Generar todo» arriba para calcular.")
+        _metrics_tip_row([
+            (
+                "FCFF",
+                "Dinero libre",
+                "Free Cash Flow to Firm: el efectivo que sobra después de operar e invertir. "
+                "Es la 'plata libre' del negocio antes de pagar intereses a la deuda.",
+            ),
+            (
+                "Histórico",
+                "Años pasados",
+                "Cifras ya ocurridas (estados financieros o catálogo). Sirven de base para proyectar.",
+            ),
+            (
+                "Proyección",
+                "Años futuros",
+                "Estimación del modelo para los próximos años del horizonte. No es una promesa: es un escenario central.",
+            ),
+            (
+                "Fan chart",
+                "Rango probable",
+                "La línea del medio es el caso típico; la sombra muestra que el futuro es un rango, no un número exacto.",
+            ),
+        ], cols=4)
         r = st.session_state.get("resultados", {}).get("tab1")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -3418,6 +3553,23 @@ def main():
     with tab2:
         st.markdown("##### Escenarios pesimista · base · optimista")
         st.caption("Resultados generados con «Generar todo».")
+        _metrics_tip_row([
+            (
+                "EV",
+                "Valor empresa",
+                "Precio teórico de todo el negocio (como el de una casa antes de la hipoteca).",
+            ),
+            (
+                "Equity",
+                "Valor dueños",
+                "Lo que quedaría a los accionistas después de pagar deudas y otros reclamos.",
+            ),
+            (
+                "TV / EV",
+                "% terminal",
+                "Qué parte del valor viene del 'después del horizonte'. Si es muy alto, el resultado depende mucho de g y WACC.",
+            ),
+        ], cols=3)
         r = st.session_state.get("resultados", {}).get("tab2")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -3445,6 +3597,25 @@ def main():
     with tab3:
         st.markdown("##### Coherencia de supuestos")
         st.caption("Resultados generados con «Generar todo».")
+        _metrics_tip_row([
+            (
+                "Auditoría",
+                "Lista de chequeo",
+                "Revisa si los supuestos son razonables: por ejemplo si el crecimiento g no está demasiado cerca del WACC, "
+                "o si hay suficiente historia de datos.",
+            ),
+            (
+                "g vs WACC",
+                "Regla clave",
+                "El crecimiento de largo plazo (g) debe ser menor que el costo de capital (WACC). "
+                "Si no, la fórmula del valor terminal se rompe o se vuelve explosiva.",
+            ),
+            (
+                "Semáforo",
+                "Verde / ámbar / rojo",
+                "Resumen visual de alertas. Rojo no es 'no inviertas': es 'revisa este supuesto antes de decidir'.",
+            ),
+        ], cols=3)
         r = st.session_state.get("resultados", {}).get("tab3")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -3462,6 +3633,26 @@ def main():
     with tab4:
         st.markdown("##### Recomendación de comité")
         st.caption("Resultados generados con «Generar todo».")
+        _metrics_tip_row([
+            (
+                "Decisión",
+                "Marco de discusión",
+                "Resumen de si, con estos números, vale la pena llevar el caso a un comité. "
+                "No es una orden de comprar o vender la acción.",
+            ),
+            (
+                "Gobernanza",
+                "Reglas y alertas",
+                "Lista de apoyos y vetos del motor (por ejemplo g cerca del WACC o apalancamiento alto). "
+                "Sirve para no olvidar riesgos de supuestos.",
+            ),
+            (
+                "Comité IA",
+                "Deliberación opcional",
+                "Simulación con roles (CFO, mercado, riesgos) usando los números ya calculados. "
+                "Complementa el análisis; no sustituye due diligence ni asesoría profesional.",
+            ),
+        ], cols=3)
         r = st.session_state.get("resultados", {}).get("tab4")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -3472,7 +3663,9 @@ def main():
                 _html(r[2])
             _explain(
                 "<b>En palabras simples:</b> la recomendación resume si, con estos números, tiene sentido "
-                "llevar el caso a un comité. No es una orden de compra: es un marco para discutir riesgos y valor."
+                "llevar el caso a un comité. No es una orden de compra: es un marco para discutir riesgos y valor. "
+                "El módulo de contraste automático modelo vs mercado ya no se muestra aquí; la lectura de mercado "
+                "queda a cargo del comité IA (abajo) y del informe de la pestaña 7."
             )
             alerts = []
             if g >= w["wacc"] - 0.005:
@@ -3704,11 +3897,32 @@ def main():
 
         with st.expander("Generar deliberación del comité con IA", expanded=True):
             ctx_preview = _extraer_kpis_comite()
-            c_prev1, c_prev2, c_prev3, c_prev4 = st.columns(4)
-            c_prev1.metric("Precio mkt", f"{ctx_preview['precio_mercado']:,.2f} {ctx_preview.get('moneda', '')}")
-            c_prev2.metric("VPS modelo", f"{ctx_preview['vps_modelo']:,.2f}")
-            c_prev3.metric("Upside", f"{ctx_preview['upside']:+.1f}%")
-            c_prev4.metric("EV / Equity", f"{ctx_preview['val_ev']:,.0f} / {ctx_preview['val_equity']:,.0f}")
+            _metrics_tip_row([
+                (
+                    "Precio mercado",
+                    f"{ctx_preview['precio_mercado']:,.2f} {ctx_preview.get('moneda', '')}",
+                    "Último precio al que se negoció la acción en el mercado (fuente pública). "
+                    "Es lo que pagan/compran los inversionistas hoy, no el valor del modelo.",
+                ),
+                (
+                    "VPS modelo",
+                    f"{ctx_preview['vps_modelo']:,.2f}",
+                    "Valor por acción según el DCF de esta herramienta. "
+                    "Si está muy por encima del precio de mercado, el modelo ve la acción 'barata' (y al revés).",
+                ),
+                (
+                    "Upside",
+                    f"{ctx_preview['upside']:+.1f}%",
+                    "Porcentaje de diferencia entre VPS del modelo y precio de mercado. "
+                    "Solo es comparable si ambas cifras están en la misma moneda. No garantiza que el precio se mueva.",
+                ),
+                (
+                    "EV / Equity",
+                    f"{ctx_preview['val_ev']:,.0f} / {ctx_preview['val_equity']:,.0f}",
+                    "EV = valor del negocio completo. Equity = lo de los dueños tras deudas. "
+                    "Unidades del modelo (p. ej. miles de millones de la moneda del emisor).",
+                ),
+            ], cols=4)
 
             # Leer config de Consulta IA sin mutar keys de widgets ya creados (iaprov/iakey).
             # Streamlit prohíbe asignar session_state[key] de un widget tras instanciarlo.
@@ -3791,6 +4005,26 @@ def main():
     with tab5:
         st.markdown("##### VPN · TIR · Payback")
         st.caption("Resultados generados con «Generar todo».")
+        _metrics_tip_row([
+            (
+                "VPN",
+                "Valor hoy",
+                "Suma de los flujos futuros traídos a pesos de hoy, menos la inversión inicial. "
+                "Si es positiva, el proyecto aporta valor con estos supuestos.",
+            ),
+            (
+                "TIR",
+                "Rentabilidad %",
+                "Tasa de retorno anual implícita del proyecto. Se compara con el WACC: "
+                "si la TIR es mayor, el proyecto suele verse atractivo en papel.",
+            ),
+            (
+                "Payback",
+                "Años",
+                "Cuántos años tardas en recuperar la plata invertida contando los flujos. "
+                "No dice si el riesgo o el costo de capital valían la pena.",
+            ),
+        ], cols=3)
         r = st.session_state.get("resultados", {}).get("tab5")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -3821,6 +4055,25 @@ def main():
     with tab6:
         st.markdown("##### Ranking sectorial")
         st.caption("Resultados generados con «Generar todo».")
+        _metrics_tip_row([
+            (
+                "Score",
+                "Puntaje relativo",
+                "Nota compuesta frente a pares del sector (márgenes, ROIC, WACC, crecimiento, múltiplos). "
+                "Más alto suele indicar mejor posición relativa, no una orden de compra.",
+            ),
+            (
+                "Margen EBITDA",
+                "De cada 100",
+                "De cada 100 de ventas, cuánto queda como utilidad operativa bruta antes de depreciaciones fuertes e intereses.",
+            ),
+            (
+                "EV / EBITDA",
+                "Múltiplo",
+                "Cuántas veces el mercado (o el modelo) paga la utilidad operativa. "
+                "Un múltiplo muy bajo puede ser oportunidad… o señal de problemas.",
+            ),
+        ], cols=3)
         r = st.session_state.get("resultados", {}).get("tab6")
         if r and isinstance(r, (list, tuple)):
             if len(r) > 0:
@@ -3875,29 +4128,90 @@ def main():
                 f'<b style="color:#F1F5F9">{puntaje}</b> · Apoyo a decision · no es orden de compra/venta</div></div>'
             )
             st.markdown(banner, unsafe_allow_html=True)
+            st.caption("Pasa el cursor por la decisión y por cada indicador: verás una explicación en lenguaje simple.")
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("EV base", _k("EV base"))
-            c2.metric("Equity base", _k("Equity base"))
-            c3.metric("VPS modelo", _k("VPS modelo"))
-            c4.metric("Upside", _k("Upside %", _k("Upside")))
-
-            c5, c6, c7, c8 = st.columns(4)
             def _pct_label(raw):
                 s = str(raw).strip()
                 if not s or s == "—":
                     return "—"
                 return s if s.endswith("%") else f"{s}%"
-            c5.metric("WACC", _pct_label(_k("WACC %")))
-            c6.metric("ROIC", _pct_label(_k("ROIC %")))
-            c7.metric("VPN proyecto", _k("VPN proyecto", _k("VPN")))
-            c8.metric("TIR / Payback", f"{_k('TIR')} · {_k('Payback')}")
+
+            _metrics_tip_row([
+                (
+                    "EV base",
+                    _k("EV base"),
+                    "Valor de toda la empresa (negocio completo), antes de restar deudas. "
+                    "Piénsalo como el precio de una casa sin quitar todavía la hipoteca.",
+                ),
+                (
+                    "Equity base",
+                    _k("Equity base"),
+                    "Lo que les quedaría a los dueños (accionistas) si se valora el negocio y se pagan deudas y otros reclamos. "
+                    "Es la parte del pastel para quien tiene acciones.",
+                ),
+                (
+                    "VPS modelo",
+                    _k("VPS modelo"),
+                    "Valor por acción según este modelo (equity dividido entre el número de acciones). "
+                    "Se compara con el precio de mercado para ver si el modelo ve la acción cara o barata.",
+                ),
+                (
+                    "Upside",
+                    _k("Upside %", _k("Upside")),
+                    "Diferencia porcentual entre el valor por acción del modelo y el precio de mercado. "
+                    "Solo tiene sentido si modelo y cotización están en la misma moneda. "
+                    "No es una promesa de ganancia ni una orden de compra.",
+                ),
+            ], cols=4)
+
+            _metrics_tip_row([
+                (
+                    "WACC",
+                    _pct_label(_k("WACC %")),
+                    "Costo promedio del capital: lo mínimo que debería rendir el negocio para satisfacer a prestamistas y dueños. "
+                    "Más WACC = el futuro se descuenta más fuerte y el valor suele bajar.",
+                ),
+                (
+                    "ROIC",
+                    _pct_label(_k("ROIC %")),
+                    "Rentabilidad del capital que ya está invertido en el negocio. "
+                    "Si ROIC es mayor que WACC, en general el negocio crea valor; si es menor, puede estar destruyendo valor.",
+                ),
+                (
+                    "VPN proyecto",
+                    _k("VPN proyecto", _k("VPN")),
+                    "Valor presente neto del proyecto: trae los flujos futuros a pesos de hoy y resta la inversión inicial. "
+                    "VPN positivo = con estos supuestos el proyecto aporta valor; negativo = no compensa el capital.",
+                ),
+                (
+                    "TIR / Payback",
+                    f"{_k('TIR')} · {_k('Payback')}",
+                    "TIR: rentabilidad anual implícita del proyecto (se compara con el WACC). "
+                    "Payback: en cuántos años recuperas la inversión en efectivo (no mide si el riesgo valía la pena).",
+                ),
+            ], cols=4)
 
             st.markdown("###### Escenarios de equity")
-            e1, e2, e3 = st.columns(3)
-            e1.metric("Pesimista", _k("Equity pesimista"))
-            e2.metric("Base", _k("Equity base"))
-            e3.metric("Optimista", _k("Equity optimista"))
+            _metrics_tip_row([
+                (
+                    "Pesimista",
+                    _k("Equity pesimista"),
+                    "Valor para los dueños si las cosas salen peor de lo normal: menos ventas o márgenes, más costo de capital. "
+                    "Si aquí el equity sigue positivo, hay cierto colchón de resiliencia.",
+                ),
+                (
+                    "Base",
+                    _k("Equity base"),
+                    "Caso central o más probable según los supuestos actuales del modelo. "
+                    "Es el número de referencia para discutir en un comité.",
+                ),
+                (
+                    "Optimista",
+                    _k("Equity optimista"),
+                    "Valor para los dueños si el negocio va mejor (mejores márgenes o menor costo de capital). "
+                    "Si solo este escenario se ve bien, la tesis puede ser frágil.",
+                ),
+            ], cols=3)
 
             with st.expander("Detalle de KPIs y lectura sencilla", expanded=False):
                 if kpi_df is not None:

@@ -6581,26 +6581,6 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         )
         decision, color, just = motor["decision"], motor["color"], motor["sesgo"]
 
-        # Módulo de contraste modelo vs mercado (antes no se calculaba -> NameError)
-        try:
-            contraste = modulo_ia_contraste_decision(
-                nombre_empresa=nombre_empresa,
-                motor=motor,
-                wacc=wacc,
-                g=float(g),
-                roic=roic,
-                equity_base=val_base.get("Equity_Value"),
-                ev_base=val_base.get("EV"),
-                de_ratio=float(de_ratio),
-                procedencia=prov,
-                ticker_yf=emp.get("ticker_yf") or ticker_yf_empresa(nombre_empresa),
-                precio_modelo=precio_p,
-                upside_modelo_pct=val_base.get("upside_pct"),
-            ) or {}
-        except Exception as e_ctr:
-            contraste = {"html": f"<p style='color:#991B1B'>No se pudo generar el módulo de contraste: {e_ctr}</p>"}
-        contraste_ok = bool(contraste.get("veredicto_mercado"))
-
         kpis = pd.DataFrame({
             "Indicador": [
                 "Decisión de comité (modelo)", "Score heurístico", "Calidad de datos",
@@ -6617,8 +6597,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         })
 
         vetos_html = "".join(f"<li style='color:#991B1B'>{v}</li>" for v in motor["vetos"]) or "<li style='color:#065F46'>Ningún veto duro activo</li>"
-        # Si el módulo IA está disponible ya explica los vetos en lenguaje de negocio: no se listan dos veces.
-        vetos_bloque = "" if contraste_ok else (
+        # Vetos del motor de decisión (sin bloque de contraste modelo vs mercado en esta pestaña).
+        vetos_bloque = (
             "<b>Vetos de calidad del modelo (control interno · no son rating de la acción)</b>"
             f"<ul>{vetos_html}</ul>"
         )
@@ -6672,7 +6652,6 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
 """
         # Salida 1 (decisión): tarjeta + alertas/soportes + análisis IA de mercado.
         # Salida 3 (memo): resumen numérico + sensibilidad + puente EV→Equity. Sin bloques repetidos.
-        decision_html = decision_html + contraste.get("html", "")
         resumen = resumen + formatear_bridge_html(val_base, moneda_modelo=mon_modelo, moneda_precio=mon_precio, nombre_empresa=nombre_empresa)
         try:
             guardar_resultado_tab("4", nombre_empresa, {
