@@ -2295,7 +2295,78 @@ def _market_tape_quotes():
     return rows
 
 
+def _clear_market_caches() -> None:
+    """Invalida cachés de cinta y cualquier dato de mercado en sesión."""
+    try:
+        _market_tape_quotes.clear()
+    except Exception:
+        pass
+    for _k in (
+        "ficha_html",
+        "precio_mercado_alineado",
+        "moneda_precio_alineada",
+        "fx_mismatch",
+        "_market_last_fetch_ts",
+    ):
+        st.session_state.pop(_k, None)
+
+
+def _ensure_market_refresh_interval(seconds: int = 300) -> None:
+    """Si pasaron ≥ seconds desde el último fetch forzado, limpia caché de cinta."""
+    import time as _time
+    now = _time.time()
+    last = float(st.session_state.get("_market_last_fetch_ts") or 0)
+    if last <= 0 or (now - last) >= float(seconds):
+        try:
+            _market_tape_quotes.clear()
+        except Exception:
+            pass
+        st.session_state["_market_last_fetch_ts"] = now
+
+
+def _install_auto_refresh(seconds: int = 300) -> None:
+    """Recarga la app cada `seconds` para refrescar cinta y ficha.
+
+    Prioridad: streamlit-autorefresh → st.fragment(run_every) → components.html.
+    """
+    # 1) streamlit-autorefresh (si está instalado)
+    try:
+        from streamlit_autorefresh import st_autorefresh  # type: ignore
+        st_autorefresh(interval=int(seconds) * 1000, key="tf_market_autorefresh")
+        return
+    except Exception:
+        pass
+    # 2) JS vía components (recarga del iframe padre)
+    try:
+        import streamlit.components.v1 as components
+        ms = int(seconds) * 1000
+        components.html(
+            f"""
+            <script>
+            (function() {{
+              try {{
+                var k = 'tf_market_autorefresh_armed';
+                if (window.parent && !window.parent[k]) {{
+                  window.parent[k] = true;
+                  setTimeout(function() {{
+                    try {{ window.parent[k] = false; window.parent.location.reload(); }}
+                    catch (e) {{ try {{ window.top.location.reload(); }} catch (e2) {{}} }}
+                  }}, {ms});
+                }}
+              }} catch (e) {{}}
+            }})();
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+        return
+    except Exception:
+        pass
+
+
 def _render_market_tape() -> None:
+    _ensure_market_refresh_interval(300)
     data = _market_tape_quotes()
     parts = []
 
@@ -2332,6 +2403,7 @@ def _render_market_tape() -> None:
         f'<div class="tf-tape-wrap"><div class="tf-tape">{inner}</div></div>',
         unsafe_allow_html=True,
     )
+    st.caption("Cinta de mercado · se actualiza automáticamente cada 5 minutos.")
 
 
 def _section_start(title: str) -> None:
@@ -2865,9 +2937,15 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
     # Limpiar datos de la empresa anterior (evita precio/ticker AAPL en ficha ISA)
     for _k in (
         "precio_mercado_alineado", "moneda_precio_alineada", "fx_mismatch",
-        "tab4_comite_ia_html", "tab4_comite_empresa", "resultados",
+        "tab4_comite_ia_html", "tab4_comite_ia_texto", "tab4_comite_ia_struct",
+        "tab4_comite_empresa", "resultados", "ficha_html", "params",
+        "_market_last_fetch_ts",
     ):
         st.session_state.pop(_k, None)
+    try:
+        _clear_market_caches()
+    except Exception:
+        pass
     st.session_state["resultados"] = {}
     st.session_state["params"] = {}
     if params_tuple is not None and len(params_tuple) >= 14:
@@ -2913,7 +2991,11 @@ def main():
     except Exception:
         pass
 
-    # Cinta de mercado (tickers + variación del día)
+    # Cinta de mercado (tickers + variación del día) + auto-refresh 5 min
+    try:
+        _install_auto_refresh(300)
+    except Exception:
+        pass
     try:
         _render_market_tape()
     except Exception:
@@ -2963,12 +3045,23 @@ def main():
         if empresa != st.session_state.get("empresa_sel"):
             # No asignar select_empresa aquí (el widget ya existe). Solo sincronizar estado y recargar.
             st.session_state["empresa_sel"] = empresa
-            _cargar_params_empresa(empresa)
+            for _k in (
+                "ficha_html", "resultados", "tab4_comite_ia_html", "tab4_comite_ia_texto",
+                "tab4_comite_ia_struct", "precio_mercado_alineado", "moneda_precio_alineada",
+                "fx_mismatch", "params",
+            ):
+                st.session_state.pop(_k, None)
             st.session_state["resultados"] = {}
+            st.session_state["params"] = {}
+            try:
+                _clear_market_caches()
+            except Exception:
+                pass
             try:
                 L.reset_resultados_sesion(empresa)
             except Exception:
                 pass
+            _cargar_params_empresa(empresa)
             st.rerun()
 
         if st.session_state.get("params") is None:
@@ -2978,9 +3071,11 @@ def main():
         with st.expander("Ficha", expanded=True):
             # Ficha SIEMPRE regenerada (no HTML cacheado con métricas N/D o ticker ajeno)
             try:
+                _ensure_market_refresh_interval(300)
                 _ficha_live = L.card_empresa_seleccionada(empresa)
                 st.session_state["ficha_html"] = _ficha_live
                 _html(_ficha_live)
+                st.caption("Ficha · precio y múltiplos se refrescan con la app cada 5 minutos.")
             except Exception as _e_ficha:
                 if st.session_state.get("ficha_html"):
                     _html(st.session_state["ficha_html"])
@@ -4041,6 +4136,7 @@ def main():
                         "El comité tratará el upside como no comparable hasta alinear FX."
                     )
                     st.info("Comité bloqueado parcialmente: puedes continuar, pero el upside se fuerza a 0 en el prompt.")
+                prompt = _prompt_comite_ia(ctx)
                 with st.spinner("El comité interdisciplinario está deliberando…"):
                     try:
                         key_eff = (
@@ -4050,39 +4146,9 @@ def main():
                         )
                         if prov_ia == "gemini" and not key_eff:
                             key_eff = _resolve_gemini_key(None)
-                        # Usar el endpoint dedicado del comité (no asistente_consulta_financiera):
-                        # ese último imprime «Consulta: …» + el prompt completo en el HTML.
-                        _metricas = {
-                            "empresa": ctx.get("empresa") or empresa,
-                            "ticker": ctx.get("ticker"),
-                            "moneda": ctx.get("moneda"),
-                            "precio_mercado": ctx.get("precio_mercado"),
-                            "vps_modelo": ctx.get("vps_modelo"),
-                            "upside": ctx.get("upside"),
-                            "wacc_calc": ctx.get("wacc_calc"),
-                            "ke_calc": ctx.get("ke_calc"),
-                            "roic_calc": ctx.get("roic_calc"),
-                            "de_ratio": ctx.get("de_ratio"),
-                            "g": ctx.get("g"),
-                            "val_ev": ctx.get("val_ev"),
-                            "val_equity": ctx.get("val_equity"),
-                        }
-                        if hasattr(L, "generar_recomendacion_comite_ia"):
-                            respuesta = L.generar_recomendacion_comite_ia(
-                                empresa,
-                                api_key=key_eff,
-                                proveedor=prov_ia or "gemini",
-                                metricas=_metricas,
-                            )
-                        else:
-                            # Fallback: no pasar el prompt como «pregunta» al asistente genérico
-                            respuesta = L.asistente_consulta_financiera(
-                                "Resume la tesis de inversión de esta empresa en 4 apartados "
-                                "(CFO, mercado, riesgos, decisión) sin repetir el prompt.",
-                                empresa,
-                                api_key=key_eff,
-                                proveedor=prov_ia or "gemini",
-                            )
+                        respuesta = L.asistente_consulta_financiera(
+                            prompt, empresa, api_key=key_eff, proveedor=prov_ia or "gemini",
+                        )
                         st.session_state["tab4_comite_ia_html"] = respuesta
                         try:
                             _struct = (
@@ -4093,19 +4159,6 @@ def main():
                             _txt = (_struct or {}).get("texto") or (
                                 L._html_a_texto(respuesta, 800) if hasattr(L, "_html_a_texto") else str(respuesta)[:800]
                             )
-                            # Evitar guardar el prompt si por algún motivo llegó al HTML
-                            _up = (_txt or "").upper()
-                            if "ACTÚA COMO UN COMITÉ" in _up or "ACTUA COMO UN COMITE" in _up or "CONTEXTO DE ENTRADA" in _up:
-                                _txt = (_struct or {}).get("texto") or ""
-                                if not _txt and _struct:
-                                    partes = []
-                                    if _struct.get("recomendacion"):
-                                        partes.append(f"Recomendación final: {_struct['recomendacion']}")
-                                    if _struct.get("puntaje"):
-                                        partes.append(f"Puntaje: {_struct['puntaje']}")
-                                    for i, p in enumerate((_struct.get("monitoreo") or [])[:3], 1):
-                                        partes.append(f"{i}. {p}")
-                                    _txt = "\n".join(partes)
                             L.guardar_resultado_tab("comite_ia", empresa, {
                                 "texto": _txt,
                                 "struct": _struct,
