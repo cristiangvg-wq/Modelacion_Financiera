@@ -695,11 +695,16 @@ PEERS_POR_SECTOR = {
     "healthcare": ["JNJ", "UNH", "PFE", "ABBV", "MRK", "LLY"],
     "pharma": ["PFE", "JNJ", "MRK", "ABBV", "LLY", "AZN"],
     "biotechnology": ["AMGN", "GILD", "REGN", "VRTX", "BIIB"],
-    # Finanzas
+    # Finanzas / bolsas
     "financial": ["JPM", "BAC", "WFC", "GS", "MS", "C"],
     "banks": ["JPM", "BAC", "WFC", "C", "USB", "PNC"],
+    "bancos": ["JPM", "BAC", "WFC", "C", "USB", "PNC"],
     "insurance": ["BRK-B", "MET", "PRU", "AIG", "ALL"],
-    "capital markets": ["GS", "MS", "SCHW", "BLK", "SPGI"],
+    "capital markets": ["GS", "MS", "SCHW", "BLK", "SPGI", "ICE", "CME", "NDAQ"],
+    "exchange": ["ICE", "CME", "NDAQ", "CBOE", "SPGI"],
+    "bolsa": ["ICE", "CME", "NDAQ", "CBOE"],
+    "valores": ["ICE", "CME", "NDAQ", "SPGI"],
+    "servicios financieros": ["JPM", "BAC", "GS", "MS", "SCHW", "ICE"],
     # Consumo
     "consumer cyclical": ["AMZN", "TSLA", "HD", "NKE", "MCD", "SBUX"],
     "consumer defensive": ["PG", "KO", "PEP", "WMT", "COST", "CL"],
@@ -774,6 +779,11 @@ def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_p
         "capital markets": "capital markets",
         "credit services": "financial",
         "asset management": "capital markets",
+        "financial data": "capital markets",
+        "financial exchanges": "exchange",
+        "stock exchange": "exchange",
+        "bolsa de valores": "bolsa",
+        "servicios financieros": "financial",
         "information technology services": "information technology",
         "scientific & technical instruments": "technology",
         "electronic components": "semiconductor",
@@ -821,34 +831,82 @@ def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_p
     return found, matched_keys[:3]
 
 
+def _familia_sector(sector_texto, industry_texto=""):
+    """
+    Clasifica el sector en una familia comparable (energy, financial, technology, …).
+    Evita mezclar, p. ej., una bolsa de valores con utilities energéticas.
+    """
+    blob = _normalizar_texto_sector(f"{sector_texto or ''} {industry_texto or ''}")
+    if not blob.strip():
+        return "other"
+    familias = [
+        ("financial", (
+            "financial", "bank", "banco", "insurance", "capital market", "bolsa",
+            "valores", "fintech", "asset management", "credit", "exchange",
+            "servicios financieros", "broker", "securities",
+        )),
+        ("energy", (
+            "energy", "utilit", "oil", "gas", "electric", "petroleo", "energia",
+            "transmision", "renovable", "generacion", "midstream", "refining",
+            "power", "pipeline",
+        )),
+        ("technology", (
+            "technology", "software", "semiconductor", "information technology",
+            "internet content", "consumer electronics", "hardware",
+        )),
+        ("healthcare", (
+            "healthcare", "pharma", "biotech", "drug", "health care", "medical",
+        )),
+        ("consumer", (
+            "consumer", "retail", "automotive", "food", "beverage", "restaurant",
+        )),
+        ("industrials", (
+            "industrial", "aerospace", "defense", "machinery", "logistics", "transport",
+        )),
+        ("materials", (
+            "basic materials", "mining", "steel", "chemical", "metals",
+        )),
+        ("telecom", (
+            "telecom", "communication services", "media", "wireless",
+        )),
+        ("real_estate", (
+            "real estate", "reit", "inmobili",
+        )),
+    ]
+    for fam, keys in familias:
+        if any(k in blob for k in keys):
+            return fam
+    # infraestructura energética típica del catálogo CO
+    if "infraestructura" in blob and any(k in blob for k in ("energia", "electric", "transmision", "gas")):
+        return "energy"
+    if "infraestructura" in blob:
+        return "industrials"
+    return "other"
+
+
+def _mismo_sector_familia(sector_a, industry_a, sector_b, industry_b=""):
+    fa = _familia_sector(sector_a, industry_a)
+    fb = _familia_sector(sector_b, industry_b)
+    if fa != "other" and fb != "other":
+        return fa == fb
+    # Fallback token overlap estricto si ambos son other
+    ta = set(_normalizar_texto_sector(f"{sector_a} {industry_a}").split())
+    tb = set(_normalizar_texto_sector(f"{sector_b} {industry_b}").split())
+    stop = {"de", "y", "the", "and", "or", "a", "la", "el", "del", "los", "las", "no", "clasificado"}
+    ta = {t for t in ta if len(t) >= 4 and t not in stop}
+    tb = {t for t in tb if len(t) >= 4 and t not in stop}
+    return bool(ta & tb)
+
+
 def filtrar_empresas_mismo_sector(sector_focal, industry_focal=""):
-    """Empresas del catálogo + runtime cuyo sector solapa con el focal."""
-    tokens_f = set(_normalizar_texto_sector(f"{sector_focal} {industry_focal}").split())
-    # tokens genéricos poco útiles (permitir tech-like de 3+ letras si son claves de sector)
-    stop = {"de", "y", "the", "and", "or", "a", "la", "el", "/", "-", "no", "clasificado", "none"}
-    tokens_f = {t for t in tokens_f if (len(t) >= 4 or t in PEERS_POR_SECTOR) and t not in stop}
-    # Añadir claves PEERS que estén contenidas en el texto del sector
-    blob_f = _normalizar_texto_sector(f"{sector_focal} {industry_focal}")
-    for k in PEERS_POR_SECTOR:
-        if k in blob_f:
-            tokens_f.add(k)
+    """Empresas del catálogo + runtime de la *misma familia de sector* que la focal."""
     matches = {}
+    fam_f = _familia_sector(sector_focal, industry_focal)
     for nombre, emp in list(EMPRESAS.items()) + list(EMPRESAS_RUNTIME.items()):
-        sec = _normalizar_texto_sector(emp.get("sector", ""))
-        if not tokens_f:
-            continue
-        # solape de tokens o subcadena
-        hit = any(t in sec for t in tokens_f) or any(
-            t in sec for t in ("energy", "utilit", "oil", "electric", "gas", "petroleo")
-            if any(x in _normalizar_texto_sector(sector_focal) for x in ("energy", "utilit", "oil", "electric", "gas", "petroleo", "energia", "transmision"))
-        )
-        # match más general: alguna palabra clave compartida de PEERS
-        if not hit:
-            for k in PEERS_POR_SECTOR:
-                if k in _normalizar_texto_sector(sector_focal) and k in sec:
-                    hit = True
-                    break
-        if hit:
+        sec = emp.get("sector", "") or ""
+        if _mismo_sector_familia(sector_focal, industry_focal, sec, ""):
+            matches[nombre] = emp
+        elif fam_f != "other" and _familia_sector(sec) == fam_f:
             matches[nombre] = emp
     return matches
 
@@ -7243,41 +7301,36 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
             break
         _add_ticker(pt, "peer auto-sector")
 
-    # --- 5) Complemento solo si el sector es energía/utilities y faltan comparables ---
-    sec_norm = _normalizar_texto_sector(sector_focal)
-    es_energia = any(
-        k in sec_norm
-        for k in (
-            "energy", "utilit", "oil", "gas", "electric", "petroleo", "energia",
-            "transmision", "renovable", "infraestructura", "generacion",
-        )
-    )
-    if es_energia and len(rows) < 4:
-        for nombre, emp in EMPRESAS.items():
-            if "Bolsa de Valores" in nombre:
+    # --- 5) Complemento SOLO del mismo sector/familia (nunca mezclar sectores) ---
+    fam_focal = _familia_sector(sector_focal_main or sector_focal, industry_focal)
+    if len(rows) < 4:
+        for nombre, emp in list(EMPRESAS.items()) + list(EMPRESAS_RUNTIME.items()):
+            if nombre == nombre_empresa_focal:
                 continue
-            short = _nombre_corto(nombre)
-            if short.upper() == "BVC":
+            sec_e = emp.get("sector", "") or ""
+            if not _mismo_sector_familia(sector_focal_main or sector_focal, industry_focal, sec_e, ""):
                 continue
-            _add_emp(nombre, emp, "catálogo energía")
-            if len(rows) >= 7:
+            if _familia_sector(sec_e) != fam_focal and fam_focal != "other":
+                continue
+            _add_emp(nombre, emp, f"mismo sector ({fam_focal})")
+            if len(rows) >= 8:
                 break
 
-    # --- 6) Si aún no hay sector ni peers (empresa sin datos), fallback catálogo ---
-    if len(rows) < 2:
-        for nombre, emp in EMPRESAS.items():
-            if "Bolsa de Valores" in nombre:
-                continue
-            short = _nombre_corto(nombre)
-            if short.upper() == "BVC":
-                continue
-            _add_emp(nombre, emp, "fallback catálogo")
+    # --- 6) Si faltan comparables: más peers auto del sector (sin catálogo ajeno) ---
+    if len(rows) < 3 and matched_keys:
+        for pt in auto_peers:
             if len(rows) >= 6:
                 break
+            _add_ticker(pt, "peer auto-sector (refuerzo)")
 
     if not rows:
-        df = pd.DataFrame(DATOS_SECTOR)
-        return df, {}, "Fallback a DATOS_SECTOR estático (sin emisores vivos)."
+        # Solo focal sin peers: tabla mínima vacía de score (no DATOS_SECTOR de otro oficio)
+        return (
+            pd.DataFrame([]),
+            {},
+            f"Sin comparables del sector «{sector_focal or 'N/D'}» (familia {fam_focal}). "
+            "Indica peers manuales o descarga emisores del mismo sector.",
+        )
 
     df = pd.DataFrame(rows)
     # --- Múltiplos: sin 8x inventado. Los comparables sin cotización usan la MEDIANA robusta del sector ---
@@ -7290,11 +7343,13 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
         if len(df) >= 4:
             df["EV/EBITDA (x)"] = normalizar_atipicos(df["EV/EBITDA (x)"].astype(float), reemplazo="mediana")[0].round(2)
     keys_txt = ", ".join(matched_keys) if matched_keys else "sin clave PEERS"
+    fam_txt = _familia_sector(sector_focal_main or sector_focal, industry_focal)
     resumen = (
-        f"Comparables del sector de la empresa en análisis ({sector_focal or 'N/D'}). "
+        f"Comparables del mismo sector que la empresa en análisis "
+        f"(«{sector_focal or 'N/D'}» · familia {fam_txt}). "
         f"Emisores en tabla: {n_fund} · cotización live: {n_live}. "
         f"Claves peers: {keys_txt}. "
-        "No se impone el catálogo BVC salvo sector energía/utilities o falta de datos."
+        "No se mezclan empresas de otro sector."
     )
     return df, notas, resumen
 
@@ -7334,6 +7389,8 @@ def calcular_score_sectorial(df_in):
       n < 4 : rango percentil (z robusto no es estimable con tan pocos datos).
     Los crecimientos negativos ya no se recortan a cero: una caída de ingresos penaliza.
     """
+    if df_in is None or not hasattr(df_in, "columns") or len(df_in) == 0:
+        return pd.DataFrame()
     df = df_in.copy()
     n = len(df)
 
@@ -7383,6 +7440,17 @@ def tab6_comparacion_sectorial(nombre_empresa):
         df_raw, notas, resumen_fuentes = construir_tabla_sectorial_live(nombre_empresa_focal=nombre_empresa)
         df = calcular_score_sectorial(df_raw)
         short = _nombre_corto(nombre_empresa)
+
+        if df is None or len(df) == 0:
+            html = f"""
+<div class="section-card" style="border-left:4px solid #F59E0B">
+  <b>Ranking sectorial · {nombre_empresa}</b>
+  <p style="color:#E8EEF7;margin:8px 0">No hay comparables del <b>mismo sector</b> para armar el ranking.
+  {resumen_fuentes or ''}</p>
+  <p style="color:#94A3B8;font-size:0.85rem">Sugerencia: descarga peers del mismo sector por Yahoo o indica tickers comparables manuales.</p>
+</div>
+"""
+            return html, pd.DataFrame(), None
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
         ax1 = axes[0]
