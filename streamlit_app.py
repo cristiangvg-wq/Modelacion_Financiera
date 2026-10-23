@@ -4786,11 +4786,18 @@ def main():
             disabled=not bool(_portfolio_ticker_actual),
             help="Añade el ticker de la empresa seleccionada al universo que se optimiza. La valoración DCF se presenta como señal independiente; no se transforma en retorno esperado.",
         )
-        _ptickers_text = st.text_input("Otros tickers del universo, separados por coma", value="AAPL,MSFT,NVDA", key="portfolio_tickers")
+        _ptickers_text = st.text_input("Otros tickers del universo, separados por coma", value="", placeholder="Ej.: MSFT,NVDA", key="portfolio_tickers")
         if _portfolio_ticker_actual:
             st.caption(
                 f"Empresa seleccionada para valoración: **{_portfolio_empresa_actual}** · "
-                f"ticker detectado: **{_portfolio_ticker_actual}**"
+                f"ticker detectado: **{_portfolio_ticker_actual}**. "
+                "Escribe aquí otros activos para diversificar; si incluyes la empresa valorada, "
+                "solo necesitas añadir al menos otro ticker."
+            )
+        else:
+            st.caption(
+                "No se detectó ticker para la empresa seleccionada: introduce al menos dos tickers "
+                "manualmente o corrige el ticker en la ficha de la empresa."
             )
         _prf = st.number_input(
             "Tasa libre de riesgo anual (decimal)", min_value=0.0, max_value=0.50,
