@@ -3832,8 +3832,9 @@ def main():
                 wacc_calc = ww / 100.0 if ww > 1.0 else ww
             roic_k = _k("ROIC %", "ROIC")
             if roic_k is not None:
-                rr = _safe_float(roic_k, 0.0)
-                roic_calc = rr / 100.0 if rr > 1.0 else rr
+                rr = _safe_float(roic_k, None)
+                if rr is not None:
+                    roic_calc = rr / 100.0 if rr > 1.0 else rr
 
             t2 = res.get("tab2")
             if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
