@@ -1837,7 +1837,8 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
             # NWC proxy 5 % (antes 8 %); muchas empresas tech tienen NWC bajo o negativo
             nwc = abs(ing) * 0.05
             delta = 0.0 if prev_nwc is None else nwc - prev_nwc
-            nopat = eb * (1.0 - tax_efectiva)  # ← CORRECCIÓN: ya no * 0.65 fijo
+            # Unificar la política fiscal con el motor de proyección: sin escudo fiscal automático por pérdidas.
+            nopat = float(calcular_nopat(eb, tax_efectiva))
             fcff = nopat + d - cx - delta
             rows.append({
                 "Año": int(y),
@@ -2627,7 +2628,8 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
 
         mm = (moneda_modelo or "").upper().strip()
         mp = (moneda_precio or "").upper().strip()
-        monedas_ok = (not mm or not mp or mm == mp)
+        # Sin moneda confirmada en ambos lados, no calcular upside: ausencia de dato no equivale a igualdad.
+        monedas_ok = bool(mm and mp and mm == mp)
 
         if precio_mercado is not None and float(precio_mercado) > 0:
             px = float(precio_mercado)
@@ -3739,10 +3741,27 @@ def calcular_wacc(de, kd, ke, t):
 
 def costo_equity_capm(beta_l, rf=0.09, erp=0.06, crp=0.0):
     """
-    CAPM con prima país opcional (enfoque institucional emergente).
-    Ke = rf + β_L × ERP + CRP
+    CAPM con prima país opcional.
+    Ke = rf + beta apalancada × ERP + CRP.
+    Tasas en decimales; las fuentes y fechas deben registrarse en los parámetros del modelo.
     """
-    return float(rf) + float(beta_l) * float(erp) + float(crp or 0.0)
+    try:
+        beta_l = float(beta_l)
+        rf = float(rf)
+        erp = float(erp)
+        crp = 0.0 if crp is None else float(crp)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Beta, RF, ERP y CRP deben ser numéricos.") from exc
+    if not all(np.isfinite(x) for x in (beta_l, rf, erp, crp)):
+        raise ValueError("Beta, RF, ERP y CRP deben ser finitos.")
+    if beta_l < 0:
+        raise ValueError("Beta negativa requiere una justificación explícita.")
+    if min(rf, erp, crp) < 0:
+        raise ValueError("RF, ERP y CRP no pueden ser negativos en esta configuración.")
+    ke = rf + beta_l * erp + crp
+    if not np.isfinite(ke) or ke <= 0:
+        raise ValueError("Ke resultante debe ser finito y positivo.")
+    return float(ke)
 
 
 
@@ -7546,30 +7565,45 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
             disp = f"{long_n} — {short_p}"
             sec = info.get("sector") or ""
             ind = info.get("industry") or ""
-            ebitda = _safe_float(info.get("ebitda")) or 0.0
-            rev = _safe_float(info.get("totalRevenue")) or 0.0
-            margen = 100.0 * ebitda / rev if rev else 0.0
+            ebitda_obs = _safe_float(info.get("ebitda"))
+            rev_obs = _safe_float(info.get("totalRevenue"))
+            ebitda = ebitda_obs if ebitda_obs is not None else 0.0
+            rev = rev_obs if rev_obs is not None else 0.0
+            margen = 100.0 * ebitda / rev if rev_obs not in (None, 0) and ebitda_obs is not None else None
+            # No imputar un múltiplo sectorial ficticio cuando Yahoo no lo informa.
             ev_eb = _safe_float(info.get("enterpriseToEbitda"))
-            if ev_eb is None:
-                ev_eb = 10.0
-            beta = _safe_float(info.get("beta")) or 1.0
+            if ev_eb is not None and (not np.isfinite(ev_eb) or ev_eb <= 0):
+                ev_eb = None
+            beta_obs = _safe_float(info.get("beta"))
+            beta = beta_obs if beta_obs is not None else 1.0
+            de_obs = _safe_float(info.get("debtToEquity"))
+            de_ratio_obs = round(de_obs / 100.0, 2) if de_obs is not None and de_obs >= 0 else None
+            de_ratio_model = de_ratio_obs if de_ratio_obs is not None else 0.5
             row = {
                 "Empresa": short_p,
                 "Nombre": disp,
-                "Ingresos (miles M)": round((rev or 0) / 1e9, 2),
-                "EBITDA (miles M)": round((ebitda or 0) / 1e9, 2),
-                "Margen EBITDA (%)": round(margen, 1),
-                "ROIC (%)": 0.0,
-                "WACC estimado (%)": 8.0,
-                "D/E": round((_safe_float(info.get("debtToEquity")) or 0) / 100.0, 2) if info.get("debtToEquity") else 0.5,
-                "EV/EBITDA (x)": round(float(ev_eb), 2),
-                "Crecimiento Ingresos 3a (%)": 0.0,
-                "FCFF (miles M)": 0.0,
-                "Fuente múltiplo": "Yahoo info (peer ligero)",
+                "Ingresos (miles M)": round(rev / 1e9, 2) if rev_obs is not None else None,
+                "EBITDA (miles M)": round(ebitda / 1e9, 2) if ebitda_obs is not None else None,
+                "Margen EBITDA (%)": round(margen, 1) if margen is not None else None,
+                # Campos no observados permanecen N/D.
+                "ROIC (%)": None,
+                "WACC estimado (%)": None,
+                "D/E": de_ratio_obs,
+                "EV/EBITDA (x)": round(float(ev_eb), 2) if ev_eb is not None else None,
+                "Crecimiento Ingresos 3a (%)": None,
+                "FCFF (miles M)": None,
+                "Fuente múltiplo": "Yahoo info (peer ligero)" if ev_eb is not None else "Yahoo info (múltiplo N/D)",
                 "Sector": f"{sec}" + (f" / {ind}" if ind else ""),
             }
             seen_short.add(short_p)
-            notas[short_p] = f"Yahoo ligero · {etiqueta}"
+            _fallbacks = []
+            if de_ratio_obs is None:
+                _fallbacks.append("D/E supuesto 0.5 solo para inicializar el modelo")
+            if beta_obs is None:
+                _fallbacks.append("beta supuesta 1.0 solo para inicializar el modelo")
+            if ev_eb is None:
+                _fallbacks.append("EV/EBITDA observado no disponible")
+            notas[short_p] = f"Yahoo ligero · {etiqueta}" + (("; " + "; ".join(_fallbacks)) if _fallbacks else "")
             rows.append(row)
             n_fund += 1
             n_live += 1
@@ -7578,12 +7612,12 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
                 "ticker_yf": str(ticker).upper(),
                 "ticker_bvc": short_p,
                 "sector": row["Sector"],
-                "params": {"de_ratio": row["D/E"], "kd": 0.06, "tax": 0.25, "g": 0.03, "beta_u": beta / max(1.0 + row["D/E"] * 0.65, 0.5),
-                           "capital_invertido": max(row["Ingresos (miles M)"], 1) * 2, "deuda_neta": 0, "inversion_inicial": 0,
+                "params": {"de_ratio": de_ratio_model, "kd": 0.06, "tax": 0.25, "g": 0.03, "beta_u": beta / max(1.0 + de_ratio_model * 0.65, 0.5),
+                           "capital_invertido": max((row["Ingresos (miles M)"] or 0), 1) * 2, "deuda_neta": 0, "inversion_inicial": 0,
                            "caja": 0, "nci": 0, "otros_claims": 0, "asociados": 0, "acciones": 0, "exit_multiple": row["EV/EBITDA (x)"],
                            "moneda": info.get("currency") or "USD"},
-                "historico": {"Año": [datetime.now().year - 1], "Ingresos": [row["Ingresos (miles M)"]],
-                              "EBITDA": [row["EBITDA (miles M)"]], "EBIT": [row["EBITDA (miles M)"] * 0.8],
+                "historico": {"Año": [datetime.now().year - 1], "Ingresos": [row["Ingresos (miles M)"] or 0.0],
+                              "EBITDA": [row["EBITDA (miles M)"] or 0.0], "EBIT": [(row["EBITDA (miles M)"] or 0.0) * 0.8],
                               "FCFF": [0.0], "NOPAT": [0.0], "CAPEX": [0.0], "NWC": [0.0]},
                 "peers": [],
             }
@@ -7655,15 +7689,13 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
         )
 
     df = pd.DataFrame(rows)
-    # --- Múltiplos: sin 8x inventado. Los comparables sin cotización usan la MEDIANA robusta del sector ---
-    if "Fuente múltiplo" in df.columns:
-        vivo = df["Fuente múltiplo"].astype(str).str.startswith(("Yahoo", "Aprox"))
-        if vivo.sum() >= 2:
-            med_mult = float(np.median(normalizar_atipicos(df.loc[vivo, "EV/EBITDA (x)"].astype(float), reemplazo="mediana")[0]))
-            df.loc[~vivo, "EV/EBITDA (x)"] = round(med_mult, 2)
-            df.loc[~vivo, "Fuente múltiplo"] = f"Mediana sectorial de comparables con cotización (n={int(vivo.sum())})"
-        if len(df) >= 4:
-            df["EV/EBITDA (x)"] = normalizar_atipicos(df["EV/EBITDA (x)"].astype(float), reemplazo="mediana")[0].round(2)
+    # Los múltiplos faltantes se conservan como N/D: no se imputan como si fueran observados.
+    if "EV/EBITDA (x)" in df.columns:
+        df["EV/EBITDA (x)"] = pd.to_numeric(df["EV/EBITDA (x)"], errors="coerce")
+        df.loc[
+            ~np.isfinite(df["EV/EBITDA (x)"]) | (df["EV/EBITDA (x)"] <= 0),
+            "EV/EBITDA (x)",
+        ] = np.nan
     keys_txt = ", ".join(matched_keys) if matched_keys else "sin clave PEERS"
     resumen = (
         f"Comparables del sector de la empresa en análisis ({sector_focal or 'N/D'}). "
@@ -7714,7 +7746,10 @@ def calcular_score_sectorial(df_in):
 
     def comp(col, invertir=False):
         x = pd.to_numeric(df[col], errors="coerce").astype(float)
-        x = x.fillna(x.median() if x.notna().any() else 0.0)
+        # Si todo el componente falta, usar score neutral (0.5), no cero ficticio.
+        if not x.notna().any():
+            return pd.Series(0.5, index=df.index)
+        x = x.fillna(x.median())
         if n >= 4:
             xw, _ = normalizar_atipicos(x, reemplazo="mediana")
             z = _z_robusto(xw)

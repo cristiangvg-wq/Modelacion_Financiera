@@ -11,6 +11,19 @@ import modelacion_logic as L
 
 
 class TestNucleoValoracion(unittest.TestCase):
+    def test_score_sectorial_no_inventa_multiplo_cuando_todos_faltan(self):
+        df = pd.DataFrame({
+            "Empresa": ["AAA", "BBB"],
+            "Margen EBITDA (%)": [20.0, 15.0],
+            "ROIC (%)": [None, None],
+            "WACC estimado (%)": [None, None],
+            "Crecimiento Ingresos 3a (%)": [None, None],
+            "EV/EBITDA (x)": [None, None],
+        })
+        scored = L.calcular_score_sectorial(df)
+        self.assertTrue(scored["EV/EBITDA (x)"].isna().all())
+        self.assertTrue(np.isfinite(scored["Score"]).all())
+
     def test_self_tests_core(self):
         results = L.self_test_valuation_core()
         self.assertGreaterEqual(len(results), 7)
@@ -38,6 +51,15 @@ class TestNucleoValoracion(unittest.TestCase):
     def test_anclaje_g_terminal_rechaza_wacc_invalido(self):
         with self.assertRaises(ValueError):
             L.anclar_g_terminal(0.02, 0.0)
+
+    def test_vps_bloquea_upside_si_falta_moneda_confirmada(self):
+        result = L.calcular_vps_y_upside(
+            0.08, 10.0, precio_mercado=8.0,
+            moneda_modelo="COP", moneda_precio=None,
+        )
+        self.assertIsNotNone(result["value_per_share"])
+        self.assertIsNone(result["upside_pct"])
+        self.assertIn("moneda", (result["nota_vps"] or "").lower())
 
     def test_vps_rechaza_unidades_invalidas_sin_generar_upside(self):
         result = L.calcular_vps_y_upside(
@@ -87,6 +109,13 @@ class TestNucleoValoracion(unittest.TestCase):
                  "proveedor": "yahoo",
              }):
             self.assertAlmostEqual(L.resolver_precio_mercado("Otra"), 28.5)
+
+    def test_capm_valida_entradas_y_calcula_ke(self):
+        self.assertAlmostEqual(L.costo_equity_capm(1.2, 0.04, 0.05, 0.01), 0.11)
+        with self.assertRaises(ValueError):
+            L.costo_equity_capm(1.0, float("nan"), 0.05, 0.0)
+        with self.assertRaises(ValueError):
+            L.costo_equity_capm(-0.5, 0.04, 0.05, 0.0)
 
     def test_rechaza_entradas_wacc_invalidas(self):
         with self.assertRaises(ValueError):
