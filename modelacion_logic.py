@@ -2628,7 +2628,8 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
 
         mm = (moneda_modelo or "").upper().strip()
         mp = (moneda_precio or "").upper().strip()
-        monedas_ok = (not mm or not mp or mm == mp)
+        # Sin moneda confirmada en ambos lados, no calcular upside: ausencia de dato no equivale a igualdad.
+        monedas_ok = bool(mm and mp and mm == mp)
 
         if precio_mercado is not None and float(precio_mercado) > 0:
             px = float(precio_mercado)
