@@ -4,6 +4,7 @@ Extraída del notebook/Gradio original (todas las funciones de negocio).
 No contiene la UI de Gradio; pensado para Streamlit u otro frontend.
 """
 from pathlib import Path
+import json
 # =============================================================================
 # PLATAFORMA MULTISECTORIAL DE MODELACIÓN FINANCIERA Y RIESGO
 # Empresas cotizadas o privadas: Excel/CSV propio, datos públicos cuando estén disponibles
@@ -6380,6 +6381,27 @@ def auditar_respuesta_comite_ia(respuesta):
     return {"ok": not errors, "errors": errors, "warnings": warnings, "texto": raw}
 
 
+def _reglas_calidad_ia_para_prompt():
+    """Carga el libro de reglas versionado junto al código; usa un respaldo seguro si falta."""
+    fallback = [
+        "Los datos ausentes o inválidos son N/D, nunca cero por defecto.",
+        "No inventar cotizaciones, comparables ni datos macroeconómicos.",
+        "Si hay errores bloqueantes, no emitir recomendación ni puntaje.",
+        "Distinguir datos observados, supuestos y estimaciones."
+    ]
+    try:
+        ruta = Path(__file__).with_name("reglas_calidad_ia.json")
+        data = json.loads(ruta.read_text(encoding="utf-8"))
+        reglas = [
+            str(item.get("regla")).strip()
+            for item in data.get("reglas", [])
+            if isinstance(item, dict) and item.get("regla")
+        ]
+        return "\n".join(f"- {regla}" for regla in reglas) if reglas else "\n".join(f"- {regla}" for regla in fallback)
+    except Exception:
+        return "\n".join(f"- {regla}" for regla in fallback)
+
+
 def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gemini", metricas=None):
     """
     Deliberación tipo comité interdisciplinario (CFO / Mercado / CRO) usando el mismo
@@ -6481,6 +6503,9 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 - Errores bloqueantes: {"; ".join(audit_ctx["errors"]) or "ninguno"}
 - Advertencias: {"; ".join(audit_ctx["warnings"]) or "ninguna"}
 - Upside recalculado desde VPS/precio: {f"{audit_ctx['upside_recalculado']:+.2f}%" if audit_ctx["upside_recalculado"] is not None else "N/D"}
+
+REGLAS PERMANENTES DE CALIDAD (libro versionado en el repositorio):
+{_reglas_calidad_ia_para_prompt()}
 
 REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles.
 
