@@ -6332,9 +6332,10 @@ def auditar_contexto_comite_ia(metricas):
     if price is not None and vps is not None and price > 0 and vps > 0:
         ratio = vps / price
         if ratio < 0.01 or ratio > 100:
-            errors.append(
-                "Escala sospechosa: VPS/precio fuera del rango 0,01–100; "
-                "verifica unidades y moneda antes de calcular upside"
+            warnings.append(
+                "Discrepancia elevada entre VPS y precio de mercado: verifica unidades, "
+                "moneda, número de acciones y puente EV-Equity. La discrepancia por sí sola "
+                "no se puede atribuir únicamente a un error de escala."
             )
         upside_calc = 100.0 * (vps-price)/price
         given = num("upside")
@@ -7302,9 +7303,21 @@ def _fila_sectorial_desde_emp(nombre, emp):
         g3 = ((ing / ing0) ** (1 / 3) - 1) * 100 if ing0 > 0 else 0.0
     else:
         g3 = 0.0
-    nopat = float(hist["NOPAT"].iloc[-1]) if "NOPAT" in hist.columns else ebitda * 0.5
-    cap_inv = float(params.get("capital_invertido", nopat / 0.1 if nopat else 1))
-    roic = 100.0 * nopat / cap_inv if cap_inv else 0.0
+    # No inventar NOPAT ni capital invertido: si faltan datos, ROIC queda no disponible.
+    tax = _safe_float(params.get("tax"))
+    if len(hist) and "NOPAT" in hist.columns:
+        nopat = _safe_float(hist["NOPAT"].iloc[-1])
+    elif len(hist) and "EBIT" in hist.columns and tax is not None and 0 <= tax <= 1:
+        ebit_last = _safe_float(hist["EBIT"].iloc[-1])
+        nopat = ebit_last * (1.0 - tax) if ebit_last is not None else None
+    else:
+        nopat = None
+    cap_inv = _safe_float(params.get("capital_invertido"))
+    roic = (
+        100.0 * nopat / cap_inv
+        if nopat is not None and cap_inv is not None and cap_inv > 0
+        else None
+    )
     de = float(params.get("de_ratio", 1.0))
     beta_u = float(params.get("beta_u", 0.55))
     tax = float(params.get("tax", 0.35))
@@ -7360,7 +7373,7 @@ def _fila_sectorial_desde_emp(nombre, emp):
         "Ingresos (miles M)": round(ing, 1),
         "EBITDA (miles M)": round(ebitda, 1),
         "Margen EBITDA (%)": round(margen, 1),
-        "ROIC (%)": round(roic, 1),
+        "ROIC (%)": round(roic, 1) if roic is not None else None,
         "WACC estimado (%)": round(wacc_pct, 2),
         "D/E": round(de, 2),
         "EV/EBITDA (x)": round(float(ev_ebitda), 2),

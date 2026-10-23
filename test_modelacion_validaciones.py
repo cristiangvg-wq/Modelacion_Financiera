@@ -144,7 +144,7 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertFalse(audit["ok"])
         self.assertTrue(any("métricas financieras esenciales" in e.lower() for e in audit["errors"]))
 
-    def test_auditoria_contexto_bloquea_escala_vps_precio_incompatible(self):
+    def test_auditoria_contexto_advierte_discrepancia_sin_afirmar_error_de_escala(self):
         audit = L.auditar_contexto_comite_ia({
             "precio_mercado": 28500.0,
             "vps_modelo": 29.84,
@@ -164,8 +164,42 @@ class TestNucleoValoracion(unittest.TestCase):
             "fecha_precio": "2026-10-22",
             "fuente_valoracion": "DCF test",
         })
-        self.assertFalse(audit["ok"])
-        self.assertTrue(any("escala sospechosa" in e.lower() for e in audit["errors"]))
+        self.assertTrue(audit["ok"], audit["errors"])
+        self.assertTrue(any("no se puede atribuir" in w.lower() for w in audit["warnings"]))
+        self.assertAlmostEqual(audit["upside_recalculado"], 100 * (29.84 / 28500 - 1), places=4)
+
+    def test_roic_sectorial_no_se_imputa_si_faltan_nopat_y_ebit(self):
+        emp = {
+            "historico": {
+                "Año": [2023, 2024],
+                "Ingresos": [100.0, 110.0],
+                "EBITDA": [20.0, 22.0],
+                "FCFF": [5.0, 6.0],
+            },
+            "params": {"de_ratio": 0.5, "kd": 0.08, "tax": 0.3, "beta_u": 0.5},
+            "ticker_yf": None,
+            "pais": None,
+            "moneda": "COP",
+        }
+        row, _, _, _ = L._fila_sectorial_desde_emp("Empresa sin NOPAT", emp)
+        self.assertIsNone(row["ROIC (%)"])
+
+    def test_roic_sectorial_deriva_nopat_desde_ebit_sin_inventar_capital(self):
+        emp = {
+            "historico": {
+                "Año": [2023, 2024],
+                "Ingresos": [100.0, 110.0],
+                "EBITDA": [20.0, 22.0],
+                "EBIT": [10.0, 12.0],
+                "FCFF": [5.0, 6.0],
+            },
+            "params": {"de_ratio": 0.5, "kd": 0.08, "tax": 0.25, "beta_u": 0.5},
+            "ticker_yf": None,
+            "pais": None,
+            "moneda": "COP",
+        }
+        row, _, _, _ = L._fila_sectorial_desde_emp("Empresa sin capital invertido", emp)
+        self.assertIsNone(row["ROIC (%)"])
 
     def test_empresa_personalizada_csv(self):
         frame = pd.DataFrame({
