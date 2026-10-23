@@ -3741,10 +3741,27 @@ def calcular_wacc(de, kd, ke, t):
 
 def costo_equity_capm(beta_l, rf=0.09, erp=0.06, crp=0.0):
     """
-    CAPM con prima país opcional (enfoque institucional emergente).
-    Ke = rf + β_L × ERP + CRP
+    CAPM con prima país opcional.
+    Ke = rf + beta apalancada × ERP + CRP.
+    Tasas en decimales; las fuentes y fechas deben registrarse en los parámetros del modelo.
     """
-    return float(rf) + float(beta_l) * float(erp) + float(crp or 0.0)
+    try:
+        beta_l = float(beta_l)
+        rf = float(rf)
+        erp = float(erp)
+        crp = 0.0 if crp is None else float(crp)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Beta, RF, ERP y CRP deben ser numéricos.") from exc
+    if not all(np.isfinite(x) for x in (beta_l, rf, erp, crp)):
+        raise ValueError("Beta, RF, ERP y CRP deben ser finitos.")
+    if beta_l < 0:
+        raise ValueError("Beta negativa requiere una justificación explícita.")
+    if min(rf, erp, crp) < 0:
+        raise ValueError("RF, ERP y CRP no pueden ser negativos en esta configuración.")
+    ke = rf + beta_l * erp + crp
+    if not np.isfinite(ke) or ke <= 0:
+        raise ValueError("Ke resultante debe ser finito y positivo.")
+    return float(ke)
 
 
 
