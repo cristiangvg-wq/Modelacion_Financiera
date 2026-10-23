@@ -3792,8 +3792,8 @@ def main():
                     except Exception as e:
                         st.error(str(e))
 
-    # ----- 8 TABS (visualización; datos con «Generar todo» o botones individuales) -----
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    # ----- 9 TABS (visualización; datos con «Generar todo» o botones individuales) -----
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
         [
             "1 · Pronóstico",
             "2 · Escenarios DCF",
@@ -3803,6 +3803,7 @@ def main():
             "6 · Sector",
             "7 · Informe PDF",
             "8 · Portafolios",
+            "9 · Simular inversión",
         ]
     )
 
@@ -4998,6 +4999,239 @@ def main():
             st.caption(
                 "Retornos históricos anualizados, no pronósticos. No se incluyen impuestos, costos "
                 "de transacción, liquidez ni conversión FX. No es asesoría de inversión."
+            )
+
+
+    with tab9:
+        st.markdown("##### Simulador de inversión")
+        st.caption(
+            "Estima cuánto podría valer una inversión en la empresa seleccionada bajo tres escenarios. "
+            "Los escenarios son supuestos editables, no pronósticos ni garantías."
+        )
+        _sim_empresa = (
+            st.session_state.get("empresa_sel")
+            or st.session_state.get("select_empresa")
+            or ""
+        )
+        _sim_params = st.session_state.get("params") or {}
+        _sim_ticker = (
+            _sim_params.get("ticker_yf")
+            or _sim_params.get("ticker_bvc")
+        )
+        if not _sim_ticker and _sim_empresa:
+            try:
+                _sim_resuelta = L.resolver_empresa(_sim_empresa) or {}
+                _sim_ticker = _sim_resuelta.get("ticker_yf") or _sim_resuelta.get("ticker_bvc")
+            except Exception:
+                _sim_ticker = None
+        _sim_ticker = str(_sim_ticker or "").strip().upper()
+        _sim_ticker = st.text_input(
+            "Ticker de la empresa",
+            value=_sim_ticker,
+            key="investment_sim_ticker",
+            help="Se propone el ticker de la empresa valorada. Puedes corregirlo si el proveedor usa otro símbolo.",
+        ).strip().upper()
+        _sim_c1, _sim_c2, _sim_c3 = st.columns(3)
+        with _sim_c1:
+            _sim_capital = st.number_input(
+                "Capital disponible", min_value=1.0, value=10000000.0, step=1000000.0,
+                format="%.2f", key="investment_sim_capital",
+            )
+            _sim_cap_currency = st.selectbox(
+                "Moneda de tu capital", ["COP", "USD"], key="investment_sim_cap_currency"
+            )
+        with _sim_c2:
+            _sim_years = st.selectbox(
+                "Horizonte de inversión", [1, 2, 3, 5, 10], index=2,
+                format_func=lambda x: f"{x} año" if x == 1 else f"{x} años",
+                key="investment_sim_years",
+            )
+            _sim_div_yield = st.number_input(
+                "Dividendos anuales estimados (%)", min_value=0.0, max_value=30.0,
+                value=2.0, step=0.5, key="investment_sim_dividend",
+            )
+        with _sim_c3:
+            _sim_buy_fee = st.number_input(
+                "Costo de compra (%)", min_value=0.0, max_value=10.0, value=0.2,
+                step=0.1, key="investment_sim_buy_fee",
+            )
+            _sim_sell_fee = st.number_input(
+                "Costo de venta (%)", min_value=0.0, max_value=10.0, value=0.2,
+                step=0.1, key="investment_sim_sell_fee",
+            )
+            _sim_div_tax = st.number_input(
+                "Retención sobre dividendos (%)", min_value=0.0, max_value=100.0,
+                value=0.0, step=1.0, key="investment_sim_div_tax",
+            )
+        st.markdown("###### Supuestos de valorización anual")
+        _sim_s1, _sim_s2, _sim_s3 = st.columns(3)
+        with _sim_s1:
+            _sim_bear = st.number_input(
+                "Pesimista (%)", min_value=-90.0, max_value=100.0, value=-15.0,
+                step=1.0, key="investment_sim_bear",
+            )
+        with _sim_s2:
+            _sim_base = st.number_input(
+                "Base (%)", min_value=-90.0, max_value=100.0, value=8.0,
+                step=1.0, key="investment_sim_base",
+            )
+        with _sim_s3:
+            _sim_bull = st.number_input(
+                "Optimista (%)", min_value=-90.0, max_value=100.0, value=18.0,
+                step=1.0, key="investment_sim_bull",
+            )
+        _sim_fx = st.number_input(
+            "Tasa de cambio COP por USD (solo si las monedas difieren)",
+            min_value=0.0001, value=4000.0, step=50.0, format="%.4f",
+            key="investment_sim_fx",
+            help="Se usa para convertir el capital y el resultado a la moneda original. Se supone constante durante el horizonte; no modela riesgo cambiario.",
+        )
+        _sim_run = st.button(
+            "Simular inversión", type="primary", key="investment_sim_run",
+            use_container_width=True,
+        )
+        if _sim_run:
+            try:
+                if not _sim_ticker:
+                    raise ValueError("Selecciona una empresa con ticker o escribe el ticker manualmente.")
+                import yfinance as _sim_yf
+                _sim_asset = _sim_yf.Ticker(_sim_ticker)
+                _sim_info = _sim_asset.get_info() or {}
+                _sim_currency = str(_sim_info.get("currency") or "").upper()
+                _sim_market_price = _sim_info.get("currentPrice") or _sim_info.get("regularMarketPrice")
+                _sim_hist = _sim_asset.history(period="5d", auto_adjust=True)
+                if (_sim_market_price is None or not np.isfinite(float(_sim_market_price)) or float(_sim_market_price) <= 0) and not _sim_hist.empty:
+                    _sim_market_price = float(_sim_hist["Close"].dropna().iloc[-1])
+                if not _sim_currency:
+                    raise ValueError("El proveedor no confirmó la moneda del activo; no se puede simular con seguridad.")
+                if _sim_market_price is None or not np.isfinite(float(_sim_market_price)) or float(_sim_market_price) <= 0:
+                    raise ValueError("No se pudo obtener un precio de mercado válido para el ticker.")
+                _sim_market_price = float(_sim_market_price)
+                _sim_dcf = {}
+                if _sim_empresa:
+                    try:
+                        _sim_dcf = L._metricas_comite_para_ia(_sim_empresa) or {}
+                    except Exception:
+                        _sim_dcf = {}
+                from investment_simulator import simular_inversion as _simular_inversion
+                _sim_result = _simular_inversion(
+                    capital=float(_sim_capital),
+                    moneda_capital=_sim_cap_currency,
+                    moneda_activo=_sim_currency,
+                    tasa_cop_usd=float(_sim_fx),
+                    precio_actual=_sim_market_price,
+                    horizonte=int(_sim_years),
+                    escenarios={
+                        "Pesimista": float(_sim_bear) / 100.0,
+                        "Base": float(_sim_base) / 100.0,
+                        "Optimista": float(_sim_bull) / 100.0,
+                    },
+                    dividend_yield=float(_sim_div_yield) / 100.0,
+                    costo_compra=float(_sim_buy_fee) / 100.0,
+                    costo_venta=float(_sim_sell_fee) / 100.0,
+                    impuesto_dividendos=float(_sim_div_tax) / 100.0,
+                )
+                st.session_state["investment_sim_result"] = {
+                    "request": (
+                        _sim_ticker, float(_sim_capital), _sim_cap_currency, int(_sim_years),
+                        float(_sim_bear), float(_sim_base), float(_sim_bull),
+                        float(_sim_div_yield), float(_sim_buy_fee), float(_sim_sell_fee),
+                        float(_sim_div_tax), float(_sim_fx), _sim_currency, _sim_market_price,
+                    ),
+                    "ticker": _sim_ticker,
+                    "empresa": _sim_empresa or _sim_ticker,
+                    "moneda_activo": _sim_currency,
+                    "precio": _sim_market_price,
+                    "fecha_precio": str(_sim_hist.index[-1].date()) if not _sim_hist.empty else "N/D",
+                    "dcf": _sim_dcf,
+                    "result": _sim_result,
+                }
+            except Exception as _sim_error:
+                st.session_state.pop("investment_sim_result", None)
+                st.error(f"No se pudo simular la inversión: {_sim_error}")
+
+        _sim_saved = st.session_state.get("investment_sim_result")
+        _sim_current_request = (
+            _sim_ticker, float(_sim_capital), _sim_cap_currency, int(_sim_years),
+            float(_sim_bear), float(_sim_base), float(_sim_bull),
+            float(_sim_div_yield), float(_sim_buy_fee), float(_sim_sell_fee),
+            float(_sim_div_tax), float(_sim_fx),
+        )
+        if _sim_saved and _sim_saved["request"][:12] != _sim_current_request:
+            _sim_saved = None
+            st.info("Cambiaste uno o más supuestos. Pulsa **Simular inversión** para recalcular.")
+        if _sim_saved:
+            _sim_res = _sim_saved["result"]
+            _sim_fmt = lambda x, cur: f"{cur} {x:,.2f}"
+            st.caption(
+                f"Activo: {_sim_saved['empresa']} ({_sim_saved['ticker']}) · "
+                f"Precio de referencia: {_sim_fmt(_sim_saved['precio'], _sim_saved['moneda_activo'])} · "
+                f"Moneda del activo: {_sim_saved['moneda_activo']} · "
+                f"Fecha de precio: {_sim_saved['fecha_precio']}"
+            )
+            if _sim_cap_currency != _sim_saved["moneda_activo"]:
+                st.info(
+                    f"Capital convertido a {_sim_saved['moneda_activo']} y resultado convertido de vuelta a "
+                    f"{_sim_cap_currency} usando {_sim_fx:,.2f} COP/USD constante. El resultado real también "
+                    "dependerá del tipo de cambio futuro."
+                )
+            _sim_summary = _sim_res["resumen"]
+            _sm1, _sm2, _sm3, _sm4 = st.columns(4)
+            _sm1.metric("Acciones comprables", f"{_sim_summary['acciones']:,}")
+            _sm2.metric("Efectivo residual", _sim_fmt(_sim_summary["efectivo_residual"], _sim_saved["moneda_activo"]))
+            _sim_base_row = _sim_summary["escenarios"]["Base"]
+            _sm3.metric(
+                "Valor final · escenario base",
+                _sim_fmt(_sim_base_row["valor_final"], _sim_cap_currency),
+            )
+            _sm4.metric(
+                "Ganancia / pérdida · base",
+                _sim_fmt(_sim_base_row["ganancia_neta"], _sim_cap_currency),
+                delta=f"{_sim_base_row['rentabilidad_total']:.2%}",
+            )
+            _sim_chart = pd.DataFrame(_sim_res["trayectoria"])
+            if not _sim_chart.empty:
+                st.markdown("###### Evolución estimada del capital")
+                st.line_chart(_sim_chart.set_index("Año"), use_container_width=True)
+            st.markdown("###### Comparación de escenarios")
+            _sim_rows = []
+            for _sim_name, _sim_values in _sim_summary["escenarios"].items():
+                _sim_rows.append({
+                    "Escenario": _sim_name,
+                    "Valor final": _sim_fmt(_sim_values["valor_final"], _sim_cap_currency),
+                    "Ganancia / pérdida": _sim_fmt(_sim_values["ganancia_neta"], _sim_cap_currency),
+                    "Rentabilidad acumulada": f"{_sim_values['rentabilidad_total']:.2%}",
+                    "Rentabilidad anualizada": f"{_sim_values['rentabilidad_anualizada']:.2%}",
+                })
+            st.dataframe(pd.DataFrame(_sim_rows), hide_index=True, use_container_width=True)
+            _sim_upside = (_sim_saved.get("dcf") or {}).get("upside")
+            if isinstance(_sim_upside, (int, float)):
+                st.markdown("###### Contraste con la valoración de la empresa")
+                st.metric("Upside estimado por DCF", f"{float(_sim_upside):+.2f}%")
+                st.caption(
+                    "El upside del DCF se muestra solo como referencia independiente. No se usa como "
+                    "rentabilidad futura garantizada ni reemplaza los escenarios editables."
+                )
+            _sim_base = _sim_summary["escenarios"]["Base"]
+            if _sim_base["ganancia_neta"] > 0:
+                st.success(
+                    f"Bajo el escenario base, el capital terminaría en "
+                    f"{_sim_fmt(_sim_base['valor_final'], _sim_cap_currency)}, equivalente a una "
+                    f"rentabilidad acumulada de {_sim_base['rentabilidad_total']:.2%}. "
+                    "Es una simulación condicionada a los supuestos ingresados."
+                )
+            elif _sim_base["ganancia_neta"] < 0:
+                st.warning(
+                    f"Bajo el escenario base, se produciría una pérdida estimada de "
+                    f"{_sim_fmt(abs(_sim_base['ganancia_neta']), _sim_cap_currency)}. "
+                    "Revisa el riesgo y compara el escenario pesimista antes de tomar decisiones."
+                )
+            else:
+                st.info("Bajo el escenario base, la inversión terminaría aproximadamente en punto de equilibrio.")
+            st.caption(
+                "Estimación ilustrativa, no recomendación personalizada. Incluye costos de compra/venta y "
+                "retención estimada sobre dividendos según tus supuestos; no incluye inflación ni cambios "
+                "futuros del tipo de cambio. Los dividendos no se reinvierten."
             )
 
     st.markdown(
