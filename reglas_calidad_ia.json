@@ -1,0 +1,26 @@
+
+{
+  "version": 1,
+  "reglas": [
+    {
+      "id": "datos_faltantes",
+      "regla": "Si una métrica financiera no existe o no es válida, mostrar N/D; nunca reemplazarla por 0."
+    },
+    {
+      "id": "escala_vps_precio",
+      "regla": "Validar que el valor por acción y el precio de mercado estén en la misma escala y moneda antes de calcular el potencial."
+    },
+    {
+      "id": "roic",
+      "regla": "No presentar ROIC de 0% cuando faltan datos para calcularlo."
+    },
+    {
+      "id": "recomendaciones",
+      "regla": "Toda recomendación debe incluir evidencia, acción concreta, umbral y plazo de seguimiento. No inventar datos."
+    },
+    {
+      "id": "deuda",
+      "regla": "No recomendar refinanciación sin información suficiente sobre vencimientos, servicio de deuda y costos financieros."
+    }
+  ]
+}

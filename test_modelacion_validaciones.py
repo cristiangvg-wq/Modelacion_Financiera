@@ -135,6 +135,38 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(any("fuera de escala" in e.lower() for e in result["errors"]))
 
+    def test_auditoria_contexto_bloquea_metricas_esenciales_ausentes(self):
+        audit = L.auditar_contexto_comite_ia({
+            "precio_mercado": 100.0,
+            "vps_modelo": 110.0,
+            "wacc_calc": 0.10,
+        })
+        self.assertFalse(audit["ok"])
+        self.assertTrue(any("métricas financieras esenciales" in e.lower() for e in audit["errors"]))
+
+    def test_auditoria_contexto_bloquea_escala_vps_precio_incompatible(self):
+        audit = L.auditar_contexto_comite_ia({
+            "precio_mercado": 28500.0,
+            "vps_modelo": 29.84,
+            "upside": -99.9,
+            "wacc_calc": 0.1089,
+            "ke_calc": 0.1647,
+            "roic_calc": None,
+            "de_ratio": 1.20,
+            "g": 0.03,
+            "val_ev": 1000.0,
+            "val_equity": 800.0,
+            "moneda": "COP",
+            "moneda_precio": "COP",
+            "unidad_modelo": "COP miles de millones",
+            "unidad_precio": "por acción",
+            "fuente_precio": "test",
+            "fecha_precio": "2026-10-22",
+            "fuente_valoracion": "DCF test",
+        })
+        self.assertFalse(audit["ok"])
+        self.assertTrue(any("escala sospechosa" in e.lower() for e in audit["errors"]))
+
     def test_empresa_personalizada_csv(self):
         frame = pd.DataFrame({
             "Año": [2021, 2022, 2023, 2024],

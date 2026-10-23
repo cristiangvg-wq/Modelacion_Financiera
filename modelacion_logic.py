@@ -4,6 +4,7 @@ Extraída del notebook/Gradio original (todas las funciones de negocio).
 No contiene la UI de Gradio; pensado para Streamlit u otro frontend.
 """
 from pathlib import Path
+import json
 # =============================================================================
 # PLATAFORMA MULTISECTORIAL DE MODELACIÓN FINANCIERA Y RIESGO
 # Empresas cotizadas o privadas: Excel/CSV propio, datos públicos cuando estén disponibles
@@ -6291,7 +6292,7 @@ def auditar_contexto_comite_ia(metricas):
     required = ("precio_mercado", "vps_modelo", "wacc_calc", "val_ev", "val_equity")
     missing = [k for k in required if num(k) is None]
     if missing:
-        warnings.append("Métricas ausentes/no numéricas: " + ", ".join(missing))
+        errors.append("Faltan métricas financieras esenciales: " + ", ".join(missing))
     for k in ("precio_mercado", "vps_modelo"):
         v = num(k)
         if v is not None and v <= 0:
@@ -6329,6 +6330,12 @@ def auditar_contexto_comite_ia(metricas):
     price, vps = num("precio_mercado"), num("vps_modelo")
     upside_calc = None
     if price is not None and vps is not None and price > 0 and vps > 0:
+        ratio = vps / price
+        if ratio < 0.01 or ratio > 100:
+            errors.append(
+                "Escala sospechosa: VPS/precio fuera del rango 0,01–100; "
+                "verifica unidades y moneda antes de calcular upside"
+            )
         upside_calc = 100.0 * (vps-price)/price
         given = num("upside")
         if given is not None and abs(given-upside_calc) > 0.5:
@@ -6374,6 +6381,27 @@ def auditar_respuesta_comite_ia(respuesta):
     return {"ok": not errors, "errors": errors, "warnings": warnings, "texto": raw}
 
 
+def _reglas_calidad_ia_para_prompt():
+    """Carga el libro de reglas versionado junto al código; usa un respaldo seguro si falta."""
+    fallback = [
+        "Los datos ausentes o inválidos son N/D, nunca cero por defecto.",
+        "No inventar cotizaciones, comparables ni datos macroeconómicos.",
+        "Si hay errores bloqueantes, no emitir recomendación ni puntaje.",
+        "Distinguir datos observados, supuestos y estimaciones."
+    ]
+    try:
+        ruta = Path(__file__).with_name("reglas_calidad_ia.json")
+        data = json.loads(ruta.read_text(encoding="utf-8"))
+        reglas = [
+            str(item.get("regla")).strip()
+            for item in data.get("reglas", [])
+            if isinstance(item, dict) and item.get("regla")
+        ]
+        return "\n".join(f"- {regla}" for regla in reglas) if reglas else "\n".join(f"- {regla}" for regla in fallback)
+    except Exception:
+        return "\n".join(f"- {regla}" for regla in fallback)
+
+
 def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gemini", metricas=None):
     """
     Deliberación tipo comité interdisciplinario (CFO / Mercado / CRO) usando el mismo
@@ -6387,27 +6415,41 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
         if m.get(k) is None:
             m[k] = v
     audit_ctx = auditar_contexto_comite_ia(m)
+    if not audit_ctx["ok"]:
+        errores = "<br>".join(_html.escape(str(e)) for e in audit_ctx["errors"])
+        return (
+            '<div class="result-note" style="border-left:4px solid #DC2626">'
+            '<b>Comité IA bloqueado: corrige primero los errores del modelo.</b><br>'
+            f"{errores}</div>"
+        )
 
-    def _f(key, default=0.0):
+    def _f(key, default=None):
         v = m.get(key)
         try:
             if v is None:
-                return float(default)
-            return float(v)
+                return float(default) if default is not None else None
+            value = float(v)
+            return value if math.isfinite(value) else (float(default) if default is not None else None)
         except Exception:
-            return float(default)
+            return float(default) if default is not None else None
+
+    def _fmt_num(value, decimals=2):
+        return "N/D" if value is None else f"{value:,.{decimals}f}"
+
+    def _fmt_pct(value):
+        return "N/D" if value is None else f"{value * 100:.2f}%"
 
     empresa = m.get("empresa") or nombre_empresa or "N/D"
-    precio_mercado = _f("precio_mercado", 0.0)
-    vps_modelo = _f("vps_modelo", 0.0)
-    upside = _f("upside", 0.0)
-    wacc_calc = _f("wacc_calc", 0.0)
-    ke_calc = _f("ke_calc", 0.0)
-    roic_calc = _f("roic_calc", 0.0)
-    de_ratio = _f("de_ratio", 0.0)
-    g = _f("g", 0.0)
-    val_ev = _f("val_ev", 0.0)
-    val_equity = _f("val_equity", 0.0)
+    precio_mercado = _f("precio_mercado")
+    vps_modelo = _f("vps_modelo")
+    upside = _f("upside")
+    wacc_calc = _f("wacc_calc")
+    ke_calc = _f("ke_calc")
+    roic_calc = _f("roic_calc")
+    de_ratio = _f("de_ratio")
+    g = _f("g")
+    val_ev = _f("val_ev")
+    val_equity = _f("val_equity")
     mon = m.get("moneda") or ""
     ticker = m.get("ticker") or ""
 
@@ -6446,12 +6488,12 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 ### CONTEXTO DE ENTRADA (Calculado por el Modelo Cuantitativo)
 - **Empresa Objetivo / Ticker:** {empresa}{f' ({ticker})' if ticker else ''}
 - **Moneda del modelo:** {mon or 'N/D'}
-- **Precio Actual de Mercado:** {precio_mercado:,.2f}
-- **Valor por Acción Según el Modelo (VPS):** {vps_modelo:,.2f} (Upside calculado: {upside:+.2f}%)
-- **WACC Calculado:** {wacc_calc*100:.2f}% | **Ke (CAPM):** {ke_calc*100:.2f}% | **ROIC:** {roic_calc*100:.2f}%
-- **Estructura D/E:** {de_ratio:.2f} | **Crecimiento Terminal (g):** {g*100:.2f}%
-- **Valor del Negocio (EV Base):** {val_ev:,.2f}
-- **Valor del Equity Base:** {val_equity:,.2f}
+- **Precio Actual de Mercado:** {_fmt_num(precio_mercado)}
+- **Valor por Acción Según el Modelo (VPS):** {_fmt_num(vps_modelo)} (Upside calculado: {"N/D" if upside is None else f"{upside:+.2f}%"})
+- **WACC Calculado:** {_fmt_pct(wacc_calc)} | **Ke (CAPM):** {_fmt_pct(ke_calc)} | **ROIC:** {_fmt_pct(roic_calc)}
+- **Estructura D/E:** {_fmt_num(de_ratio)} | **Crecimiento Terminal (g):** {_fmt_pct(g)}
+- **Valor del Negocio (EV Base):** {_fmt_num(val_ev)}
+- **Valor del Equity Base:** {_fmt_num(val_equity)}
 {('- **Datos incompletos en el modelo:** ' + ', '.join(faltantes)) if faltantes else ''}
 
 ---
@@ -6460,7 +6502,10 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 - Estado matemático: {"APTO" if audit_ctx["ok"] else "NO APTO"}
 - Errores bloqueantes: {"; ".join(audit_ctx["errors"]) or "ninguno"}
 - Advertencias: {"; ".join(audit_ctx["warnings"]) or "ninguna"}
-- Upside recalculado desde VPS/precio: {f"{audit_ctx["upside_recalculado"]:+.2f}%" if audit_ctx["upside_recalculado"] is not None else "N/D"}
+- Upside recalculado desde VPS/precio: {f"{audit_ctx['upside_recalculado']:+.2f}%" if audit_ctx["upside_recalculado"] is not None else "N/D"}
+
+REGLAS PERMANENTES DE CALIDAD (libro versionado en el repositorio):
+{_reglas_calidad_ia_para_prompt()}
 
 REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles.
 
@@ -6497,6 +6542,15 @@ Entrega el resultado **estrictamente** bajo este formato:
             f'<div class="result-note" style="border-left:4px solid #DC2626">'
             f"<b>No se pudo generar la deliberación del comité.</b><br>{_html.escape(str(err))}<br>"
             f"Revisa el proveedor y la API key en <b>Consulta IA</b> (mismo conector).</div>"
+        )
+
+    audit_out = auditar_respuesta_comite_ia(texto)
+    if not audit_out["ok"]:
+        errores = "<br>".join(_html.escape(str(e)) for e in audit_out["errors"])
+        return (
+            '<div class="result-note" style="border-left:4px solid #DC2626">'
+            '<b>Respuesta IA rechazada por controles de calidad.</b><br>'
+            f"{errores}</div>"
         )
 
     cuerpo = _texto_a_html(texto) if "_texto_a_html" in dir() else None
