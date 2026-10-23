@@ -1837,7 +1837,8 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
             # NWC proxy 5 % (antes 8 %); muchas empresas tech tienen NWC bajo o negativo
             nwc = abs(ing) * 0.05
             delta = 0.0 if prev_nwc is None else nwc - prev_nwc
-            nopat = eb * (1.0 - tax_efectiva)  # ← CORRECCIÓN: ya no * 0.65 fijo
+            # Unificar la política fiscal con el motor de proyección: sin escudo fiscal automático por pérdidas.
+            nopat = float(calcular_nopat(eb, tax_efectiva))
             fcff = nopat + d - cx - delta
             rows.append({
                 "Año": int(y),
@@ -7549,9 +7550,10 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
             ebitda = _safe_float(info.get("ebitda")) or 0.0
             rev = _safe_float(info.get("totalRevenue")) or 0.0
             margen = 100.0 * ebitda / rev if rev else 0.0
+            # No imputar un múltiplo sectorial ficticio cuando Yahoo no lo informa.
             ev_eb = _safe_float(info.get("enterpriseToEbitda"))
-            if ev_eb is None:
-                ev_eb = 10.0
+            if ev_eb is not None and (not np.isfinite(ev_eb) or ev_eb <= 0):
+                ev_eb = None
             beta = _safe_float(info.get("beta")) or 1.0
             row = {
                 "Empresa": short_p,
@@ -7559,13 +7561,14 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
                 "Ingresos (miles M)": round((rev or 0) / 1e9, 2),
                 "EBITDA (miles M)": round((ebitda or 0) / 1e9, 2),
                 "Margen EBITDA (%)": round(margen, 1),
-                "ROIC (%)": 0.0,
-                "WACC estimado (%)": 8.0,
+                # Campos no observados permanecen N/D.
+                "ROIC (%)": None,
+                "WACC estimado (%)": None,
                 "D/E": round((_safe_float(info.get("debtToEquity")) or 0) / 100.0, 2) if info.get("debtToEquity") else 0.5,
-                "EV/EBITDA (x)": round(float(ev_eb), 2),
-                "Crecimiento Ingresos 3a (%)": 0.0,
-                "FCFF (miles M)": 0.0,
-                "Fuente múltiplo": "Yahoo info (peer ligero)",
+                "EV/EBITDA (x)": round(float(ev_eb), 2) if ev_eb is not None else None,
+                "Crecimiento Ingresos 3a (%)": None,
+                "FCFF (miles M)": None,
+                "Fuente múltiplo": "Yahoo info (peer ligero)" if ev_eb is not None else "Yahoo info (múltiplo N/D)",
                 "Sector": f"{sec}" + (f" / {ind}" if ind else ""),
             }
             seen_short.add(short_p)
@@ -7655,15 +7658,13 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
         )
 
     df = pd.DataFrame(rows)
-    # --- Múltiplos: sin 8x inventado. Los comparables sin cotización usan la MEDIANA robusta del sector ---
-    if "Fuente múltiplo" in df.columns:
-        vivo = df["Fuente múltiplo"].astype(str).str.startswith(("Yahoo", "Aprox"))
-        if vivo.sum() >= 2:
-            med_mult = float(np.median(normalizar_atipicos(df.loc[vivo, "EV/EBITDA (x)"].astype(float), reemplazo="mediana")[0]))
-            df.loc[~vivo, "EV/EBITDA (x)"] = round(med_mult, 2)
-            df.loc[~vivo, "Fuente múltiplo"] = f"Mediana sectorial de comparables con cotización (n={int(vivo.sum())})"
-        if len(df) >= 4:
-            df["EV/EBITDA (x)"] = normalizar_atipicos(df["EV/EBITDA (x)"].astype(float), reemplazo="mediana")[0].round(2)
+    # Los múltiplos faltantes se conservan como N/D: no se imputan como si fueran observados.
+    if "EV/EBITDA (x)" in df.columns:
+        df["EV/EBITDA (x)"] = pd.to_numeric(df["EV/EBITDA (x)"], errors="coerce")
+        df.loc[
+            ~np.isfinite(df["EV/EBITDA (x)"]) | (df["EV/EBITDA (x)"] <= 0),
+            "EV/EBITDA (x)",
+        ] = np.nan
     keys_txt = ", ".join(matched_keys) if matched_keys else "sin clave PEERS"
     resumen = (
         f"Comparables del sector de la empresa en análisis ({sector_focal or 'N/D'}). "
@@ -7714,7 +7715,10 @@ def calcular_score_sectorial(df_in):
 
     def comp(col, invertir=False):
         x = pd.to_numeric(df[col], errors="coerce").astype(float)
-        x = x.fillna(x.median() if x.notna().any() else 0.0)
+        # Si todo el componente falta, usar score neutral (0.5), no cero ficticio.
+        if not x.notna().any():
+            return pd.Series(0.5, index=df.index)
+        x = x.fillna(x.median())
         if n >= 4:
             xw, _ = normalizar_atipicos(x, reemplazo="mediana")
             z = _z_robusto(xw)
