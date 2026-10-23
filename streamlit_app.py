@@ -3787,8 +3787,8 @@ def main():
                     except Exception as e:
                         st.error(str(e))
 
-    # ----- 7 TABS (visualización; datos con «Generar todo» o botones individuales) -----
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+    # ----- 8 TABS (visualización; datos con «Generar todo» o botones individuales) -----
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
         [
             "1 · Pronóstico",
             "2 · Escenarios DCF",
@@ -3797,6 +3797,7 @@ def main():
             "5 · VPN / TIR",
             "6 · Sector",
             "7 · Informe PDF",
+            "8 · Portafolios",
         ]
     )
 
@@ -4738,6 +4739,129 @@ def main():
         else:
             st.info(
                 "Aun no hay informe. Configura parametros en la barra lateral y pulsa **Generar todo**."
+            )
+
+    with tab8:
+        st.markdown("##### Optimización de portafolios")
+        st.caption(
+            "MVP cuantitativo: usa rendimientos históricos ajustados para estimar riesgo y retorno. "
+            "No convierte automáticamente el upside del DCF en rendimiento esperado."
+        )
+        st.warning(
+            "Verifica que todos los activos estén expresados en una moneda común. "
+            "Esta versión bloquea universos con monedas distintas y no aplica conversión FX."
+        )
+        _ptickers_text = st.text_input("Tickers separados por coma", value="AAPL,MSFT,NVDA", key="portfolio_tickers")
+        _prf = st.number_input(
+            "Tasa libre de riesgo anual (decimal)", min_value=0.0, max_value=0.50,
+            value=0.04, step=0.005, format="%.3f", key="portfolio_rf",
+        )
+        _pmax = st.slider(
+            "Peso máximo por activo", min_value=0.10, max_value=1.00,
+            value=0.60, step=0.05, key="portfolio_max_weight",
+        )
+        _pobjective = st.selectbox(
+            "Objetivo de optimización", ["max_sharpe", "min_volatility"],
+            format_func=lambda x: "Maximizar Sharpe" if x == "max_sharpe" else "Minimizar volatilidad",
+            key="portfolio_objective",
+        )
+        _pperiod = st.selectbox("Ventana histórica", ["2y", "5y", "10y"], index=1, key="portfolio_period")
+        if st.button("Optimizar portafolio", key="portfolio_run", type="primary"):
+            try:
+                import yfinance as _yf
+                from portfolio_engine import (
+                    preparar_estadisticas as _prep_portfolio,
+                    optimizar_portafolio as _opt_portfolio,
+                    construir_frontera as _frontier_portfolio,
+                )
+                _ptickers = list(dict.fromkeys(x.strip().upper() for x in _ptickers_text.split(",") if x.strip()))
+                if len(_ptickers) < 2:
+                    raise ValueError("Introduce al menos dos tickers distintos.")
+                _meta = {}
+                for _ticker in _ptickers:
+                    try:
+                        _info = _yf.Ticker(_ticker).get_info() or {}
+                        _meta[_ticker] = _info.get("currency")
+                    except Exception:
+                        _meta[_ticker] = None
+                _currencies = {str(v).upper() for v in _meta.values() if v}
+                if len(_currencies) > 1:
+                    raise ValueError(
+                        "Hay activos con monedas diferentes: "
+                        + ", ".join(f"{k}={v or 'N/D'}" for k, v in _meta.items())
+                        + ". Convierte precios a una moneda común antes de optimizar."
+                    )
+                if any(not v for v in _meta.values()):
+                    raise ValueError("No se pudo confirmar la moneda de todos los activos; optimización bloqueada.")
+                _download = _yf.download(
+                    _ptickers, period=_pperiod, interval="1d", auto_adjust=True,
+                    progress=False, group_by="column", threads=True,
+                )
+                if _download is None or _download.empty:
+                    raise ValueError("El proveedor no devolvió precios.")
+                if isinstance(_download.columns, pd.MultiIndex):
+                    if "Close" in _download.columns.get_level_values(0):
+                        _prices = _download["Close"]
+                    elif "Close" in _download.columns.get_level_values(1):
+                        _prices = _download.xs("Close", axis=1, level=1)
+                    else:
+                        raise ValueError("No se encontró la columna de precios ajustados.")
+                else:
+                    if "Close" not in _download.columns:
+                        raise ValueError("No se encontró la columna Close.")
+                    _prices = _download[["Close"]].rename(columns={"Close": _ptickers[0]})
+                if isinstance(_prices, pd.Series):
+                    _prices = _prices.to_frame(name=_ptickers[0])
+                _prices = _prices.dropna(axis=1, how="all")
+                _mu, _cov = _prep_portfolio(_prices)
+                _res = _opt_portfolio(
+                    _mu, _cov, objetivo=_pobjective,
+                    tasa_libre_riesgo=float(_prf), peso_maximo=float(_pmax),
+                )
+                _frontier = _frontier_portfolio(
+                    _mu, _cov, tasa_libre_riesgo=float(_prf),
+                    peso_maximo=float(_pmax), n_puntos=20,
+                )
+                st.session_state["portfolio_result"] = {
+                    "weights": _res["pesos"].to_dict(),
+                    "return": _res["retorno_esperado"],
+                    "volatility": _res["volatilidad"],
+                    "sharpe": _res["sharpe"],
+                    "currency": next(iter(_currencies), None),
+                    "period": _pperiod,
+                    "frontier": _frontier.to_dict(orient="records"),
+                    "prices_last_date": str(_prices.dropna().index[-1]),
+                }
+            except Exception as _portfolio_error:
+                st.session_state.pop("portfolio_result", None)
+                st.error(f"No se pudo optimizar el portafolio: {_portfolio_error}")
+
+        _portfolio_saved = st.session_state.get("portfolio_result")
+        if _portfolio_saved:
+            st.caption(
+                f"Moneda detectada: {_portfolio_saved['currency']} · "
+                f"Ventana: {_portfolio_saved['period']} · "
+                f"Última fecha de datos: {_portfolio_saved['prices_last_date']}"
+            )
+            _pc1, _pc2, _pc3 = st.columns(3)
+            _pc1.metric("Retorno esperado anualizado", f"{_portfolio_saved['return']:.2%}")
+            _pc2.metric("Volatilidad anualizada", f"{_portfolio_saved['volatility']:.2%}")
+            _psharpe = _portfolio_saved["sharpe"]
+            _pc3.metric("Sharpe estimado", f"{_psharpe:.2f}" if _psharpe is not None else "N/D")
+            st.markdown("###### Pesos sugeridos por el optimizador")
+            _weights_df = pd.DataFrame.from_dict(_portfolio_saved["weights"], orient="index", columns=["Peso"])
+            _weights_df["Peso (%)"] = _weights_df["Peso"] * 100
+            st.dataframe(_weights_df[["Peso (%)"]], use_container_width=True)
+            st.markdown("###### Frontera eficiente aproximada")
+            _frontier_df = pd.DataFrame(_portfolio_saved["frontier"])
+            if not _frontier_df.empty:
+                st.line_chart(
+                    _frontier_df.sort_values("Volatilidad").set_index("Volatilidad")[["Retorno esperado"]],
+                    use_container_width=True,
+                )
+            st.caption(
+                "Retornos históricos anualizados, no pronósticos. No se incluyen impuestos, costos "
+                "de transacción, liquidez ni conversión FX. No es asesoría de inversión."
             )
 
     st.markdown(
