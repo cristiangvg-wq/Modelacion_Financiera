@@ -2418,7 +2418,9 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
             try:
                 acc = (st.session_state.get("params") or {}).get("acciones")
                 if acc and float(acc) > 0:
-                    vps_modelo = val_equity / float(acc)
+                    # El DCF entrega Equity en miles de millones y acciones en millones.
+                    # Convertir miles de millones a millones antes de dividir para obtener COP/acción.
+                    vps_modelo = val_equity * 1000.0 / float(acc)
             except Exception:
                 pass
         if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
@@ -2437,6 +2439,14 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
             "wacc_calc": wacc_calc, "ke_calc": ke_calc, "roic_calc": roic_calc,
             "de_ratio": float(de_ratio or 0), "g": float(g or 0),
             "val_ev": val_ev, "val_equity": val_equity, "decision_modelo": "—",
+            # Declarar la escala estándar del DCF; si el usuario define otra, respetarla.
+            "unidad_modelo": (st.session_state.get("params") or {}).get("unidad_modelo")
+                or f"miles de millones de {mon_m}",
+            "unidad_precio": "por acción",
+            "fuente_precio": st.session_state.get("fuente_precio_mercado"),
+            "fecha_precio": st.session_state.get("fecha_precio_mercado"),
+            "fuente_valoracion": st.session_state.get("version_modelo_valoracion")
+                or "DCF propio · modelacion_logic.py · escenarios base",
         }
 
         if not hasattr(L, "generar_recomendacion_comite_ia"):
@@ -4285,11 +4295,13 @@ def main():
                             "val_ev": ctx.get("val_ev"),
                             "val_equity": ctx.get("val_equity"),
                             # Trazabilidad explícita: el UI no presume unidad ni fuente si no están documentadas.
-                            "unidad_modelo": (st.session_state.get("params") or {}).get("unidad_modelo"),
+                            "unidad_modelo": (st.session_state.get("params") or {}).get("unidad_modelo")
+                                or f"miles de millones de {str(ctx.get('moneda') or 'COP').upper()}",
                             "unidad_precio": "por acción",
                             "fuente_precio": st.session_state.get("fuente_precio_mercado"),
                             "fecha_precio": st.session_state.get("fecha_precio_mercado"),
-                            "fuente_valoracion": st.session_state.get("version_modelo_valoracion"),
+                            "fuente_valoracion": st.session_state.get("version_modelo_valoracion")
+                                or "DCF propio · modelacion_logic.py · escenarios base",
                         }
                         _audit_ia = L.auditar_contexto_comite_ia(_metricas) if hasattr(L, "auditar_contexto_comite_ia") else {"ok": True, "errors": [], "warnings": []}
                         if _audit_ia.get("errors"):
