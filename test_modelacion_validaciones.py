@@ -11,6 +11,19 @@ import modelacion_logic as L
 
 
 class TestNucleoValoracion(unittest.TestCase):
+    def test_score_sectorial_no_inventa_multiplo_cuando_todos_faltan(self):
+        df = pd.DataFrame({
+            "Empresa": ["AAA", "BBB"],
+            "Margen EBITDA (%)": [20.0, 15.0],
+            "ROIC (%)": [None, None],
+            "WACC estimado (%)": [None, None],
+            "Crecimiento Ingresos 3a (%)": [None, None],
+            "EV/EBITDA (x)": [None, None],
+        })
+        scored = L.calcular_score_sectorial(df)
+        self.assertTrue(scored["EV/EBITDA (x)"].isna().all())
+        self.assertTrue(np.isfinite(scored["Score"]).all())
+
     def test_self_tests_core(self):
         results = L.self_test_valuation_core()
         self.assertGreaterEqual(len(results), 7)
