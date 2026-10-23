@@ -6332,9 +6332,12 @@ def auditar_contexto_comite_ia(metricas):
     if price is not None and vps is not None and price > 0 and vps > 0:
         ratio = vps / price
         if ratio < 0.01 or ratio > 100:
-            errors.append(
-                "Escala sospechosa: VPS/precio fuera del rango 0,01–100; "
-                "verifica unidades y moneda antes de calcular upside"
+            # Una diferencia grande no demuestra por sí sola un error de escala:
+            # puede ser un resultado económico real o una unidad mal documentada.
+            warnings.append(
+                "Diferencia material entre VPS y precio de mercado. El upside se "
+                "calcula aritméticamente, pero no se puede atribuir a un error de "
+                "miles/decimales sin confirmar las unidades y el cálculo del VPS."
             )
         upside_calc = 100.0 * (vps-price)/price
         given = num("upside")
@@ -6433,11 +6436,18 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
         except Exception:
             return float(default) if default is not None else None
 
+    def _fmt_es(value, decimals=2):
+        """Formato español: punto de miles y coma decimal, sin alterar el valor."""
+        if value is None:
+            return "N/D"
+        raw = f"{value:,.{decimals}f}"
+        return raw.replace(",", "\\0").replace(".", ",").replace("\\0", ".")
+
     def _fmt_num(value, decimals=2):
-        return "N/D" if value is None else f"{value:,.{decimals}f}"
+        return _fmt_es(value, decimals)
 
     def _fmt_pct(value):
-        return "N/D" if value is None else f"{value * 100:.2f}%"
+        return "N/D" if value is None else f"{_fmt_es(value * 100, 2)}%"
 
     empresa = m.get("empresa") or nombre_empresa or "N/D"
     precio_mercado = _f("precio_mercado")
@@ -6510,7 +6520,7 @@ REGLAS PERMANENTES DE CALIDAD (libro versionado en el repositorio):
 REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles.
 
 ### INSTRUCCIONES Y FORMATO DE SALIDA
-Simula una deliberación crítica entre los tres miembros del comité contrastando estos números con la realidad del mercado.
+Simula una deliberación crítica entre los tres miembros del comité contrastando estos números con la realidad del mercado. IMPORTANTE: no concluyas que existe un error de miles/decimales solo porque VPS y precio difieran mucho; primero confirma que ambos están expresados en la misma moneda y en unidades por acción. Si no hay metadatos para comprobarlo, describe la discrepancia como una alerta pendiente de validar, no como un error demostrado. Presenta cifras con convención española: punto para miles y coma para decimales (por ejemplo, 28.500,00). No cambies ni reescales cifras solo para hacerlas coincidir con el mercado.
 Entrega el resultado **estrictamente** bajo este formato:
 
 ## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO
