@@ -32,7 +32,7 @@ class TestNucleoValoracion(unittest.TestCase):
             "ticker_bvc": "ISA",
             "params": {"moneda": "COP"},
         }
-        with patch.object(L, "resolver_empresa", return_value=empresa), \\
+        with patch.object(L, "resolver_empresa", return_value=empresa), \
              patch.object(L, "obtener_datos_mercado_bvc", return_value={
                  "ok": True, "precio": 28.5, "fuente": "yahoo:ISA.CL",
                  "proveedor": "yahoo",
@@ -49,7 +49,7 @@ class TestNucleoValoracion(unittest.TestCase):
             "ticker_bvc": "OTRA",
             "params": {"moneda": "COP"},
         }
-        with patch.object(L, "resolver_empresa", return_value=empresa), \\
+        with patch.object(L, "resolver_empresa", return_value=empresa), \
              patch.object(L, "obtener_datos_mercado_bvc", return_value={
                  "ok": True, "precio": 28.5, "fuente": "yahoo:OTRA.CL",
                  "proveedor": "yahoo",
