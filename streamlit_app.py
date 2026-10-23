@@ -5014,22 +5014,28 @@ def main():
             or ""
         )
         _sim_params = st.session_state.get("params") or {}
-        _sim_ticker = (
-            _sim_params.get("ticker_yf")
-            or _sim_params.get("ticker_bvc")
-        )
-        if not _sim_ticker and _sim_empresa:
-            try:
-                _sim_resuelta = L.resolver_empresa(_sim_empresa) or {}
-                _sim_ticker = _sim_resuelta.get("ticker_yf") or _sim_resuelta.get("ticker_bvc")
-            except Exception:
-                _sim_ticker = None
+        # Resolver siempre el ticker de la empresa actualmente seleccionada.
+        # No tomar params de una empresa anterior como fuente principal.
+        try:
+            _sim_ticker = _inferir_ticker_yf(_sim_empresa, _sim_params)
+        except Exception:
+            _sim_ticker = None
         _sim_ticker = str(_sim_ticker or "").strip().upper()
+
+        # Streamlit conserva el valor de un widget por su key. Al usar una key
+        # específica de la empresa, el ticker manual anterior no contamina la
+        # nueva selección y el valor sugerido se actualiza al cambiar de empresa.
+        _sim_empresa_key = "".join(
+            ch.lower() if ch.isalnum() else "_"
+            for ch in str(_sim_empresa or "sin_empresa")
+        ).strip("_") or "sin_empresa"
+        _sim_ticker_key = f"investment_sim_ticker_{_sim_empresa_key}"
+        if _sim_ticker_key not in st.session_state:
+            st.session_state[_sim_ticker_key] = _sim_ticker
         _sim_ticker = st.text_input(
             "Ticker de la empresa",
-            value=_sim_ticker,
-            key="investment_sim_ticker",
-            help="Se propone el ticker de la empresa valorada. Puedes corregirlo si el proveedor usa otro símbolo.",
+            key=_sim_ticker_key,
+            help="Se propone el ticker de la empresa valorada. Puedes corregirlo; cada empresa conserva su propio ticker.",
         ).strip().upper()
         _sim_c1, _sim_c2, _sim_c3 = st.columns(3)
         with _sim_c1:
