@@ -110,6 +110,13 @@ class TestNucleoValoracion(unittest.TestCase):
              }):
             self.assertAlmostEqual(L.resolver_precio_mercado("Otra"), 28.5)
 
+    def test_capm_valida_entradas_y_calcula_ke(self):
+        self.assertAlmostEqual(L.costo_equity_capm(1.2, 0.04, 0.05, 0.01), 0.11)
+        with self.assertRaises(ValueError):
+            L.costo_equity_capm(1.0, float("nan"), 0.05, 0.0)
+        with self.assertRaises(ValueError):
+            L.costo_equity_capm(-0.5, 0.04, 0.05, 0.0)
+
     def test_rechaza_entradas_wacc_invalidas(self):
         with self.assertRaises(ValueError):
             L.calcular_wacc(-0.1, 0.08, 0.12, 0.25)
