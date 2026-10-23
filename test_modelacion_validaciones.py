@@ -30,6 +30,23 @@ class TestNucleoValoracion(unittest.TestCase):
         result = L.calcular_vps_y_upside(33066.40, 1108, moneda_modelo="COP", moneda_precio="COP")
         self.assertAlmostEqual(result["value_per_share"], 29843.32, places=2)
 
+    def test_anclaje_g_terminal_preserva_crecimiento_negativo(self):
+        g_use, g_cap = L.anclar_g_terminal(-0.02, 0.08, g_max_macro=0.04)
+        self.assertAlmostEqual(g_use, -0.02)
+        self.assertAlmostEqual(g_cap, 0.04)
+
+    def test_anclaje_g_terminal_rechaza_wacc_invalido(self):
+        with self.assertRaises(ValueError):
+            L.anclar_g_terminal(0.02, 0.0)
+
+    def test_vps_rechaza_unidades_invalidas_sin_generar_upside(self):
+        result = L.calcular_vps_y_upside(
+            100.0, 0, precio_mercado=10.0,
+            moneda_modelo="COP", moneda_precio="COP",
+        )
+        self.assertIsNone(result["value_per_share"])
+        self.assertIsNone(result["upside_pct"])
+
     def test_calcular_nopat_no_reconoce_escudo_fiscal_sin_utilidad(self):
         ebit = pd.Series([-100.0, 0.0, 100.0])
         nopat = L.calcular_nopat(ebit, 0.30)
