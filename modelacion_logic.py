@@ -6356,7 +6356,7 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
     import re
     raw = _html_a_texto(respuesta, max_len=20000) if respuesta else ""
     # Algunos proveedores escapan los encabezados Markdown; normalizar antes de validar/renderizar.
-    raw = re.sub(r"(?m)^\+(?=#{1,6}\s)", "", raw)
+    raw = re.sub(r"(?m)^\\+(?=#{1,6}\s)", "", raw)
     upper = raw.upper()
     errors, warnings = [], []
     m = dict(metricas or {})
