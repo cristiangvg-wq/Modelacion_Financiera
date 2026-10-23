@@ -96,7 +96,7 @@ def simular_inversion(
             else:
                 value_in_capital = liquidation / fx
             values.append(float(value_in_capital))
-            trajectory.append({"Año": year, nombre: float(value_in_capital)})
+            trayectoria.append({"Año": year, nombre: float(value_in_capital)})
         final_value = values[-1]
         gain = final_value - capital
         annualized = (final_value / capital) ** (1.0 / horizonte) - 1.0 if final_value > 0 else -1.0
