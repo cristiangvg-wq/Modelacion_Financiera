@@ -6546,12 +6546,43 @@ Entrega el resultado **estrictamente** bajo este formato:
         )
 
     audit_out = auditar_respuesta_comite_ia(texto)
+    if not audit_out["ok"] and any(
+        ("prompt" in str(err).lower() or "plantilla" in str(err).lower())
+        for err in audit_out["errors"]
+    ):
+        # Recuperación acotada: un eco del prompt suele ser una salida defectuosa del modelo,
+        # no una razón para abandonar la deliberación sin intentar una regeneración.
+        retry_system = (
+            sistema
+            + " CRÍTICO: entrega únicamente la deliberación final solicitada. "
+            "Nunca reproduzcas el prompt, el contexto de entrada ni las instrucciones. "
+            "Sustituye cualquier marcador de plantilla por análisis concreto o N/D."
+        )
+        retry_user = (
+            user_content
+            + "\n\nREINTENTO DE CALIDAD: la respuesta anterior fue rechazada porque repitió "
+            "instrucciones o dejó marcadores de plantilla. Genera ahora la deliberación completa "
+            "con los datos ya proporcionados. No repitas este prompt ni sus encabezados de contexto; "
+            "responde solo con las cuatro secciones finales y sin corchetes de plantilla."
+        )
+        texto_reintento = _llamar_ia_redaccion(
+            retry_system, retry_user, temperature=0.2,
+            api_key=api_key, proveedor=proveedor or "gemini",
+        )
+        if texto_reintento:
+            audit_reintento = auditar_respuesta_comite_ia(texto_reintento)
+            if audit_reintento["ok"]:
+                texto = texto_reintento
+                audit_out = audit_reintento
+            else:
+                audit_out = audit_reintento
+
     if not audit_out["ok"]:
         errores = "<br>".join(_html.escape(str(e)) for e in audit_out["errors"])
         return (
             '<div class="result-note" style="border-left:4px solid #DC2626">'
             '<b>Respuesta IA rechazada por controles de calidad.</b><br>'
-            f"{errores}</div>"
+            f"{errores}<br><span>Se intentó una regeneración automática; vuelve a ejecutar el comité si persiste.</span></div>"
         )
 
     cuerpo = _texto_a_html(texto) if "_texto_a_html" in dir() else None
