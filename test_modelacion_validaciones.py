@@ -2,6 +2,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,46 @@ class TestNucleoValoracion(unittest.TestCase):
         results = L.self_test_valuation_core()
         self.assertGreaterEqual(len(results), 7)
         self.assertTrue(all(ok for _, ok, _ in results), results)
+
+    def test_vps_isa_no_recalibra_acciones_para_forzar_precio(self):
+        result = L.calcular_vps_y_upside(
+            33066.40, 1108, precio_mercado=28.5,
+            moneda_modelo="COP", moneda_precio="COP",
+        )
+        self.assertAlmostEqual(result["value_per_share"], 29843.32, places=2)
+        self.assertIsNone(result["upside_pct"])
+        self.assertEqual(result["acciones"], 1108)
+        self.assertIn("upside bloqueado", result["nota_vps"].lower())
+
+    def test_resolver_precio_isa_normaliza_yahoo_miles_de_cop(self):
+        empresa = {
+            "ticker_yf": "ISA.CL",
+            "ticker_bvc": "ISA",
+            "params": {"moneda": "COP"},
+        }
+        with patch.object(L, "resolver_empresa", return_value=empresa), \\
+             patch.object(L, "obtener_datos_mercado_bvc", return_value={
+                 "ok": True, "precio": 28.5, "fuente": "yahoo:ISA.CL",
+                 "proveedor": "yahoo",
+             }):
+            self.assertAlmostEqual(
+                L.resolver_precio_mercado("ISA — Interconexión Eléctrica"),
+                28500.0,
+                places=2,
+            )
+
+    def test_resolver_precio_no_escala_otras_empresas_ni_fuentes(self):
+        empresa = {
+            "ticker_yf": "OTRA.CL",
+            "ticker_bvc": "OTRA",
+            "params": {"moneda": "COP"},
+        }
+        with patch.object(L, "resolver_empresa", return_value=empresa), \\
+             patch.object(L, "obtener_datos_mercado_bvc", return_value={
+                 "ok": True, "precio": 28.5, "fuente": "yahoo:OTRA.CL",
+                 "proveedor": "yahoo",
+             }):
+            self.assertAlmostEqual(L.resolver_precio_mercado("Otra"), 28.5)
 
     def test_rechaza_entradas_wacc_invalidas(self):
         with self.assertRaises(ValueError):
