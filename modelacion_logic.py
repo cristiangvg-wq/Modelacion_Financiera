@@ -6332,9 +6332,10 @@ def auditar_contexto_comite_ia(metricas):
     if price is not None and vps is not None and price > 0 and vps > 0:
         ratio = vps / price
         if ratio < 0.01 or ratio > 100:
-            errors.append(
-                "Escala sospechosa: VPS/precio fuera del rango 0,01–100; "
-                "verifica unidades y moneda antes de calcular upside"
+            warnings.append(
+                "Discrepancia elevada entre VPS y precio de mercado: verifica unidades, "
+                "moneda, número de acciones y puente EV-Equity. La discrepancia por sí sola "
+                "no demuestra un error de escala."
             )
         upside_calc = 100.0 * (vps-price)/price
         given = num("upside")
