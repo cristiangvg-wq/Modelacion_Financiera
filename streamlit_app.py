@@ -4771,6 +4771,10 @@ def main():
             key="portfolio_objective",
         )
         _pperiod = st.selectbox("Ventana histórica", ["2y", "5y", "10y"], index=1, key="portfolio_period")
+        _portfolio_request = (
+            tuple(dict.fromkeys(x.strip().upper() for x in _ptickers_text.split(",") if x.strip())),
+            float(_prf), float(_pmax), _pobjective, _pperiod,
+        )
         if st.button("Optimizar portafolio", key="portfolio_run", type="primary"):
             try:
                 import yfinance as _yf
@@ -4818,6 +4822,9 @@ def main():
                 if isinstance(_prices, pd.Series):
                     _prices = _prices.to_frame(name=_ptickers[0])
                 _prices = _prices.dropna(axis=1, how="all")
+                _missing_tickers = sorted(set(_ptickers) - set(map(str, _prices.columns)))
+                if _missing_tickers:
+                    raise ValueError("No hay precios descargables para: " + ", ".join(_missing_tickers))
                 _mu, _cov = _prep_portfolio(_prices)
                 _res = _opt_portfolio(
                     _mu, _cov, objetivo=_pobjective,
@@ -4836,12 +4843,16 @@ def main():
                     "period": _pperiod,
                     "frontier": _frontier.to_dict(orient="records"),
                     "prices_last_date": str(_prices.dropna().index[-1]),
+                    "request": _portfolio_request,
                 }
             except Exception as _portfolio_error:
                 st.session_state.pop("portfolio_result", None)
                 st.error(f"No se pudo optimizar el portafolio: {_portfolio_error}")
 
         _portfolio_saved = st.session_state.get("portfolio_result")
+        if _portfolio_saved and _portfolio_saved.get("request") != _portfolio_request:
+            _portfolio_saved = None
+            st.info("Los parámetros de cartera cambiaron. Pulsa **Optimizar portafolio** para actualizar los resultados.")
         if _portfolio_saved:
             st.caption(
                 f"Moneda detectada: {_portfolio_saved['currency']} · "
