@@ -3574,6 +3574,7 @@ def main():
     if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
         st.session_state["resultados"] = {}
         st.session_state.pop("tab4_comite_ia_html", None)
+        st.session_state.pop("contraste_mercado_actual", None)
         st.session_state["modelo_dirty"] = True
     st.session_state["_model_fingerprint"] = _model_fingerprint
     if st.session_state.get("modelo_dirty"):
