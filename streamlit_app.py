@@ -2333,7 +2333,8 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
         w = w if isinstance(w, dict) else {}
         wacc_calc = float(w.get("wacc", 0.10) or 0.10)
         ke_calc = float(w.get("ke", 0.12) or 0.12)
-        roic_calc = val_ev = val_equity = vps_modelo = precio_mercado = upside = 0.0
+        roic_calc = None  # Ausencia de ROIC no equivale a rentabilidad nula.
+        val_ev = val_equity = vps_modelo = precio_mercado = upside = 0.0
         mon_m = str(moneda or "COP").upper()
         try:
             _alinear_moneda_y_precio(empresa)
@@ -2413,18 +2414,23 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
         # Prefer tab2 escenarios if tab7 aún no existe (orden 4+ antes de tab7)
         monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
         if not monedas_ok:
-            upside = 0.0
-        if vps_modelo <= 0 and val_equity > 0:
-            try:
-                acc = (st.session_state.get("params") or {}).get("acciones")
-                if acc and float(acc) > 0:
-                    # El DCF entrega Equity en miles de millones y acciones en millones.
-                    # Convertir miles de millones a millones antes de dividir para obtener COP/acción.
-                    vps_modelo = val_equity * 1000.0 / float(acc)
-            except Exception:
-                pass
-        if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
-            upside = 100.0 * (vps_modelo - precio_mercado) / precio_mercado
+            upside = None  # Monedas incompatibles: no presentar 0% como si fuera calculado.
+        # Fuente única de verdad para VPS/upside: misma conversión y guardas que el DCF.
+        acciones_ctx = (st.session_state.get("params") or {}).get("acciones") or acciones
+        if vps_modelo <= 0 and val_equity > 0 and acciones_ctx:
+            vps_info = L.calcular_vps_y_upside(
+                val_equity, acciones_ctx, precio_mercado=None,
+                moneda_modelo=mon_m, moneda_precio=mon_m,
+            )
+            vps_modelo = vps_info.get("value_per_share") or 0.0
+        if precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
+            # No inventar un upside de 0% cuando no había dato previo.
+            upside_info = L.calcular_vps_y_upside(
+                val_equity, acciones_ctx, precio_mercado=precio_mercado,
+                moneda_modelo=mon_m, moneda_precio=mon_px,
+            ) if val_equity > 0 and acciones_ctx else {}
+            if upside_info.get("upside_pct") is not None:
+                upside = upside_info["upside_pct"]
 
         ticker_ctx = "—"
         try:
@@ -4120,19 +4126,22 @@ def main():
                 except (TypeError, ValueError, AttributeError):
                     vps_modelo = 0.0
 
-            if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
-                vps_info = L.calcular_vps_y_upside(
-                    val_equity, (st.session_state.get("params") or {}).get("acciones") or acciones,
-                    precio_mercado=precio_mercado, moneda_modelo=mon_m, moneda_precio=mon_m,
-                ) if val_equity > 0 else {}
-                upside = vps_info.get("upside_pct")
-
             mon_px = str(
                 st.session_state.get("moneda_precio_alineada")
                 or (st.session_state.get("params") or {}).get("precio_moneda")
                 or mon_m
             ).upper()
             monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
+            acciones_ctx = (st.session_state.get("params") or {}).get("acciones") or acciones
+            if precio_mercado > 0 and vps_modelo > 0 and monedas_ok and val_equity > 0 and acciones_ctx:
+                vps_info = L.calcular_vps_y_upside(
+                    val_equity, acciones_ctx, precio_mercado=precio_mercado,
+                    moneda_modelo=mon_m, moneda_precio=mon_px,
+                )
+                if vps_info.get("upside_pct") is not None:
+                    upside = vps_info["upside_pct"]
+                elif upside == 0.0:
+                    upside = None
             if not monedas_ok:
                 upside = None  # no comparable sin FX
             decision_modelo = "—"

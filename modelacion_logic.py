@@ -4331,13 +4331,24 @@ def beta_apalancado(beta_u, de, t):
 
 def anclar_g_terminal(g, wacc, g_max_macro=0.05, margen_seguridad=0.01):
     """
-    Disciplina profesional: g de largo plazo no puede acercarse al WACC
-    ni superar un techo macro (p.ej. PIB nominal de largo plazo).
+    Limita el crecimiento terminal superior sin alterar silenciosamente una
+    hipótesis de contracción perpetua (g < 0). El usuario conserva el supuesto
+    económico ingresado; solo se aplica un techo por prudencia.
     """
     g = float(g)
     wacc = float(wacc)
-    g_cap = min(float(g_max_macro), wacc - float(margen_seguridad))
-    g_use = max(0.0, min(g, g_cap))
+    g_max_macro = float(g_max_macro)
+    margen_seguridad = float(margen_seguridad)
+    if not all(np.isfinite(x) for x in (g, wacc, g_max_macro, margen_seguridad)):
+        raise ValueError("g, WACC, techo macro y margen deben ser finitos.")
+    if wacc <= 0:
+        raise ValueError("WACC debe ser positivo.")
+    if g_max_macro < 0 or margen_seguridad < 0:
+        raise ValueError("El techo macro y el margen no pueden ser negativos.")
+    g_cap = min(g_max_macro, wacc - margen_seguridad)
+    if g_cap < 0:
+        raise ValueError("No hay margen viable entre WACC y el crecimiento terminal.")
+    g_use = min(g, g_cap)
     return g_use, g_cap
 
 
@@ -4362,7 +4373,7 @@ def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, accio
         msgs.append("El techo macro de g debe ser finito y no negativo.")
         return msgs
     if g < 0:
-        msgs.append("g terminal negativo: representa contracción perpetua; revisar si se desea modelar así. La función de anclaje actual usa un piso de 0%.")
+        msgs.append("g terminal negativo: representa contracción perpetua; revisar si se desea modelar así. La función de anclaje conserva g negativo y solo aplica un techo superior.")
     g_use, g_cap = anclar_g_terminal(g, w, g_max_macro=g_max_macro)
     if not np.isclose(g_use, g, rtol=0.0, atol=1e-9):
         msgs.append(f"g terminal ajustado por disciplina del modelo: ingresado {g*100:.2f}%, utilizado {g_use*100:.2f}% (techo aplicado {g_cap*100:.2f}%).")
