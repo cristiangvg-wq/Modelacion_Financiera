@@ -54,7 +54,7 @@ class TestNucleoValoracion(unittest.TestCase):
 
     def test_vps_bloquea_upside_si_falta_moneda_confirmada(self):
         result = L.calcular_vps_y_upside(
-            100.0, 10.0, precio_mercado=8.0,
+            0.08, 10.0, precio_mercado=8.0,
             moneda_modelo="COP", moneda_precio=None,
         )
         self.assertIsNotNone(result["value_per_share"])
