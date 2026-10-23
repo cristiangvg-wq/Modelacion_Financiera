@@ -168,6 +168,39 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertTrue(any("no se puede atribuir" in w.lower() for w in audit["warnings"]))
         self.assertAlmostEqual(audit["upside_recalculado"], 100 * (29.84 / 28500 - 1), places=4)
 
+    def test_roic_sectorial_no_se_imputa_si_faltan_nopat_y_ebit(self):
+        emp = {
+            "historico": {
+                "Año": [2023, 2024],
+                "Ingresos": [100.0, 110.0],
+                "EBITDA": [20.0, 22.0],
+                "FCFF": [5.0, 6.0],
+            },
+            "params": {"de_ratio": 0.5, "kd": 0.08, "tax": 0.3, "beta_u": 0.5},
+            "ticker_yf": None,
+            "pais": None,
+            "moneda": "COP",
+        }
+        row, _, _, _ = L._fila_sectorial_desde_emp("Empresa sin NOPAT", emp)
+        self.assertIsNone(row["ROIC (%)"])
+
+    def test_roic_sectorial_deriva_nopat_desde_ebit_sin_inventar_capital(self):
+        emp = {
+            "historico": {
+                "Año": [2023, 2024],
+                "Ingresos": [100.0, 110.0],
+                "EBITDA": [20.0, 22.0],
+                "EBIT": [10.0, 12.0],
+                "FCFF": [5.0, 6.0],
+            },
+            "params": {"de_ratio": 0.5, "kd": 0.08, "tax": 0.25, "beta_u": 0.5},
+            "ticker_yf": None,
+            "pais": None,
+            "moneda": "COP",
+        }
+        row, _, _, _ = L._fila_sectorial_desde_emp("Empresa sin capital invertido", emp)
+        self.assertIsNone(row["ROIC (%)"])
+
     def test_empresa_personalizada_csv(self):
         frame = pd.DataFrame({
             "Año": [2021, 2022, 2023, 2024],
