@@ -11,6 +11,7 @@ from pathlib import Path
 # =============================================================================
 
 import warnings
+import math
 # No ocultar advertencias globalmente: son relevantes para la calidad del modelo.
 # Si alguna librería genera ruido, filtrar solo esa advertencia de forma específica.
 
@@ -5684,9 +5685,8 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
     key_ui = (api_key or "").strip()
     key_xai = key_ui or (os.environ.get("XAI_API_KEY") or "").strip()
     key_oai = key_ui or (os.environ.get("OPENAI_API_KEY") or "").strip()
-    # Fallback prestablecido solo para Gemini (consulta asistida sin Secrets/env)
-    _GEMINI_FALLBACK = "AQ.Ab8RN6Lq_5w77l3GlbR4hlmYW9vFRDZjPxv5wn8Iaw4WluWMUA"
-    key_gem = key_ui or (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip() or _GEMINI_FALLBACK
+    # No usar claves embebidas: UI → variables de entorno.
+    key_gem = key_ui or (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
 
     prov = (proveedor or "auto").lower().strip()
 
@@ -6269,6 +6269,111 @@ def _metricas_comite_para_ia(nombre_empresa):
     return out
 
 
+def auditar_contexto_comite_ia(metricas):
+    """Valida plausibilidad y consistencia del contexto antes de enviarlo al comité IA.
+
+    No reemplaza auditoría contable ni verifica datos de mercado externamente.
+    Devuelve errores bloqueantes, advertencias y estado de comparabilidad.
+    """
+    m = dict(metricas or {})
+    errors, warnings = [], []
+
+    def num(k):
+        try:
+            v = m.get(k)
+            if v is None or isinstance(v, bool):
+                return None
+            v = float(v)
+            return v if math.isfinite(v) else None
+        except (TypeError, ValueError):
+            return None
+
+    required = ("precio_mercado", "vps_modelo", "wacc_calc", "val_ev", "val_equity")
+    missing = [k for k in required if num(k) is None]
+    if missing:
+        warnings.append("Métricas ausentes/no numéricas: " + ", ".join(missing))
+    for k in ("precio_mercado", "vps_modelo"):
+        v = num(k)
+        if v is not None and v <= 0:
+            warnings.append(f"{k} <= 0: no se interpreta como dato válido de mercado/valoración")
+    for k in ("wacc_calc", "ke_calc"):
+        v = num(k)
+        if v is not None and not (0 < v < 1):
+            errors.append(f"{k} debe expresarse como decimal entre 0 y 1; recibido {v}")
+    de = num("de_ratio")
+    if de is not None and de < 0:
+        errors.append("de_ratio (D/E) no puede ser negativo")
+    g = num("g")
+    wacc = num("wacc_calc")
+    if g is not None and not (-0.5 < g < 0.5):
+        warnings.append("g fuera del rango de plausibilidad [-50%, 50%]")
+    if g is not None and wacc is not None and g >= wacc:
+        errors.append("g terminal debe ser menor que WACC")
+    roic, ke = num("roic_calc"), num("ke_calc")
+    if roic is not None and ke is not None and roic > 1:
+        warnings.append("ROIC > 100%: confirmar escala/unidad")
+    if roic is not None and wacc is not None and abs(roic-wacc) > 0.75:
+        warnings.append("ROIC-WACC supera 75 pp: confirmar escala y periodo")
+    currency = str(m.get("moneda") or "").strip().upper()
+    price_currency = str(m.get("moneda_precio") or currency).strip().upper()
+    unit_model = str(m.get("unidad_modelo") or "").strip().lower()
+    unit_price = str(m.get("unidad_precio") or "por acción").strip().lower()
+    if not currency or not price_currency:
+        warnings.append("Moneda del modelo/cotización no identificada")
+    elif currency != price_currency and not m.get("fx_aplicado"):
+        warnings.append("Moneda del modelo y cotización distintas sin FX aplicado")
+    if not unit_model:
+        warnings.append("Escala/unidad monetaria del EV y Equity no documentada")
+    if unit_price not in ("por acción", "por accion", "acción", "accion", "share"):
+        warnings.append("Unidad del precio por acción no reconocida")
+    price, vps = num("precio_mercado"), num("vps_modelo")
+    upside_calc = None
+    if price is not None and vps is not None and price > 0 and vps > 0:
+        upside_calc = 100.0 * (vps-price)/price
+        given = num("upside")
+        if given is not None and abs(given-upside_calc) > 0.5:
+            warnings.append(f"Upside informado ({given:.2f}%) no coincide con recálculo ({upside_calc:.2f}%)")
+    else:
+        warnings.append("Upside no calculable: precio mercado/VPS faltante o no positivo")
+    if not m.get("fuente_precio") or not m.get("fecha_precio"):
+        warnings.append("Precio de mercado sin fuente y/o fecha de corte explícitas")
+    if not m.get("fuente_valoracion"):
+        warnings.append("No se identifica fuente/version del cálculo de valoración")
+    return {"ok": not errors, "errors": errors, "warnings": warnings,
+            "upside_recalculado": upside_calc, "missing": missing}
+
+
+def auditar_respuesta_comite_ia(respuesta):
+    """Audita estructura y señales de salida inválida del comité; no verifica hechos externos."""
+    import re
+    raw = _html_a_texto(respuesta, max_len=20000) if respuesta else ""
+    upper = raw.upper()
+    errors, warnings = [], []
+    if not raw:
+        errors.append("Respuesta vacía")
+    if "CONTEXTO DE ENTRADA" in upper or "INSTRUCCIONES Y FORMATO DE SALIDA" in upper:
+        errors.append("La IA devolvió/ecoó el prompt")
+    if re.search(r"\[\s*\.\.\.\s*\]", raw):
+        errors.append("La respuesta contiene marcadores de plantilla [ ... ] sin completar")
+    for section in ("DELIBERACIÓN", "ANÁLISIS DE BRECHA", "DECISIÓN FINAL", "FACTORES CRÍTICOS"):
+        if section not in upper:
+            warnings.append(f"Falta sección: {section}")
+    rec = re.search(r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：-]*\s*(INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b", upper)
+    if not rec:
+        warnings.append("No se identificó recomendación final dentro del vocabulario permitido")
+    score = re.search(r"PUNTAJE(?:\s+DE\s+VIABILIDAD)?\s*[:：-]*\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*10)?", upper)
+    if score:
+        try:
+            val = float(score.group(1).replace(",", "."))
+            if not 1 <= val <= 10:
+                errors.append(f"Puntaje fuera de escala 1–10: {val}")
+        except Exception:
+            warnings.append("Puntaje no interpretable")
+    else:
+        warnings.append("No se identificó puntaje de viabilidad")
+    return {"ok": not errors, "errors": errors, "warnings": warnings, "texto": raw}
+
+
 def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gemini", metricas=None):
     """
     Deliberación tipo comité interdisciplinario (CFO / Mercado / CRO) usando el mismo
@@ -6281,6 +6386,7 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
     for k, v in base.items():
         if m.get(k) is None:
             m[k] = v
+    audit_ctx = auditar_contexto_comite_ia(m)
 
     def _f(key, default=0.0):
         v = m.get(key)
@@ -6349,6 +6455,14 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 {('- **Datos incompletos en el modelo:** ' + ', '.join(faltantes)) if faltantes else ''}
 
 ---
+
+### AUDITORÍA PREVIA DEL CONTEXTO (reglas automáticas, no verificación externa)
+- Estado matemático: {"APTO" if audit_ctx["ok"] else "NO APTO"}
+- Errores bloqueantes: {"; ".join(audit_ctx["errors"]) or "ninguno"}
+- Advertencias: {"; ".join(audit_ctx["warnings"]) or "ninguna"}
+- Upside recalculado desde VPS/precio: {f"{audit_ctx["upside_recalculado"]:+.2f}%" if audit_ctx["upside_recalculado"] is not None else "N/D"}
+
+REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles.
 
 ### INSTRUCCIONES Y FORMATO DE SALIDA
 Simula una deliberación crítica entre los tres miembros del comité contrastando estos números con la realidad del mercado.
