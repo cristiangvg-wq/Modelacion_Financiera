@@ -144,7 +144,7 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertFalse(audit["ok"])
         self.assertTrue(any("métricas financieras esenciales" in e.lower() for e in audit["errors"]))
 
-    def test_auditoria_contexto_bloquea_escala_vps_precio_incompatible(self):
+    def test_auditoria_contexto_advierte_discrepancia_sin_afirmar_error_de_escala(self):
         audit = L.auditar_contexto_comite_ia({
             "precio_mercado": 28500.0,
             "vps_modelo": 29.84,
@@ -164,8 +164,9 @@ class TestNucleoValoracion(unittest.TestCase):
             "fecha_precio": "2026-10-22",
             "fuente_valoracion": "DCF test",
         })
-        self.assertFalse(audit["ok"])
-        self.assertTrue(any("escala sospechosa" in e.lower() for e in audit["errors"]))
+        self.assertTrue(audit["ok"], audit["errors"])
+        self.assertTrue(any("no se puede atribuir" in w.lower() for w in audit["warnings"]))
+        self.assertAlmostEqual(audit["upside_recalculado"], 100 * (29.84 / 28500 - 1), places=4)
 
     def test_empresa_personalizada_csv(self):
         frame = pd.DataFrame({
