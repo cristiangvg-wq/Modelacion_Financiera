@@ -26,6 +26,21 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertEqual(result["acciones"], 1108)
         self.assertIn("upside bloqueado", result["nota_vps"].lower())
 
+    def test_vps_comite_usa_factor_miles_millones_a_millones(self):
+        result = L.calcular_vps_y_upside(33066.40, 1108, moneda_modelo="COP", moneda_precio="COP")
+        self.assertAlmostEqual(result["value_per_share"], 29843.32, places=2)
+
+    def test_calcular_nopat_no_reconoce_escudo_fiscal_sin_utilidad(self):
+        ebit = pd.Series([-100.0, 0.0, 100.0])
+        nopat = L.calcular_nopat(ebit, 0.30)
+        np.testing.assert_allclose(nopat.to_numpy(), [-100.0, 0.0, 70.0])
+        with self.assertRaises(ValueError):
+            L.calcular_nopat(ebit, 1.2)
+
+    def test_anclaje_g_informa_cuando_cambia_supuestos(self):
+        msgs = L.validar_inputs_valoracion(0.10, 0.08, g_max_macro=0.05)
+        self.assertTrue(any("ingresado" in m and "utilizado" in m for m in msgs))
+
     def test_resolver_precio_isa_normaliza_yahoo_miles_de_cop(self):
         empresa = {
             "ticker_yf": "ISA.CL",

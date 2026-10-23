@@ -24,11 +24,10 @@ except ImportError:
     HAS_MPL = False
     plt = None
 
-# API key Gemini: UI → Secrets → env → fallback prestablecido.
-_DEFAULT_GEMINI_API_KEY = "AQ.Ab8RN6Lq_5w77l3GlbR4hlmYW9vFRDZjPxv5wn8Iaw4WluWMUA"
-
+# API key Gemini: UI → Streamlit Secrets → variable de entorno.
+# Si una clave fue versionada anteriormente, revocarla/rotarla en el proveedor.
 def _resolve_gemini_key(ui_key=None):
-    """Orden: input UI → st.secrets → env → clave prestablecida."""
+    """Orden: input UI → st.secrets → env; no hay clave embebida de respaldo."""
     if ui_key and str(ui_key).strip():
         return str(ui_key).strip()
     try:
@@ -39,7 +38,7 @@ def _resolve_gemini_key(ui_key=None):
     env = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
     if env:
         return env
-    return _DEFAULT_GEMINI_API_KEY
+    return None
 
 
 
@@ -3780,7 +3779,7 @@ def main():
             res = st.session_state.get("resultados") or {}
             wacc_calc = float(w.get("wacc", 0.10) if isinstance(w, dict) else 0.10)
             ke_calc = float(w.get("ke", 0.12) if isinstance(w, dict) else 0.12)
-            roic_calc = 0.0
+            roic_calc = None
             val_ev = 0.0
             val_equity = 0.0
             vps_modelo = 0.0
@@ -3833,8 +3832,9 @@ def main():
                 wacc_calc = ww / 100.0 if ww > 1.0 else ww
             roic_k = _k("ROIC %", "ROIC")
             if roic_k is not None:
-                rr = _safe_float(roic_k, 0.0)
-                roic_calc = rr / 100.0 if rr > 1.0 else rr
+                rr = _safe_float(roic_k, None)
+                if rr is not None:
+                    roic_calc = rr / 100.0 if rr > 1.0 else rr
 
             t2 = res.get("tab2")
             if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
@@ -3866,12 +3866,20 @@ def main():
 
             if vps_modelo <= 0 and val_equity > 0 and float(acciones or 0) > 0:
                 try:
-                    vps_modelo = val_equity / float(acciones)
-                except Exception:
+                    vps_info = L.calcular_vps_y_upside(
+                        val_equity, float(acciones), precio_mercado=None,
+                        moneda_modelo=mon_m, moneda_precio=mon_m,
+                    )
+                    vps_modelo = vps_info.get("value_per_share") or 0.0
+                except (TypeError, ValueError, AttributeError):
                     vps_modelo = 0.0
 
             if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0:
-                upside = 100.0 * (vps_modelo - precio_mercado) / precio_mercado
+                upside_info = L.calcular_vps_y_upside(
+                    val_equity, float(acciones), precio_mercado=precio_mercado,
+                    moneda_modelo=mon_m, moneda_precio=mon_m,
+                ) if val_equity > 0 and float(acciones or 0) > 0 else {}
+                upside = upside_info.get("upside_pct")
 
             mon_px = str(
                 st.session_state.get("moneda_precio_alineada")
@@ -3880,7 +3888,7 @@ def main():
             ).upper()
             monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
             if not monedas_ok:
-                upside = 0.0  # no comparable sin FX
+                upside = None  # no comparable sin FX
             decision_modelo = "—"
             t4 = res.get("tab4")
             if t4 and isinstance(t4, (list, tuple)) and len(t4) > 0 and t4[0]:
@@ -3918,6 +3926,8 @@ def main():
             }
 
         def _prompt_comite_ia(ctx: dict) -> str:
+            roic_text = f"{ctx['roic_calc']*100:.2f}%" if ctx.get("roic_calc") is not None else "N/D (sin datos suficientes)"
+            upside_text = f"{ctx['upside']:+.2f}%" if ctx.get("upside") is not None else "N/D (monedas distintas o datos faltantes)"
             return (
                 "Actúa como un Comité Interdisciplinario de Inversión de alto nivel compuesto por tres expertos senior:\n"
                 "1. **Director Financiero (CFO / Experto en Valuation):** Especialista en valoración intrínseca (DCF/FCFF), "
@@ -3935,9 +3945,9 @@ def main():
                 f"- **Decisión cuantitativa del modelo (tab4/tab7):** {ctx.get('decision_modelo', '—')}\n"
                 f"- **Precio Actual de Mercado:** {ctx['precio_mercado']:,.2f}\n"
                 f"- **Valor por Acción Según el Modelo (VPS):** {ctx['vps_modelo']:,.2f} "
-                f"(Upside calculado: {ctx['upside']:+.2f}% — válido solo si monedas alineadas)\n"
+                f"(Upside calculado: {upside_text} — válido solo si monedas alineadas)\n"
                 f"- **WACC Calculado:** {ctx['wacc_calc']*100:.2f}% | **Ke (CAPM):** {ctx['ke_calc']*100:.2f}% | "
-                f"**ROIC:** {ctx['roic_calc']*100:.2f}%\n"
+                f"**ROIC:** {roic_text}\n"
                 f"- **Estructura D/E:** {ctx['de_ratio']:.2f} | **Crecimiento Terminal (g):** {ctx['g']*100:.2f}%\n"
                 f"- **Valor del Negocio (EV Base):** {ctx['val_ev']:,.2f}\n"
                 f"- **Valor del Equity Base:** {ctx['val_equity']:,.2f}\n"
@@ -3979,7 +3989,7 @@ def main():
                 ),
                 (
                     "Upside",
-                    f"{ctx_preview['upside']:+.1f}%",
+                    f"{ctx_preview['upside']:+.1f}%" if ctx_preview.get("upside") is not None else "N/D",
                     "Porcentaje de diferencia entre VPS del modelo y precio de mercado. "
                     "Solo es comparable si ambas cifras están en la misma moneda. No garantiza que el precio se mueva.",
                 ),

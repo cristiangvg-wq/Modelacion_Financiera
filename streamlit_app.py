@@ -3563,6 +3563,23 @@ def main():
                 except Exception as e:
                     st.error(str(e))
 
+    # Invalidar salidas calculadas cuando cambie cualquier supuesto que altere el DCF.
+    _model_fingerprint = tuple(repr(x) for x in (
+        empresa, horizonte, metodo, tax, de_ratio, kd, g, capex_extra, beta_u,
+        deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
+        exit_multiple, mid_year, g_max_macro, usar_publicos,
+        getattr(archivo, "name", None), getattr(archivo, "size", None), moneda,
+    ))
+    _prev_fingerprint = st.session_state.get("_model_fingerprint")
+    if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
+        st.session_state["resultados"] = {}
+        st.session_state.pop("tab4_comite_ia_html", None)
+        st.session_state.pop("contraste_mercado_actual", None)
+        st.session_state["modelo_dirty"] = True
+    st.session_state["_model_fingerprint"] = _model_fingerprint
+    if st.session_state.get("modelo_dirty"):
+        st.info("Los supuestos cambiaron: se invalidaron resultados anteriores. Ejecuta **Generar todo** para recalcularlos.")
+
     # ----- Generar todo (único botón) -----
     st.markdown("##### Ejecución del modelo")
     st.caption(
@@ -3692,6 +3709,7 @@ def main():
             if errores:
                 st.warning("Algunas pestañas fallaron:\n- " + "\n- ".join(errores))
             else:
+                st.session_state["modelo_dirty"] = False
                 st.success(
                     "Pipeline completo: 1→2→3→4→4+(Comité IA)→5→6→7. "
                     "Revisa cada pestaña."
@@ -4005,7 +4023,7 @@ def main():
             res = st.session_state.get("resultados") or {}
             wacc_calc = float(w.get("wacc", 0.10) if isinstance(w, dict) else 0.10)
             ke_calc = float(w.get("ke", 0.12) if isinstance(w, dict) else 0.12)
-            roic_calc = 0.0
+            roic_calc = None
             val_ev = 0.0
             val_equity = 0.0
             vps_modelo = 0.0
@@ -4058,8 +4076,9 @@ def main():
                 wacc_calc = ww / 100.0 if ww > 1.0 else ww
             roic_k = _k("ROIC %", "ROIC")
             if roic_k is not None:
-                rr = _safe_float(roic_k, 0.0)
-                roic_calc = rr / 100.0 if rr > 1.0 else rr
+                rr = _safe_float(roic_k, None)
+                if rr is not None:
+                    roic_calc = rr / 100.0 if rr > 1.0 else rr
 
             t2 = res.get("tab2")
             if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
@@ -4089,14 +4108,24 @@ def main():
                 except Exception:
                     pass
 
-            if vps_modelo <= 0 and val_equity > 0 and float(acciones or 0) > 0:
+            if vps_modelo <= 0 and val_equity > 0:
                 try:
-                    vps_modelo = val_equity / float(acciones)
-                except Exception:
+                    acc = (st.session_state.get("params") or {}).get("acciones") or acciones
+                    if acc and float(acc) > 0:
+                        vps_info = L.calcular_vps_y_upside(
+                            val_equity, float(acc), precio_mercado=None,
+                            moneda_modelo=mon_m, moneda_precio=mon_m,
+                        )
+                        vps_modelo = vps_info.get("value_per_share") or 0.0
+                except (TypeError, ValueError, AttributeError):
                     vps_modelo = 0.0
 
-            if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0:
-                upside = 100.0 * (vps_modelo - precio_mercado) / precio_mercado
+            if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
+                vps_info = L.calcular_vps_y_upside(
+                    val_equity, (st.session_state.get("params") or {}).get("acciones") or acciones,
+                    precio_mercado=precio_mercado, moneda_modelo=mon_m, moneda_precio=mon_m,
+                ) if val_equity > 0 else {}
+                upside = vps_info.get("upside_pct")
 
             mon_px = str(
                 st.session_state.get("moneda_precio_alineada")
@@ -4105,7 +4134,7 @@ def main():
             ).upper()
             monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
             if not monedas_ok:
-                upside = 0.0  # no comparable sin FX
+                upside = None  # no comparable sin FX
             decision_modelo = "—"
             t4 = res.get("tab4")
             if t4 and isinstance(t4, (list, tuple)) and len(t4) > 0 and t4[0]:
@@ -4143,6 +4172,8 @@ def main():
             }
 
         def _prompt_comite_ia(ctx: dict) -> str:
+            roic_text = f"{ctx['roic_calc']*100:.2f}%" if ctx.get("roic_calc") is not None else "N/D (sin datos suficientes)"
+            upside_text = f"{ctx['upside']:+.2f}%" if ctx.get("upside") is not None else "N/D (monedas distintas o datos faltantes)"
             return (
                 "Actúa como un Comité Interdisciplinario de Inversión de alto nivel compuesto por tres expertos senior:\n"
                 "1. **Director Financiero (CFO / Experto en Valuation):** Especialista en valoración intrínseca (DCF/FCFF), "
@@ -4160,9 +4191,9 @@ def main():
                 f"- **Decisión cuantitativa del modelo (tab4/tab7):** {ctx.get('decision_modelo', '—')}\n"
                 f"- **Precio Actual de Mercado:** {ctx['precio_mercado']:,.2f}\n"
                 f"- **Valor por Acción Según el Modelo (VPS):** {ctx['vps_modelo']:,.2f} "
-                f"(Upside calculado: {ctx['upside']:+.2f}% — válido solo si monedas alineadas)\n"
+                f"(Upside calculado: {upside_text} — válido solo si monedas alineadas)\n"
                 f"- **WACC Calculado:** {ctx['wacc_calc']*100:.2f}% | **Ke (CAPM):** {ctx['ke_calc']*100:.2f}% | "
-                f"**ROIC:** {ctx['roic_calc']*100:.2f}%\n"
+                f"**ROIC:** {roic_text}\n"
                 f"- **Estructura D/E:** {ctx['de_ratio']:.2f} | **Crecimiento Terminal (g):** {ctx['g']*100:.2f}%\n"
                 f"- **Valor del Negocio (EV Base):** {ctx['val_ev']:,.2f}\n"
                 f"- **Valor del Equity Base:** {ctx['val_equity']:,.2f}\n"
@@ -4204,7 +4235,7 @@ def main():
                 ),
                 (
                     "Upside",
-                    f"{ctx_preview['upside']:+.1f}%",
+                    f"{ctx_preview['upside']:+.1f}%" if ctx_preview.get("upside") is not None else "N/D",
                     "Porcentaje de diferencia entre VPS del modelo y precio de mercado. "
                     "Solo es comparable si ambas cifras están en la misma moneda. No garantiza que el precio se mueva.",
                 ),
@@ -4565,6 +4596,72 @@ def main():
                 ),
             ], cols=4)
 
+            st.markdown("###### Contraste de mercado (consulta bajo demanda)")
+            st.caption("La cotización y los múltiplos provienen del proveedor disponible; no se presentan como feed oficial BVC. Se muestran fecha y fuente cuando el proveedor las informa.")
+            if st.button("↻ Consultar mercado y contrastar VPS", key="btn_contraste_mercado", use_container_width=True):
+                try:
+                    _emp_market = L.resolver_empresa(empresa) or {}
+                    _ticker_yf = _emp_market.get("ticker_yf") or (
+                        L.ticker_yf_empresa(empresa) if hasattr(L, "ticker_yf_empresa") else None
+                    )
+                    _ticker_bvc = _emp_market.get("ticker_bvc")
+                    _market = L.obtener_datos_mercado_bvc(_ticker_yf, ticker_bvc=_ticker_bvc) if _ticker_yf else {}
+                    _price = L.resolver_precio_mercado(empresa) if hasattr(L, "resolver_precio_mercado") else None
+                    def _parse_num_market(raw):
+                        try:
+                            clean = str(raw).replace(",", "").replace("$", "").replace("COP", "").replace("USD", "").replace("%", "").strip()
+                            value = float(clean)
+                            return value if np.isfinite(value) else None
+                        except (TypeError, ValueError):
+                            return None
+                    _equity_kpi = _parse_num_market(_k("Equity base", "—"))
+                    _vps_kpi = _parse_num_market(_k("VPS modelo", "—"))
+                    _shares = (st.session_state.get("params") or {}).get("acciones") or acciones
+                    _market_currency = (
+                        st.session_state.get("moneda_precio_alineada")
+                        or _market.get("moneda")
+                        or moneda
+                    )
+                    _vps_market = _vps_kpi
+                    if _equity_kpi is not None and _shares:
+                        _vps_market = L.calcular_vps_y_upside(
+                            _equity_kpi, _shares, precio_mercado=None,
+                            moneda_modelo=moneda, moneda_precio=_market_currency,
+                        ).get("value_per_share")
+                    _compare = L.calcular_vps_y_upside(
+                        _equity_kpi if _equity_kpi is not None else 0,
+                        _shares, precio_mercado=_price,
+                        moneda_modelo=moneda, moneda_precio=_market_currency,
+                    ) if _equity_kpi is not None and _shares else {}
+                    st.session_state["contraste_mercado_actual"] = {
+                        "ticker": _ticker_yf, "market": _market, "price": _price,
+                        "vps": _vps_market, "upside": _compare.get("upside_pct"),
+                        "nota": _compare.get("nota_vps"),
+                    }
+                except Exception as _market_error:
+                    st.warning(f"No se pudo completar el contraste de mercado: {_market_error}")
+            _market_saved = st.session_state.get("contraste_mercado_actual")
+            if _market_saved:
+                _m = _market_saved.get("market") or {}
+                _price_saved = _market_saved.get("price")
+                _vps_saved = _market_saved.get("vps")
+                _upside_saved = _market_saved.get("upside")
+                _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+                _mc1.metric("Precio mercado", f"{_price_saved:,.2f}" if _price_saved is not None else "N/D")
+                _mc2.metric("VPS modelo", f"{_vps_saved:,.2f}" if _vps_saved is not None else "N/D")
+                _mc3.metric("Upside comparable", f"{_upside_saved:+.2f}%" if _upside_saved is not None else "N/D")
+                _pe_market = _m.get("pe")
+                _mc4.metric("P/E mercado", f"{_pe_market:.2f}x" if _pe_market is not None else "N/D")
+                _market_date = _m.get("fecha_precio") or "fecha no informada"
+                _market_source = _m.get("fuente") or _m.get("proveedor") or "fuente no informada"
+                st.caption(f"Ticker: {_market_saved.get('ticker') or 'N/D'} · Fuente: {_market_source} · Fecha del cierre: {_market_date} · Moneda reportada: {_m.get('moneda') or 'N/D'}")
+                if _market_saved.get("nota"):
+                    st.warning(_market_saved["nota"])
+                if _market_saved.get("upside") is None and _price_saved is not None:
+                    st.warning("Upside no disponible: revisar moneda, escala de VPS y acciones en circulación.")
+                _ev_ebitda_market = _m.get("enterprise_to_ebitda")
+                _ev_ebitda_label = f"{_ev_ebitda_market:.2f}x" if _ev_ebitda_market is not None else "N/D"
+                st.caption(f"EV/EBITDA de mercado: {_ev_ebitda_label} · No se infiere un múltiplo sectorial cuando no hay comparables observados.")
             st.markdown("###### Escenarios de equity")
             _metrics_tip_row([
                 (

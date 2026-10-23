@@ -1342,7 +1342,7 @@ def _proveedor_yahoo(ticker_yf):
         cambio_pct = None
         # 1) Histórico de cierres
         try:
-            hist = t.history(period="15d", auto_adjust=True)
+            hist = t.history(period="15d", auto_adjust=False)
         except Exception:
             hist = None
         if hist is not None and len(hist) > 0 and "Close" in hist.columns:
@@ -1438,6 +1438,7 @@ def _proveedor_yahoo(ticker_yf):
             "enterprise_to_ebitda": ev_ebitda,
             "proveedor": "yahoo",
             "fuente": f"yahoo:{ticker_yf}",
+            "fecha_precio": str(hist.index[-1].date()) if hist is not None and len(hist) > 0 else None,
             "ticker": ticker_yf,
         }
     except Exception as e:
@@ -3432,6 +3433,30 @@ def ajustar_arima(serie, horizonte=5):
         return forecast, forecast - 1.96 * std, forecast + 1.96 * std, std
 
 
+def calcular_nopat(ebit, tax):
+    """NOPAT coherente: EBIT - tasa fiscal × max(EBIT, 0), sin escudo fiscal automático por pérdidas."""
+    try:
+        tasa = float(tax)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("La tasa fiscal debe ser numérica entre 0 y 1.") from exc
+    if not np.isfinite(tasa) or not 0.0 <= tasa <= 1.0:
+        raise ValueError("La tasa fiscal debe ser finita y estar entre 0 y 1.")
+    es_serie = isinstance(ebit, pd.Series)
+    try:
+        valores = pd.to_numeric(ebit, errors="raise")
+        arr = np.asarray(valores, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("EBIT contiene valores no numéricos.") from exc
+    if not np.isfinite(arr).all():
+        raise ValueError("EBIT contiene valores no finitos.")
+    resultado = arr - tasa * np.maximum(arr, 0.0)
+    if es_serie:
+        return pd.Series(resultado, index=ebit.index, name="NOPAT")
+    if np.isscalar(ebit):
+        return float(resultado)
+    return resultado
+
+
 def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, convergencia_capex=True):
     """
     Proyección por drivers con estimadores ROBUSTOS (mediana + Hampel) e identidad FCFF:
@@ -3476,7 +3501,7 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     delta_nwc = nwc_r * (ing_proj - ing_prev)
     nwc_proj = float(df_hist["NWC"].iloc[-1]) + np.cumsum(delta_nwc)
 
-    nopat_proj = ebit_proj - float(tax) * np.maximum(ebit_proj, 0.0)   # sin escudo fiscal por pérdidas
+    nopat_proj = calcular_nopat(ebit_proj, tax)
     fcff_proj = nopat_proj + dep_proj - capex_proj - delta_nwc
 
     df_proj = pd.DataFrame({
@@ -3516,7 +3541,7 @@ def proyectar_por_ets(df_hist, horizonte=5, tax=0.35):
     nwc_mean, _, _, _, _ = ajustar_ets(df_hist["NWC"], horizonte)
     delta_nwc = np.diff(np.concatenate([[float(df_hist["NWC"].iloc[-1])], nwc_mean]))
     dep_proj = ebitda_proj - ebit_proj   # D&A coherente con EBITDA − EBIT
-    nopat_proj = ebit_proj * (1 - float(tax))
+    nopat_proj = calcular_nopat(ebit_proj, tax)
     fcff_proj = nopat_proj + dep_proj - capex_mean - delta_nwc  # conservar FCFF negativos, sin piso artificial
     df_proj = pd.DataFrame({
         "Año": años_fut, "Ingresos": ing_mean, "EBITDA": ebitda_proj, "EBIT": ebit_proj,
@@ -3540,7 +3565,7 @@ def proyectar_por_arima(df_hist, horizonte=5, tax=0.35):
     nwc_mean, _, _, _ = ajustar_arima(df_hist["NWC"], horizonte=horizonte)
     delta_nwc = np.diff(np.concatenate([[df_hist["NWC"].iloc[-1]], nwc_mean]))
     dep_proj = ebitda_proj - ebit_proj   # D&A coherente con EBITDA − EBIT
-    nopat_proj = ebit_proj * (1 - float(tax))
+    nopat_proj = calcular_nopat(ebit_proj, tax)
     fcff_proj = nopat_proj + dep_proj - capex_mean - delta_nwc  # conservar FCFF negativos, sin piso artificial
     df_proj = pd.DataFrame({
         "Año": años_fut, "Ingresos": ing_mean, "EBITDA": ebitda_proj, "EBIT": ebit_proj,
@@ -3585,7 +3610,7 @@ def recalcular_fcff(df_proj, tax=0.35, capex_extra=0.0):
     dep = pd.to_numeric(d["Depreciacion"], errors="coerce").fillna(0.0).astype(float)
     capex = pd.to_numeric(d["CAPEX"], errors="coerce").fillna(0.0).astype(float) + float(capex_extra or 0)
     dnwc = pd.to_numeric(d["Delta_NWC"], errors="coerce").fillna(0.0).astype(float)
-    nopat = ebit - tax * np.maximum(ebit.values, 0.0)
+    nopat = calcular_nopat(ebit, tax)
     d["CAPEX"] = capex
     d["NOPAT"] = nopat
     d["FCFF"] = nopat + dep - capex - dnwc
@@ -4339,6 +4364,8 @@ def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, accio
     if g < 0:
         msgs.append("g terminal negativo: representa contracción perpetua; revisar si se desea modelar así. La función de anclaje actual usa un piso de 0%.")
     g_use, g_cap = anclar_g_terminal(g, w, g_max_macro=g_max_macro)
+    if not np.isclose(g_use, g, rtol=0.0, atol=1e-9):
+        msgs.append(f"g terminal ajustado por disciplina del modelo: ingresado {g*100:.2f}%, utilizado {g_use*100:.2f}% (techo aplicado {g_cap*100:.2f}%).")
     if g >= w - 1e-6:
         msgs.append(f"g ({g*100:.2f}%) ≥ WACC ({w*100:.2f}%): Gordon no definido; se anclará a {g_use*100:.2f}%.")
     if g_use + 0.005 >= w:
