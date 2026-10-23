@@ -2414,7 +2414,7 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
         # Prefer tab2 escenarios if tab7 aún no existe (orden 4+ antes de tab7)
         monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
         if not monedas_ok:
-            upside = 0.0
+            upside = None  # Monedas incompatibles: no presentar 0% como si fuera calculado.
         # Fuente única de verdad para VPS/upside: misma conversión y guardas que el DCF.
         acciones_ctx = (st.session_state.get("params") or {}).get("acciones") or acciones
         if vps_modelo <= 0 and val_equity > 0 and acciones_ctx:
