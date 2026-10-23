@@ -6345,7 +6345,8 @@ def auditar_contexto_comite_ia(metricas):
         warnings.append("Unidad del precio por acción no reconocida")
     price, vps = num("precio_mercado"), num("vps_modelo")
     upside_calc = None
-    if price is not None and vps is not None and price > 0 and vps > 0:
+    monedas_comparables = (currency == price_currency) or bool(m.get("fx_aplicado"))
+    if price is not None and vps is not None and price > 0 and vps > 0 and monedas_comparables:
         ratio = vps / price
         if ratio < 0.01 or ratio > 100:
             errors.append(
