@@ -3864,29 +3864,28 @@ def main():
                 except Exception:
                     pass
 
-            if vps_modelo <= 0 and val_equity > 0 and float(acciones or 0) > 0:
-                try:
-                    vps_info = L.calcular_vps_y_upside(
-                        val_equity, float(acciones), precio_mercado=None,
-                        moneda_modelo=mon_m, moneda_precio=mon_m,
-                    )
-                    vps_modelo = vps_info.get("value_per_share") or 0.0
-                except (TypeError, ValueError, AttributeError):
-                    vps_modelo = 0.0
-
-            if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0:
-                upside_info = L.calcular_vps_y_upside(
-                    val_equity, float(acciones), precio_mercado=precio_mercado,
-                    moneda_modelo=mon_m, moneda_precio=mon_m,
-                ) if val_equity > 0 and float(acciones or 0) > 0 else {}
-                upside = upside_info.get("upside_pct")
-
             mon_px = str(
                 st.session_state.get("moneda_precio_alineada")
                 or (st.session_state.get("params") or {}).get("precio_moneda")
                 or mon_m
             ).upper()
             monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
+            if vps_modelo <= 0 and val_equity > 0 and float(acciones or 0) > 0:
+                vps_info = L.calcular_vps_y_upside(
+                    val_equity, float(acciones), precio_mercado=None,
+                    moneda_modelo=mon_m, moneda_precio=mon_m,
+                )
+                vps_modelo = vps_info.get("value_per_share") or 0.0
+
+            if precio_mercado > 0 and vps_modelo > 0 and monedas_ok and val_equity > 0 and float(acciones or 0) > 0:
+                upside_info = L.calcular_vps_y_upside(
+                    val_equity, float(acciones), precio_mercado=precio_mercado,
+                    moneda_modelo=mon_m, moneda_precio=mon_px,
+                )
+                if upside_info.get("upside_pct") is not None:
+                    upside = upside_info["upside_pct"]
+                elif upside == 0.0:
+                    upside = None
             if not monedas_ok:
                 upside = None  # no comparable sin FX
             decision_modelo = "—"
