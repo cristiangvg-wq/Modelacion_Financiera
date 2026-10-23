@@ -4756,7 +4756,42 @@ def main():
             "Verifica que todos los activos estén expresados en una moneda común. "
             "Esta versión bloquea universos con monedas distintas y no aplica conversión FX."
         )
-        _ptickers_text = st.text_input("Tickers separados por coma", value="AAPL,MSFT,NVDA", key="portfolio_tickers")
+        # Vincula el portafolio a la empresa seleccionada en el modelo, sin convertir
+        # el upside del DCF en retorno esperado estadístico.
+        _portfolio_empresa_actual = (
+            st.session_state.get("empresa_sel")
+            or st.session_state.get("select_empresa")
+            or ""
+        )
+        _portfolio_params_actuales = st.session_state.get("params") or {}
+        _portfolio_ticker_actual = (
+            _portfolio_params_actuales.get("ticker_yf")
+            or _portfolio_params_actuales.get("ticker_bvc")
+        )
+        if not _portfolio_ticker_actual and _portfolio_empresa_actual:
+            try:
+                _portfolio_emp_resuelta = L.resolver_empresa(_portfolio_empresa_actual) or {}
+                _portfolio_ticker_actual = (
+                    _portfolio_emp_resuelta.get("ticker_yf")
+                    or _portfolio_emp_resuelta.get("ticker_bvc")
+                )
+            except Exception:
+                _portfolio_ticker_actual = None
+        _portfolio_ticker_actual = str(_portfolio_ticker_actual or "").strip().upper() or None
+        _portfolio_incluir_empresa = st.checkbox(
+            "Incluir automáticamente la empresa que estoy valorando"
+            + (f" ({_portfolio_ticker_actual})" if _portfolio_ticker_actual else " (sin ticker disponible)"),
+            value=True,
+            key="portfolio_include_valued_company",
+            disabled=not bool(_portfolio_ticker_actual),
+            help="Añade el ticker de la empresa seleccionada al universo que se optimiza. La valoración DCF se presenta como señal independiente; no se transforma en retorno esperado.",
+        )
+        _ptickers_text = st.text_input("Otros tickers del universo, separados por coma", value="AAPL,MSFT,NVDA", key="portfolio_tickers")
+        if _portfolio_ticker_actual:
+            st.caption(
+                f"Empresa seleccionada para valoración: **{_portfolio_empresa_actual}** · "
+                f"ticker detectado: **{_portfolio_ticker_actual}**"
+            )
         _prf = st.number_input(
             "Tasa libre de riesgo anual (decimal)", min_value=0.0, max_value=0.50,
             value=0.04, step=0.005, format="%.3f", key="portfolio_rf",
@@ -4771,9 +4806,17 @@ def main():
             key="portfolio_objective",
         )
         _pperiod = st.selectbox("Ventana histórica", ["2y", "5y", "10y"], index=1, key="portfolio_period")
+        _portfolio_tickers_manual = tuple(dict.fromkeys(
+            x.strip().upper() for x in _ptickers_text.split(",") if x.strip()
+        ))
+        _portfolio_tickers_final = list(_portfolio_tickers_manual)
+        if _portfolio_incluir_empresa and _portfolio_ticker_actual:
+            if _portfolio_ticker_actual not in _portfolio_tickers_final:
+                _portfolio_tickers_final.insert(0, _portfolio_ticker_actual)
         _portfolio_request = (
-            tuple(dict.fromkeys(x.strip().upper() for x in _ptickers_text.split(",") if x.strip())),
-            float(_prf), float(_pmax), _pobjective, _pperiod,
+            tuple(_portfolio_tickers_final), float(_prf), float(_pmax),
+            _pobjective, _pperiod, bool(_portfolio_incluir_empresa),
+            _portfolio_empresa_actual, _portfolio_ticker_actual,
         )
         if st.button("Optimizar portafolio", key="portfolio_run", type="primary"):
             try:
@@ -4783,7 +4826,7 @@ def main():
                     optimizar_portafolio as _opt_portfolio,
                     construir_frontera as _frontier_portfolio,
                 )
-                _ptickers = list(dict.fromkeys(x.strip().upper() for x in _ptickers_text.split(",") if x.strip()))
+                _ptickers = list(_portfolio_tickers_final)
                 if len(_ptickers) < 2:
                     raise ValueError("Introduce al menos dos tickers distintos.")
                 _meta = {}
@@ -4826,6 +4869,14 @@ def main():
                 if _missing_tickers:
                     raise ValueError("No hay precios descargables para: " + ", ".join(_missing_tickers))
                 _mu, _cov = _prep_portfolio(_prices)
+                # Recuperar señal DCF de la empresa focal solo como contexto de valoración.
+                # No se mezcla con la media histórica de retornos del optimizador.
+                _focal_valuation = {}
+                if _portfolio_incluir_empresa and _portfolio_ticker_actual:
+                    try:
+                        _focal_valuation = L._metricas_comite_para_ia(_portfolio_empresa_actual) or {}
+                    except Exception as _valuation_context_error:
+                        _focal_valuation = {"error": str(_valuation_context_error)}
                 _res = _opt_portfolio(
                     _mu, _cov, objetivo=_pobjective,
                     tasa_libre_riesgo=float(_prf), peso_maximo=float(_pmax),
@@ -4844,6 +4895,9 @@ def main():
                     "frontier": _frontier.to_dict(orient="records"),
                     "prices_last_date": str(_prices.dropna().index[-1]),
                     "request": _portfolio_request,
+                    "focal_company": _portfolio_empresa_actual if _portfolio_incluir_empresa else None,
+                    "focal_ticker": _portfolio_ticker_actual if _portfolio_incluir_empresa else None,
+                    "focal_valuation": _focal_valuation,
                 }
             except Exception as _portfolio_error:
                 st.session_state.pop("portfolio_result", None)
@@ -4874,6 +4928,65 @@ def main():
                 st.line_chart(
                     _frontier_df.sort_values("Volatilidad").set_index("Volatilidad")[["Retorno esperado"]],
                     use_container_width=True,
+                )
+            _focal_ticker = _portfolio_saved.get("focal_ticker")
+            _focal_company = _portfolio_saved.get("focal_company")
+            _focal_metrics = _portfolio_saved.get("focal_valuation") or {}
+            if _focal_ticker:
+                st.markdown("###### Recomendación integrada para la empresa valorada")
+                _focal_weight = _portfolio_saved["weights"].get(_focal_ticker)
+                _focal_upside = _focal_metrics.get("upside")
+                _focal_price = _focal_metrics.get("precio_mercado")
+                _focal_vps = _focal_metrics.get("vps_modelo")
+                _focal_currency = _focal_metrics.get("moneda") or _portfolio_saved.get("currency") or "N/D"
+                _focal_c1, _focal_c2, _focal_c3 = st.columns(3)
+                _focal_c1.metric(
+                    "Peso sugerido en cartera",
+                    f"{_focal_weight:.1%}" if _focal_weight is not None else "0.0%",
+                )
+                _focal_c2.metric(
+                    "Upside del modelo DCF",
+                    f"{float(_focal_upside):+.1f}%" if isinstance(_focal_upside, (int, float)) else "N/D",
+                )
+                _focal_c3.metric(
+                    "Precio / valor por acción",
+                    (
+                        f"{float(_focal_price):,.2f} / {float(_focal_vps):,.2f} {_focal_currency}"
+                        if isinstance(_focal_price, (int, float)) and isinstance(_focal_vps, (int, float))
+                        else "N/D"
+                    ),
+                )
+                if _focal_weight is None:
+                    st.warning(
+                        f"{_focal_company} ({_focal_ticker}) no recibió peso en la solución óptima. "
+                        "No lo interpretes como una recomendación de venta: depende del objetivo, "
+                        "de la ventana histórica y de los límites de peso."
+                    )
+                elif isinstance(_focal_upside, (int, float)):
+                    if _focal_upside > 0:
+                        st.success(
+                            f"{_focal_company}: el modelo DCF estima upside positivo y el optimizador "
+                            f"asigna {_focal_weight:.1%}. Contrasta ambas señales con escenarios y calidad de datos."
+                        )
+                    elif _focal_upside < 0:
+                        st.warning(
+                            f"{_focal_company}: el modelo DCF estima downside y el optimizador asigna "
+                            f"{_focal_weight:.1%} por su perfil histórico de riesgo/retorno. Revisa si "
+                            "conviene excluirla o limitar su peso y vuelve a optimizar."
+                        )
+                    else:
+                        st.info(
+                            f"{_focal_company}: el DCF no muestra upside ni downside material; "
+                            f"el peso histórico optimizado es {_focal_weight:.1%}."
+                        )
+                else:
+                    st.info(
+                        f"El peso de {_focal_company} se estima con datos históricos. No se pudo "
+                        "obtener una señal DCF válida para complementar la recomendación."
+                    )
+                st.caption(
+                    "La señal DCF es contexto de valoración, no un pronóstico de retorno. "
+                    "El peso sugerido sigue dependiendo de rendimientos y covarianzas históricos."
                 )
             st.caption(
                 "Retornos históricos anualizados, no pronósticos. No se incluyen impuestos, costos "
