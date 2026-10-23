@@ -7565,24 +7565,30 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
             disp = f"{long_n} — {short_p}"
             sec = info.get("sector") or ""
             ind = info.get("industry") or ""
-            ebitda = _safe_float(info.get("ebitda")) or 0.0
-            rev = _safe_float(info.get("totalRevenue")) or 0.0
-            margen = 100.0 * ebitda / rev if rev else 0.0
+            ebitda_obs = _safe_float(info.get("ebitda"))
+            rev_obs = _safe_float(info.get("totalRevenue"))
+            ebitda = ebitda_obs if ebitda_obs is not None else 0.0
+            rev = rev_obs if rev_obs is not None else 0.0
+            margen = 100.0 * ebitda / rev if rev_obs not in (None, 0) and ebitda_obs is not None else None
             # No imputar un múltiplo sectorial ficticio cuando Yahoo no lo informa.
             ev_eb = _safe_float(info.get("enterpriseToEbitda"))
             if ev_eb is not None and (not np.isfinite(ev_eb) or ev_eb <= 0):
                 ev_eb = None
-            beta = _safe_float(info.get("beta")) or 1.0
+            beta_obs = _safe_float(info.get("beta"))
+            beta = beta_obs if beta_obs is not None else 1.0
+            de_obs = _safe_float(info.get("debtToEquity"))
+            de_ratio_obs = round(de_obs / 100.0, 2) if de_obs is not None and de_obs >= 0 else None
+            de_ratio_model = de_ratio_obs if de_ratio_obs is not None else 0.5
             row = {
                 "Empresa": short_p,
                 "Nombre": disp,
-                "Ingresos (miles M)": round((rev or 0) / 1e9, 2),
-                "EBITDA (miles M)": round((ebitda or 0) / 1e9, 2),
-                "Margen EBITDA (%)": round(margen, 1),
+                "Ingresos (miles M)": round(rev / 1e9, 2) if rev_obs is not None else None,
+                "EBITDA (miles M)": round(ebitda / 1e9, 2) if ebitda_obs is not None else None,
+                "Margen EBITDA (%)": round(margen, 1) if margen is not None else None,
                 # Campos no observados permanecen N/D.
                 "ROIC (%)": None,
                 "WACC estimado (%)": None,
-                "D/E": round((_safe_float(info.get("debtToEquity")) or 0) / 100.0, 2) if info.get("debtToEquity") else 0.5,
+                "D/E": de_ratio_obs,
                 "EV/EBITDA (x)": round(float(ev_eb), 2) if ev_eb is not None else None,
                 "Crecimiento Ingresos 3a (%)": None,
                 "FCFF (miles M)": None,
@@ -7599,12 +7605,12 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
                 "ticker_yf": str(ticker).upper(),
                 "ticker_bvc": short_p,
                 "sector": row["Sector"],
-                "params": {"de_ratio": row["D/E"], "kd": 0.06, "tax": 0.25, "g": 0.03, "beta_u": beta / max(1.0 + row["D/E"] * 0.65, 0.5),
-                           "capital_invertido": max(row["Ingresos (miles M)"], 1) * 2, "deuda_neta": 0, "inversion_inicial": 0,
+                "params": {"de_ratio": de_ratio_model, "kd": 0.06, "tax": 0.25, "g": 0.03, "beta_u": beta / max(1.0 + de_ratio_model * 0.65, 0.5),
+                           "capital_invertido": max((row["Ingresos (miles M)"] or 0), 1) * 2, "deuda_neta": 0, "inversion_inicial": 0,
                            "caja": 0, "nci": 0, "otros_claims": 0, "asociados": 0, "acciones": 0, "exit_multiple": row["EV/EBITDA (x)"],
                            "moneda": info.get("currency") or "USD"},
-                "historico": {"Año": [datetime.now().year - 1], "Ingresos": [row["Ingresos (miles M)"]],
-                              "EBITDA": [row["EBITDA (miles M)"]], "EBIT": [row["EBITDA (miles M)"] * 0.8],
+                "historico": {"Año": [datetime.now().year - 1], "Ingresos": [row["Ingresos (miles M)"] or 0.0],
+                              "EBITDA": [row["EBITDA (miles M)"] or 0.0], "EBIT": [(row["EBITDA (miles M)"] or 0.0) * 0.8],
                               "FCFF": [0.0], "NOPAT": [0.0], "CAPEX": [0.0], "NWC": [0.0]},
                 "peers": [],
             }
