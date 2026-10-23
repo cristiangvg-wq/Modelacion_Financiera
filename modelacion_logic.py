@@ -6594,23 +6594,23 @@ Simula una deliberación crítica entre los tres miembros del comité contrastan
 Entrega el resultado **estrictamente** bajo este formato:
 
 ## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO
-- **Aportes del CFO (Estructura y DCF):** [...]
-- **Aportes del Analista de Mercado (Sector y Competencia):** [...]
-- **Aportes del CRO (Riesgos y Sensibilidad):** [...]
+- **Aportes del CFO (Estructura y DCF):** explica qué respaldan los flujos, el WACC y la estructura de capital.
+- **Aportes del Analista de Mercado (Sector y Competencia):** distingue datos observados de información no disponible.
+- **Aportes del CRO (Riesgos y Sensibilidad):** identifica los riesgos materiales y los supuestos que deben probarse.
 
 ## 2. ANÁLISIS DE BRECHA (MODELO VS. MERCADO ACTUAL)
-- **Brecha Detectada:** [...]
-- **Factores de Mercado no Contemplados:** [...]
+- **Brecha Detectada:** cuantifica solo si los datos comparables son válidos; de lo contrario, indica N/D.
+- **Factores de Mercado no Contemplados:** enumera los factores no verificados que podrían afectar el resultado.
 
 ## 3. DECISIÓN FINAL DE INVERSIÓN
-- **RECOMENDACIÓN FINAL:** [INVERTIR / NO INVERTIR / INVERTIR CONDICIONALMENTE]
-- **PUNTAJE DE VIABILIDAD:** [Escala 1 a 10]
-- **PRECIO OBJETIVO DE CONSENSO (Rango Ajustado):** [...]
-- **TESIS Y JUSTIFICACIÓN ESTRATÉGICA:** [...]
+- **RECOMENDACIÓN FINAL:** elige INVERTIR, NO INVERTIR o INVERTIR CONDICIONALMENTE, y justifica la decisión.
+- **PUNTAJE DE VIABILIDAD:** entero de 1 a 10, solo si los datos son suficientes.
+- **PRECIO OBJETIVO DE CONSENSO (Rango Ajustado):** informa un rango únicamente si existe método y datos suficientes; en caso contrario, N/D.
+- **TESIS Y JUSTIFICACIÓN ESTRATÉGICA:** resume la evidencia, incertidumbres y condiciones de la tesis.
 
 ## 4. FACTORES CRÍTICOS Y PUNTOS DE MONITOREO
-1. [...]
-2. [...]
+1. Primer factor material a vigilar.
+2. Segundo factor material a vigilar.
 """
 
     texto = _llamar_ia_redaccion(
@@ -6633,12 +6633,31 @@ Entrega el resultado **estrictamente** bajo este formato:
             "es una discrepancia por investigar, no prueba automática de error de escala. "
             "No afirmes causas de mercado no verificadas. Usa encabezados Markdown normales."
         )
-        retry_user = (
-            user_content + "\\n\\nREINTENTO DE CALIDAD: la respuesta anterior fue rechazada: "
-            + "; ".join(audit_out["errors"])
-            + ". Corrige estos problemas, entrega las cuatro secciones finales, no uses "
-            "marcadores de plantilla ni atribuyas causas sin evidencia."
-        )
+        # No volver a enviar el prompt largo ni sus encabezados al reintentar:
+        # repetirlo favorece que algunos modelos lo copien literalmente en la respuesta.
+        retry_user = f"""La respuesta anterior no superó la validación por estos motivos: {("; ".join(audit_out["errors"]))}.
+Genera ahora SOLO el informe final para el comité. No repitas estas instrucciones, no describas el prompt y no incluyas encabezados como "CONTEXTO DE ENTRADA" o "INSTRUCCIONES Y FORMATO DE SALIDA". No uses corchetes ni marcadores de plantilla.
+
+Empresa: {empresa} ({ticker or "ticker N/D"}).
+Moneda del modelo: {mon or "N/D"}.
+Precio de mercado: {_fmt_num(precio_mercado)}.
+Valor por acción (VPS): {_fmt_num(vps_modelo)}.
+Upside del modelo: {"N/D" if upside is None else f"{upside:+.2f}%"}.
+WACC: {_fmt_pct(wacc_calc)}; Ke: {_fmt_pct(ke_calc)}; ROIC: {_fmt_pct(roic_calc)}.
+Deuda/capital (D/E): {_fmt_num(de_ratio)}; crecimiento terminal g: {_fmt_pct(g)}.
+EV: {_fmt_num(val_ev)}; valor del equity: {_fmt_num(val_equity)}.
+Datos incompletos: {", ".join(faltantes) if faltantes else "ninguno identificado"}.
+
+Reglas: no inventes cifras, fuentes, comparables ni causas de mercado. Trata datos ausentes como N/D. Si el contexto tiene errores bloqueantes, no emitas recomendación ni puntaje. No afirmes haber consultado fuentes externas si no lo hiciste.
+
+Usa exactamente estas cuatro secciones en español:
+1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO: aportes del CFO, analista de mercado y CRO.
+2. ANÁLISIS DE BRECHA: brecha entre modelo y mercado y factores no contemplados.
+3. DECISIÓN FINAL DE INVERSIÓN: recomendación, puntaje solo si hay datos suficientes, rango objetivo solo si está respaldado y tesis.
+4. FACTORES CRÍTICOS Y PUNTOS DE MONITOREO: al menos dos riesgos concretos.
+
+Devuelve únicamente el informe, no introducciones ni comentarios sobre la tarea."""
+
         texto_reintento = _llamar_ia_redaccion(
             retry_system, retry_user, temperature=0.2,
             api_key=api_key, proveedor=proveedor or "gemini",
