@@ -4122,7 +4122,7 @@ def main():
             if upside == 0.0 and precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
                 vps_info = L.calcular_vps_y_upside(
                     val_equity, (st.session_state.get("params") or {}).get("acciones") or acciones,
-                    precio_mercado=precio_mercado, moneda_modelo=mon_m, moneda_precio=mon_px,
+                    precio_mercado=precio_mercado, moneda_modelo=mon_m, moneda_precio=mon_m,
                 ) if val_equity > 0 else {}
                 upside = vps_info.get("upside_pct")
 
@@ -4601,7 +4601,7 @@ def main():
                 try:
                     _emp_market = L.resolver_empresa(empresa) or {}
                     _ticker_yf = _emp_market.get("ticker_yf") or (
-                        L._inferir_ticker_yf(empresa) if hasattr(L, "_inferir_ticker_yf") else None
+                        L.ticker_yf_empresa(empresa) if hasattr(L, "ticker_yf_empresa") else None
                     )
                     _ticker_bvc = _emp_market.get("ticker_bvc")
                     _market = L.obtener_datos_mercado_bvc(_ticker_yf, ticker_bvc=_ticker_bvc) if _ticker_yf else {}
