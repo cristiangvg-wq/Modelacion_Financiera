@@ -6332,10 +6332,10 @@ def auditar_contexto_comite_ia(metricas):
     if price is not None and vps is not None and price > 0 and vps > 0:
         ratio = vps / price
         if ratio < 0.01 or ratio > 100:
-            warnings.append(
-                "Discrepancia elevada entre VPS y precio de mercado: verifica unidades, "
-                "moneda, número de acciones y puente EV-Equity. La discrepancia por sí sola "
-                "no se puede atribuir únicamente a un error de escala."
+            errors.append(
+                "Comparabilidad bloqueada: la relación VPS/precio de mercado está fuera del rango "
+                "1/100–100x. Verifica unidades, moneda, número de acciones y puente EV-Equity "
+                "antes de emitir una recomendación de inversión."
             )
         upside_calc = 100.0 * (vps-price)/price
         given = num("upside")
@@ -6351,25 +6351,45 @@ def auditar_contexto_comite_ia(metricas):
             "upside_recalculado": upside_calc, "missing": missing}
 
 
-def auditar_respuesta_comite_ia(respuesta):
-    """Audita estructura y señales de salida inválida del comité; no verifica hechos externos."""
+def auditar_respuesta_comite_ia(respuesta, metricas=None):
+    """Audita estructura, eco del prompt y contradicciones financieras detectables."""
     import re
     raw = _html_a_texto(respuesta, max_len=20000) if respuesta else ""
+    # Algunos proveedores escapan los encabezados Markdown; normalizar antes de validar/renderizar.
+    raw = re.sub(r"(?m)^\\+(?=#{1,6}\\s)", "", raw)
     upper = raw.upper()
     errors, warnings = [], []
+    m = dict(metricas or {})
     if not raw:
         errors.append("Respuesta vacía")
     if "CONTEXTO DE ENTRADA" in upper or "INSTRUCCIONES Y FORMATO DE SALIDA" in upper:
         errors.append("La IA devolvió/ecoó el prompt")
-    if re.search(r"\[\s*\.\.\.\s*\]", raw):
+    if re.search(r"\\[\\s*\\.\\.\\.\\s*\\]", raw):
         errors.append("La respuesta contiene marcadores de plantilla [ ... ] sin completar")
+    # Si no hay ROIC verificable, no aceptar que el modelo lo presente como 0%.
+    roic = m.get("roic_calc")
+    roic_source = m.get("roic_fuente") or m.get("fuente_roic")
+    roic_supported = bool(roic_source) or (
+        m.get("nopat") is not None and m.get("capital_invertido") not in (None, 0)
+    )
+    if (roic is None or (isinstance(roic, (int, float)) and abs(float(roic)) < 1e-12 and not roic_supported)):
+        if re.search(r"\\bROIC\\b.{0,80}\\b0(?:[.,]0+)?\\s*%", upper):
+            errors.append("La respuesta presenta ROIC 0% sin respaldo verificable; debe indicar N/D")
+    price, vps = m.get("precio_mercado"), m.get("vps_modelo")
+    try:
+        price, vps = float(price), float(vps)
+        extreme_gap = price > 0 and vps > 0 and (vps / price < 0.01 or vps / price > 100)
+    except (TypeError, ValueError):
+        extreme_gap = False
+    if extreme_gap and re.search(r"(CLARO\\s+ERROR\\s+DE\\s+ESCALA|ERROR\\s+DE\\s+ESCALA|BRECHA\\s+NOMINAL\\s+ABSURDA|SE\\s+DEBE\\s+A\\s+UN\\s+ERROR\\s+DE\\s+ESCALA)", upper):
+        errors.append("La respuesta atribuye la discrepancia a un error de escala sin evidencia; solo puede indicarla como hipótesis por verificar")
     for section in ("DELIBERACIÓN", "ANÁLISIS DE BRECHA", "DECISIÓN FINAL", "FACTORES CRÍTICOS"):
         if section not in upper:
             warnings.append(f"Falta sección: {section}")
-    rec = re.search(r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：-]*\s*(INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b", upper)
+    rec = re.search(r"RECOMENDACI[ÓO]N\\s+FINAL\\s*[:：-]*\\s*(INVERTIR\\s+CONDICIONALMENTE|NO\\s+INVERTIR|INVERTIR)\\b", upper)
     if not rec:
         warnings.append("No se identificó recomendación final dentro del vocabulario permitido")
-    score = re.search(r"PUNTAJE(?:\s+DE\s+VIABILIDAD)?\s*[:：-]*\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*10)?", upper)
+    score = re.search(r"PUNTAJE(?:\\s+DE\\s+VIABILIDAD)?\\s*[:：-]*\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:/\\s*10)?", upper)
     if score:
         try:
             val = float(score.group(1).replace(",", "."))
@@ -6415,6 +6435,18 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
     for k, v in base.items():
         if m.get(k) is None:
             m[k] = v
+    # Un ROIC igual a cero sin evidencia de NOPAT y capital invertido no es una métrica validada.
+    try:
+        roic_in = float(m.get("roic_calc")) if m.get("roic_calc") is not None else None
+    except (TypeError, ValueError):
+        roic_in = None
+    roic_source = m.get("roic_fuente") or m.get("fuente_roic")
+    roic_supported = bool(roic_source) or (
+        m.get("nopat") is not None and m.get("capital_invertido") not in (None, 0)
+    )
+    if roic_in is not None and abs(roic_in) < 1e-12 and not roic_supported:
+        m["roic_calc"] = None
+
     audit_ctx = auditar_contexto_comite_ia(m)
     if not audit_ctx["ok"]:
         errores = "<br>".join(_html.escape(str(e)) for e in audit_ctx["errors"])
@@ -6545,13 +6577,37 @@ Entrega el resultado **estrictamente** bajo este formato:
             f"Revisa el proveedor y la API key en <b>Consulta IA</b> (mismo conector).</div>"
         )
 
-    audit_out = auditar_respuesta_comite_ia(texto)
+    audit_out = auditar_respuesta_comite_ia(texto, m)
+    if not audit_out["ok"]:
+        # Reintentar una sola vez ante salida defectuosa o contradicción financiera detectable.
+        retry_system = (
+            sistema + " Entrega únicamente el análisis final, sin repetir instrucciones. "
+            "ROIC sin respaldo verificable debe ser N/D. Una brecha extrema de VPS/precio "
+            "es una discrepancia por investigar, no prueba automática de error de escala. "
+            "No afirmes causas de mercado no verificadas. Usa encabezados Markdown normales."
+        )
+        retry_user = (
+            user_content + "\\n\\nREINTENTO DE CALIDAD: la respuesta anterior fue rechazada: "
+            + "; ".join(audit_out["errors"])
+            + ". Corrige estos problemas, entrega las cuatro secciones finales, no uses "
+            "marcadores de plantilla ni atribuyas causas sin evidencia."
+        )
+        texto_reintento = _llamar_ia_redaccion(
+            retry_system, retry_user, temperature=0.2,
+            api_key=api_key, proveedor=proveedor or "gemini",
+        )
+        if texto_reintento:
+            audit_reintento = auditar_respuesta_comite_ia(texto_reintento, m)
+            if audit_reintento["ok"]:
+                texto, audit_out = audit_reintento["texto"], audit_reintento
+            else:
+                audit_out = audit_reintento
     if not audit_out["ok"]:
         errores = "<br>".join(_html.escape(str(e)) for e in audit_out["errors"])
         return (
             '<div class="result-note" style="border-left:4px solid #DC2626">'
             '<b>Respuesta IA rechazada por controles de calidad.</b><br>'
-            f"{errores}</div>"
+            f"{errores}<br><span>Se intentó una regeneración automática; revisa los datos de entrada si persiste.</span></div>"
         )
 
     cuerpo = _texto_a_html(texto) if "_texto_a_html" in dir() else None
