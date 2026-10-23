@@ -6,6 +6,7 @@ UI: terminal financiera inmersiva · apoyo a decisión · no es asesoría de inv
 from __future__ import annotations
 
 import os
+import hashlib
 import traceback
 from datetime import datetime
 
@@ -3593,12 +3594,16 @@ def main():
         key="metodo_global",
     )
 
-    # Invalidar salidas calculadas cuando cambie cualquier supuesto que altere el DCF.
+    # Huella de todos los supuestos materiales, incluido el contenido del archivo.
+    try:
+        _archivo_hash = hashlib.sha256(archivo.getvalue()).hexdigest() if archivo is not None else None
+    except Exception:
+        _archivo_hash = (getattr(archivo, "name", None), getattr(archivo, "size", None))
     _model_fingerprint = tuple(repr(x) for x in (
         empresa, horizonte, metodo, tax, de_ratio, kd, g, capex_extra, beta_u,
         deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
         exit_multiple, mid_year, g_max_macro, usar_publicos,
-        getattr(archivo, "name", None), getattr(archivo, "size", None), moneda,
+        capital_invertido, inversion_inicial, _archivo_hash, moneda,
     ))
     _prev_fingerprint = st.session_state.get("_model_fingerprint")
     if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
