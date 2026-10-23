@@ -6335,7 +6335,7 @@ def auditar_contexto_comite_ia(metricas):
             warnings.append(
                 "Discrepancia elevada entre VPS y precio de mercado: verifica unidades, "
                 "moneda, número de acciones y puente EV-Equity. La discrepancia por sí sola "
-                "no demuestra un error de escala."
+                "no se puede atribuir únicamente a un error de escala."
             )
         upside_calc = 100.0 * (vps-price)/price
         given = num("upside")
