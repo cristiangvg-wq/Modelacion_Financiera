@@ -2,6 +2,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,46 @@ class TestNucleoValoracion(unittest.TestCase):
         results = L.self_test_valuation_core()
         self.assertGreaterEqual(len(results), 7)
         self.assertTrue(all(ok for _, ok, _ in results), results)
+
+    def test_vps_isa_no_recalibra_acciones_para_forzar_precio(self):
+        result = L.calcular_vps_y_upside(
+            33066.40, 1108, precio_mercado=28.5,
+            moneda_modelo="COP", moneda_precio="COP",
+        )
+        self.assertAlmostEqual(result["value_per_share"], 29843.32, places=2)
+        self.assertIsNone(result["upside_pct"])
+        self.assertEqual(result["acciones"], 1108)
+        self.assertIn("upside bloqueado", result["nota_vps"].lower())
+
+    def test_resolver_precio_isa_normaliza_yahoo_miles_de_cop(self):
+        empresa = {
+            "ticker_yf": "ISA.CL",
+            "ticker_bvc": "ISA",
+            "params": {"moneda": "COP"},
+        }
+        with patch.object(L, "resolver_empresa", return_value=empresa), \
+             patch.object(L, "obtener_datos_mercado_bvc", return_value={
+                 "ok": True, "precio": 28.5, "fuente": "yahoo:ISA.CL",
+                 "proveedor": "yahoo",
+             }):
+            self.assertAlmostEqual(
+                L.resolver_precio_mercado("ISA — Interconexión Eléctrica"),
+                28500.0,
+                places=2,
+            )
+
+    def test_resolver_precio_no_escala_otras_empresas_ni_fuentes(self):
+        empresa = {
+            "ticker_yf": "OTRA.CL",
+            "ticker_bvc": "OTRA",
+            "params": {"moneda": "COP"},
+        }
+        with patch.object(L, "resolver_empresa", return_value=empresa), \
+             patch.object(L, "obtener_datos_mercado_bvc", return_value={
+                 "ok": True, "precio": 28.5, "fuente": "yahoo:OTRA.CL",
+                 "proveedor": "yahoo",
+             }):
+            self.assertAlmostEqual(L.resolver_precio_mercado("Otra"), 28.5)
 
     def test_rechaza_entradas_wacc_invalidas(self):
         with self.assertRaises(ValueError):
@@ -120,6 +161,39 @@ class TestNucleoValoracion(unittest.TestCase):
             L._metricas_comite_para_ia = original_base
             L._llamar_ia_redaccion = original_call
 
+    def test_comite_reintenta_una_vez_si_la_ia_repite_el_prompt(self):
+        original_base = L._metricas_comite_para_ia
+        original_call = L._llamar_ia_redaccion
+        calls = []
+        valid = (
+            "## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO\\n"
+            "## 2. ANÁLISIS DE BRECHA\\n"
+            "## 3. DECISIÓN FINAL DE INVERSIÓN\\n"
+            "RECOMENDACIÓN FINAL: INVERTIR CONDICIONALMENTE\\n"
+            "PUNTAJE DE VIABILIDAD: 6/10\\n"
+            "## 4. FACTORES CRÍTICOS"
+        )
+        try:
+            L._metricas_comite_para_ia = lambda _name: {}
+            def fake_call(system, user, **kwargs):
+                calls.append(user)
+                return "CONTEXTO DE ENTRADA" if len(calls) == 1 else valid
+            L._llamar_ia_redaccion = fake_call
+            metrics = {
+                "empresa": "Test", "moneda": "COP", "moneda_precio": "COP",
+                "precio_mercado": 100, "vps_modelo": 110, "upside": 10,
+                "wacc_calc": 0.10, "ke_calc": 0.12, "roic_calc": 0.11,
+                "de_ratio": 0.5, "g": 0.03, "val_ev": 1000, "val_equity": 800,
+                "unidad_modelo": "COP miles de millones", "unidad_precio": "por acción",
+                "fuente_precio": "test", "fecha_precio": "2026-10-22", "fuente_valoracion": "DCF test",
+            }
+            result = L.generar_recomendacion_comite_ia("Test", metricas=metrics)
+            self.assertEqual(len(calls), 2)
+            self.assertIn("COMITÉ INTERDISCIPLINARIO", result)
+        finally:
+            L._metricas_comite_para_ia = original_base
+            L._llamar_ia_redaccion = original_call
+
     def test_auditoria_respuesta_comite_detecta_prompt_y_plantillas(self):
         result = L.auditar_respuesta_comite_ia("CONTEXTO DE ENTRADA\nRECOMENDACIÓN FINAL: [ ... ]")
         self.assertFalse(result["ok"])
@@ -144,7 +218,7 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertFalse(audit["ok"])
         self.assertTrue(any("métricas financieras esenciales" in e.lower() for e in audit["errors"]))
 
-    def test_auditoria_contexto_advierte_discrepancia_sin_afirmar_error_de_escala(self):
+    def test_auditoria_contexto_bloquea_discrepancia_extrema_vps_precio(self):
         audit = L.auditar_contexto_comite_ia({
             "precio_mercado": 28500.0,
             "vps_modelo": 29.84,
@@ -164,9 +238,19 @@ class TestNucleoValoracion(unittest.TestCase):
             "fecha_precio": "2026-10-22",
             "fuente_valoracion": "DCF test",
         })
-        self.assertTrue(audit["ok"], audit["errors"])
-        self.assertTrue(any("no se puede atribuir" in w.lower() for w in audit["warnings"]))
+        self.assertFalse(audit["ok"])
+        self.assertTrue(any("comparabilidad bloqueada" in e.lower() for e in audit["errors"]))
         self.assertAlmostEqual(audit["upside_recalculado"], 100 * (29.84 / 28500 - 1), places=4)
+
+    def test_auditoria_respuesta_detecta_roic_cero_sin_respaldo(self):
+        text = "ROIC: 0.00%\\n## 1. DELIBERACIÓN"
+        audit = L.auditar_respuesta_comite_ia(text, {"roic_calc": None})
+        self.assertFalse(audit["ok"])
+        self.assertTrue(any("roic 0%" in e.lower() for e in audit["errors"]))
+
+    def test_auditoria_respuesta_normaliza_encabezados_escapados(self):
+        audit = L.auditar_respuesta_comite_ia("\\\\## 1. DELIBERACIÓN")
+        self.assertTrue(audit["texto"].startswith("##"))
 
     def test_roic_sectorial_no_se_imputa_si_faltan_nopat_y_ebit(self):
         emp = {
