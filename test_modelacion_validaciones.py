@@ -52,6 +52,15 @@ class TestNucleoValoracion(unittest.TestCase):
         with self.assertRaises(ValueError):
             L.anclar_g_terminal(0.02, 0.0)
 
+    def test_vps_bloquea_upside_si_falta_moneda_confirmada(self):
+        result = L.calcular_vps_y_upside(
+            100.0, 10.0, precio_mercado=8.0,
+            moneda_modelo="COP", moneda_precio=None,
+        )
+        self.assertIsNotNone(result["value_per_share"])
+        self.assertIsNone(result["upside_pct"])
+        self.assertIn("moneda", (result["nota_vps"] or "").lower())
+
     def test_vps_rechaza_unidades_invalidas_sin_generar_upside(self):
         result = L.calcular_vps_y_upside(
             100.0, 0, precio_mercado=10.0,
