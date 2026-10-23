@@ -30,7 +30,7 @@ class InvestmentSimulatorTests(unittest.TestCase):
         result = simular_inversion(
             capital=1000, moneda_capital="USD", moneda_activo="USD",
             tasa_cop_usd=4000, precio_actual=100, horizonte=1,
-            escenarios={"Base": 0.0}, dividend_yield=0.05,
+            escenarios={"Base": 0.0}, dividend_yield=0.01,
             costo_compra=0.01, costo_venta=0.01, impuesto_dividendos=0.2,
         )
         self.assertEqual(result["resumen"]["acciones"], 9)
