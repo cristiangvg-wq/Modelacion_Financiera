@@ -6356,7 +6356,7 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
     import re
     raw = _html_a_texto(respuesta, max_len=20000) if respuesta else ""
     # Algunos proveedores escapan los encabezados Markdown; normalizar antes de validar/renderizar.
-    raw = re.sub(r"(?m)^\\+(?=#{1,6}\\s)", "", raw)
+    raw = re.sub(r"(?m)^\+(?=#{1,6}\s)", "", raw)
     upper = raw.upper()
     errors, warnings = [], []
     m = dict(metricas or {})
@@ -6364,7 +6364,7 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
         errors.append("Respuesta vacía")
     if "CONTEXTO DE ENTRADA" in upper or "INSTRUCCIONES Y FORMATO DE SALIDA" in upper:
         errors.append("La IA devolvió/ecoó el prompt")
-    if re.search(r"\\[\\s*\\.\\.\\.\\s*\\]", raw):
+    if re.search(r"\[\s*\.\.\.\s*\]", raw):
         errors.append("La respuesta contiene marcadores de plantilla [ ... ] sin completar")
     # Si no hay ROIC verificable, no aceptar que el modelo lo presente como 0%.
     roic = m.get("roic_calc")
@@ -6373,7 +6373,7 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
         m.get("nopat") is not None and m.get("capital_invertido") not in (None, 0)
     )
     if (roic is None or (isinstance(roic, (int, float)) and abs(float(roic)) < 1e-12 and not roic_supported)):
-        if re.search(r"\\bROIC\\b.{0,80}\\b0(?:[.,]0+)?\\s*%", upper):
+        if re.search(r"\bROIC\b.{0,80}\b0(?:[.,]0+)?\s*%", upper):
             errors.append("La respuesta presenta ROIC 0% sin respaldo verificable; debe indicar N/D")
     price, vps = m.get("precio_mercado"), m.get("vps_modelo")
     try:
@@ -6381,15 +6381,15 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
         extreme_gap = price > 0 and vps > 0 and (vps / price < 0.01 or vps / price > 100)
     except (TypeError, ValueError):
         extreme_gap = False
-    if extreme_gap and re.search(r"(CLARO\\s+ERROR\\s+DE\\s+ESCALA|ERROR\\s+DE\\s+ESCALA|BRECHA\\s+NOMINAL\\s+ABSURDA|SE\\s+DEBE\\s+A\\s+UN\\s+ERROR\\s+DE\\s+ESCALA)", upper):
+    if extreme_gap and re.search(r"(CLARO\s+ERROR\s+DE\s+ESCALA|ERROR\s+DE\s+ESCALA|BRECHA\s+NOMINAL\s+ABSURDA|SE\s+DEBE\s+A\s+UN\s+ERROR\s+DE\s+ESCALA)", upper):
         errors.append("La respuesta atribuye la discrepancia a un error de escala sin evidencia; solo puede indicarla como hipótesis por verificar")
     for section in ("DELIBERACIÓN", "ANÁLISIS DE BRECHA", "DECISIÓN FINAL", "FACTORES CRÍTICOS"):
         if section not in upper:
             warnings.append(f"Falta sección: {section}")
-    rec = re.search(r"RECOMENDACI[ÓO]N\\s+FINAL\\s*[:：-]*\\s*(INVERTIR\\s+CONDICIONALMENTE|NO\\s+INVERTIR|INVERTIR)\\b", upper)
+    rec = re.search(r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：-]*\s*(INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b", upper)
     if not rec:
         warnings.append("No se identificó recomendación final dentro del vocabulario permitido")
-    score = re.search(r"PUNTAJE(?:\\s+DE\\s+VIABILIDAD)?\\s*[:：-]*\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:/\\s*10)?", upper)
+    score = re.search(r"PUNTAJE(?:\s+DE\s+VIABILIDAD)?\s*[:：-]*\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*10)?", upper)
     if score:
         try:
             val = float(score.group(1).replace(",", "."))
