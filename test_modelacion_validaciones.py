@@ -138,6 +138,20 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertAlmostEqual(audit["upside_recalculado"], 20.0)
         self.assertTrue(any("unidad" in w.lower() for w in audit["warnings"]))
 
+    def test_auditoria_contexto_no_calcula_upside_si_moneda_distinta(self):
+        audit = L.auditar_contexto_comite_ia({
+            "precio_mercado": 100.0, "vps_modelo": 110.0,
+            "wacc_calc": 0.10, "ke_calc": 0.12, "roic_calc": None,
+            "de_ratio": 0.5, "g": 0.03, "val_ev": 1000.0, "val_equity": 800.0,
+            "moneda": "COP", "moneda_precio": "USD",
+            "unidad_modelo": "COP miles de millones", "unidad_precio": "por acción",
+            "fuente_precio": "test", "fecha_precio": "2026-10-23",
+            "fuente_valoracion": "DCF test",
+        })
+        self.assertIsNone(audit["upside_recalculado"])
+        self.assertTrue(any("distintas" in warning.lower() for warning in audit["warnings"]))
+        self.assertTrue(any("upside no calculable" in warning.lower() for warning in audit["warnings"]))
+
     def test_auditoria_contexto_detecta_upside_inconsistente(self):
         ctx = {
             "precio_mercado": 100.0, "vps_modelo": 125.0, "upside": 10.0,
