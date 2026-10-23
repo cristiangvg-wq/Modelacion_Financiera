@@ -4633,10 +4633,10 @@ def main():
                     _equity_kpi = _parse_num_market(_k("Equity base", "—"))
                     _vps_kpi = _parse_num_market(_k("VPS modelo", "—"))
                     _shares = (st.session_state.get("params") or {}).get("acciones") or acciones
+                    # No asumir que la cotización comparte moneda con el modelo si el proveedor no la informa.
                     _market_currency = (
                         st.session_state.get("moneda_precio_alineada")
                         or _market.get("moneda")
-                        or moneda
                     )
                     _vps_market = _vps_kpi
                     if _equity_kpi is not None and _shares:
