@@ -3569,22 +3569,6 @@ def main():
                 except Exception as e:
                     st.error(str(e))
 
-    # Invalidar salidas calculadas cuando cambie cualquier supuesto que altere el DCF.
-    _model_fingerprint = tuple(repr(x) for x in (
-        empresa, horizonte, metodo, tax, de_ratio, kd, g, capex_extra, beta_u,
-        deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
-        exit_multiple, mid_year, g_max_macro, usar_publicos,
-        getattr(archivo, "name", None), getattr(archivo, "size", None), moneda,
-    ))
-    _prev_fingerprint = st.session_state.get("_model_fingerprint")
-    if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
-        st.session_state["resultados"] = {}
-        st.session_state.pop("tab4_comite_ia_html", None)
-        st.session_state.pop("contraste_mercado_actual", None)
-        st.session_state["modelo_dirty"] = True
-    st.session_state["_model_fingerprint"] = _model_fingerprint
-    if st.session_state.get("modelo_dirty"):
-        st.info("Los supuestos cambiaron: se invalidaron resultados anteriores. Ejecuta **Generar todo** para recalcularlos.")
 
     # ----- Generar todo (único botón) -----
     st.markdown("##### Ejecución del modelo")
@@ -3608,6 +3592,23 @@ def main():
         horizontal=True,
         key="metodo_global",
     )
+
+    # Invalidar salidas calculadas cuando cambie cualquier supuesto que altere el DCF.
+    _model_fingerprint = tuple(repr(x) for x in (
+        empresa, horizonte, metodo, tax, de_ratio, kd, g, capex_extra, beta_u,
+        deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
+        exit_multiple, mid_year, g_max_macro, usar_publicos,
+        getattr(archivo, "name", None), getattr(archivo, "size", None), moneda,
+    ))
+    _prev_fingerprint = st.session_state.get("_model_fingerprint")
+    if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
+        st.session_state["resultados"] = {}
+        st.session_state.pop("tab4_comite_ia_html", None)
+        st.session_state.pop("contraste_mercado_actual", None)
+        st.session_state["modelo_dirty"] = True
+    st.session_state["_model_fingerprint"] = _model_fingerprint
+    if st.session_state.get("modelo_dirty"):
+        st.info("Los supuestos cambiaron: se invalidaron resultados anteriores. Ejecuta **Generar todo** para recalcularlos.")
     # Validación de robustez pre-corrida (WACC vs g, finitud)
     try:
         if hasattr(L, "validar_inputs_valoracion"):
