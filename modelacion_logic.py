@@ -2586,7 +2586,16 @@ def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
     try:
         mkt = obtener_datos_mercado_bvc(tk, ticker_bvc=emp.get("ticker_bvc"))
         if mkt and mkt.get("ok") and mkt.get("precio") is not None:
-            return float(mkt["precio"])
+            precio = float(mkt["precio"])
+            # Yahoo para ISA.CL puede entregar la cotización en miles de COP
+            # (p. ej. 28.5) mientras el mercado BVC y el modelo usan COP/acción
+            # (28,500). Normalizar solo ese ticker y solo en el rango conocido;
+            # no inferir ni alterar el número de acciones para forzar una coincidencia.
+            ticker_bvc = str(emp.get("ticker_bvc") or "").upper().strip()
+            fuente = str(mkt.get("fuente") or mkt.get("proveedor") or "").lower()
+            if ticker_bvc == "ISA" and "yahoo" in fuente and 10.0 <= precio < 100.0:
+                precio *= 1000.0
+            return precio
     except Exception:
         pass
     return None
@@ -2621,44 +2630,24 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
 
         if precio_mercado is not None and float(precio_mercado) > 0:
             px = float(precio_mercado)
-            # Recalibrar acciones si VPS está muy lejos del precio (error de escala)
-            if vps is not None and px > 0 and (vps < 0.01 * px or vps > 100.0 * px):
-                # Inferir acciones desde equity y precio: acc_mm = equity*1000/px
-                acc_alt = (eq * 1000.0) / px if px else None
-                if acc_alt and acc_alt > 0:
-                    # Probar factores comunes de error de escala en acciones
-                    candidatos = [acc, acc * 1000.0, acc / 1000.0, acc * 1e6, acc / 1e6, acc_alt]
-                    best = acc
-                    best_vps = vps
-                    best_score = abs(np.log(max(vps, 1e-12) / px))
-                    for a in candidatos:
-                        if a is None or a <= 0:
-                            continue
-                        v = (eq * 1000.0) / a
-                        if v <= 0:
-                            continue
-                        score = abs(np.log(max(v, 1e-12) / px))
-                        if score < best_score:
-                            best_score, best, best_vps = score, a, v
-                    if best != acc:
-                        nota = (
-                            f"Acciones recalibradas de {acc:,.2f} a {best:,.2f} M "
-                            f"(VPS alineado al orden del precio de mercado)."
-                        )
-                        acc = best
-                        acciones_used = best
-                        vps = best_vps
-
-            if monedas_ok and vps is not None and px > 0:
+            # Nunca cambiar el número de acciones para acercar artificialmente
+            # el VPS al precio. Si hay una diferencia extrema, conservar el VPS
+            # calculado y bloquear el upside hasta verificar las unidades.
+            ratio = (vps / px) if (vps is not None and px > 0) else None
+            if ratio is not None and (ratio < 0.01 or ratio > 100.0):
+                nota = (
+                    f"VPS ({vps:,.2f}) y precio de mercado ({px:,.2f}) difieren "
+                    "más de 100x; upside bloqueado hasta verificar unidades y fuente."
+                )
+                upside = None
+            elif monedas_ok and vps is not None and px > 0:
                 upside = (vps / px - 1.0) * 100.0
                 if not np.isfinite(upside):
                     upside = None
-                # Solo anular upside en explosiones numéricas (> 1000 pp); mostrar el resto
                 elif abs(upside) > 1000.0:
                     nota = (nota or "") + (
                         f" Upside extremo ({upside:+.0f} pp): revisa WACC, g, bridge o escala de EEFF."
                     )
-                    # Aún así devolver el número para transparencia (el UI puede matizarlo)
             elif not monedas_ok:
                 nota = (nota or "") + (
                     f" Moneda modelo ({mm}) ≠ cotización ({mp}): upside no comparable sin FX."
