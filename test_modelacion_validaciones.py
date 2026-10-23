@@ -120,6 +120,45 @@ class TestNucleoValoracion(unittest.TestCase):
             L._metricas_comite_para_ia = original_base
             L._llamar_ia_redaccion = original_call
 
+    def test_comite_reintenta_una_vez_si_la_ia_repite_el_prompt(self):
+        original_base = L._metricas_comite_para_ia
+        original_call = L._llamar_ia_redaccion
+        calls = []
+        valid = (
+            "## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO\n"
+            "CFO: el VPS y el precio deben compararse en la misma unidad.\n"
+            "## 2. ANÁLISIS DE BRECHA (MODELO VS. MERCADO ACTUAL)\n"
+            "Brecha: no hay contraste externo verificado.\n"
+            "## 3. DECISIÓN FINAL DE INVERSIÓN\n"
+            "RECOMENDACIÓN FINAL: INVERTIR CONDICIONALMENTE\n"
+            "PUNTAJE DE VIABILIDAD: 6/10\n"
+            "## 4. FACTORES CRÍTICOS Y PUNTOS DE MONITOREO\n"
+            "1. Validar unidades y fecha de la cotización.\n"
+        )
+        try:
+            L._metricas_comite_para_ia = lambda _name: {}
+            def fake_call(system, user, **kwargs):
+                calls.append(user)
+                if len(calls) == 1:
+                    return "CONTEXTO DE ENTRADA\nINSTRUCCIONES Y FORMATO DE SALIDA"
+                return valid
+            L._llamar_ia_redaccion = fake_call
+            metrics = {
+                "empresa": "Test", "moneda": "COP", "moneda_precio": "COP",
+                "precio_mercado": 100, "vps_modelo": 110, "upside": 10,
+                "wacc_calc": 0.10, "ke_calc": 0.12, "roic_calc": 0.11,
+                "de_ratio": 0.5, "g": 0.03, "val_ev": 1000, "val_equity": 800,
+                "unidad_modelo": "COP miles de millones", "unidad_precio": "por acción",
+                "fuente_precio": "test", "fecha_precio": "2026-10-22", "fuente_valoracion": "DCF test",
+            }
+            result = L.generar_recomendacion_comite_ia("Test", metricas=metrics)
+            self.assertEqual(len(calls), 2)
+            self.assertIn("COMITÉ INTERDISCIPLINARIO", result)
+            self.assertIn("RECOMENDACIÓN FINAL", result)
+        finally:
+            L._metricas_comite_para_ia = original_base
+            L._llamar_ia_redaccion = original_call
+
     def test_auditoria_respuesta_comite_detecta_prompt_y_plantillas(self):
         result = L.auditar_respuesta_comite_ia("CONTEXTO DE ENTRADA\nRECOMENDACIÓN FINAL: [ ... ]")
         self.assertFalse(result["ok"])
