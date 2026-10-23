@@ -7596,7 +7596,14 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
                 "Sector": f"{sec}" + (f" / {ind}" if ind else ""),
             }
             seen_short.add(short_p)
-            notas[short_p] = f"Yahoo ligero · {etiqueta}"
+            _fallbacks = []
+            if de_ratio_obs is None:
+                _fallbacks.append("D/E supuesto 0.5 solo para inicializar el modelo")
+            if beta_obs is None:
+                _fallbacks.append("beta supuesta 1.0 solo para inicializar el modelo")
+            if ev_eb is None:
+                _fallbacks.append("EV/EBITDA observado no disponible")
+            notas[short_p] = f"Yahoo ligero · {etiqueta}" + (("; " + "; ".join(_fallbacks)) if _fallbacks else "")
             rows.append(row)
             n_fund += 1
             n_live += 1
