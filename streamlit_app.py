@@ -3792,8 +3792,8 @@ def main():
                     except Exception as e:
                         st.error(str(e))
 
-    # ----- 10 TABS (visualización; datos con «Generar todo» o botones individuales) -----
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs(
+    # ----- 9 TABS visibles; valoración por múltiplos queda temporalmente desactivada -----
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
         [
             "1 · Pronóstico",
             "2 · Escenarios DCF",
@@ -3804,7 +3804,6 @@ def main():
             "7 · Informe PDF",
             "8 · Portafolios",
             "9 · Simular inversión",
-            "10 · Múltiplos",
         ]
     )
 
@@ -5242,7 +5241,7 @@ def main():
             )
 
 
-    with tab10:
+    if False:  # Conserva el código para retomarlo en el futuro sin mostrar la pestaña.
         st.markdown("##### Valoración independiente por múltiplos comparables")
         st.caption(
             "Método de mercado complementario al DCF. La valoración usa la mediana de EV/EBITDA "
