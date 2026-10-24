@@ -3792,8 +3792,8 @@ def main():
                     except Exception as e:
                         st.error(str(e))
 
-    # ----- 9 TABS (visualización; datos con «Generar todo» o botones individuales) -----
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
+    # ----- 10 TABS (visualización; datos con «Generar todo» o botones individuales) -----
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs(
         [
             "1 · Pronóstico",
             "2 · Escenarios DCF",
@@ -3804,6 +3804,7 @@ def main():
             "7 · Informe PDF",
             "8 · Portafolios",
             "9 · Simular inversión",
+            "10 · Múltiplos",
         ]
     )
 
@@ -5238,6 +5239,173 @@ def main():
                 "Estimación ilustrativa, no recomendación personalizada. Incluye costos de compra/venta y "
                 "retención estimada sobre dividendos según tus supuestos; no incluye inflación ni cambios "
                 "futuros del tipo de cambio. Los dividendos no se reinvierten."
+            )
+
+
+    with tab10:
+        st.markdown("##### Valoración independiente por múltiplos comparables")
+        st.caption(
+            "Método de mercado complementario al DCF. La valoración usa la mediana de EV/EBITDA "
+            "de comparables con múltiplos observados y/o los valores que ingreses manualmente."
+        )
+        st.info(
+            "Las cifras operativas del catálogo se expresan en miles de millones de moneda local. "
+            "Revisa la fuente y fecha de cada comparable; empresas con deuda, crecimiento o contabilidad "
+            "muy diferentes pueden no ser comparables."
+        )
+        _mx_empresa = empresa
+        _mx_emp = L.resolver_empresa(_mx_empresa) if _mx_empresa else None
+        _mx_params = (_mx_emp or {}).get("params") or {}
+        _mx_hist_raw = (_mx_emp or {}).get("historico")
+        _mx_ebitda_default = 0.0
+        try:
+            _mx_hist = pd.DataFrame(_mx_hist_raw)
+            if not _mx_hist.empty and "EBITDA" in _mx_hist.columns:
+                _mx_ebitda_default = float(_mx_hist["EBITDA"].iloc[-1])
+        except Exception:
+            pass
+        if not np.isfinite(_mx_ebitda_default) or _mx_ebitda_default <= 0:
+            _mx_ebitda_default = 1.0
+        _mx_c1, _mx_c2, _mx_c3 = st.columns(3)
+        with _mx_c1:
+            _mx_ebitda = st.number_input(
+                "EBITDA normalizado de la empresa objetivo",
+                min_value=0.000001, value=float(_mx_ebitda_default), step=max(0.1, abs(float(_mx_ebitda_default)) * 0.05),
+                format="%.4f", key="multiples_ebitda",
+                help="Usa el EBITDA sostenible/normalizado del periodo que corresponda. Puedes modificar el dato histórico propuesto.",
+            )
+        with _mx_c2:
+            _mx_deuda_default = float(_mx_params.get("deuda_neta") or 0.0)
+            _mx_deuda_neta = st.number_input(
+                "Deuda neta (misma unidad que EBITDA)",
+                value=_mx_deuda_default, step=max(0.1, abs(_mx_deuda_default) * 0.05),
+                format="%.4f", key="multiples_deuda_neta",
+                help="Deuda financiera menos caja. Si es negativa, la empresa tiene caja neta.",
+            )
+        with _mx_c3:
+            _mx_acciones_default = _mx_params.get("acciones")
+            try:
+                _mx_acciones_default = float(_mx_acciones_default) if _mx_acciones_default else 0.0
+            except (TypeError, ValueError):
+                _mx_acciones_default = 0.0
+            _mx_acciones_millones = st.number_input(
+                "Acciones en circulación (millones, opcional)",
+                min_value=0.0, value=max(0.0, _mx_acciones_default), step=1.0,
+                format="%.4f", key="multiples_acciones_millones",
+                help="Si EBITDA/EV están en miles de millones y las acciones en millones, el valor por acción se calcula multiplicando equity por 1.000 y dividiendo por acciones.",
+            )
+        _mx_manual_text = st.text_input(
+            "Múltiplos EV/EBITDA de comparables verificados (opcional, separados por coma)",
+            value="", key="multiples_manual_values",
+            placeholder="Ej.: 7.2, 8.1, 9.0",
+            help="Ingresa únicamente múltiplos observados y verificados por ti. Se combinan con comparables en vivo que superen los filtros de fuente.",
+        )
+        _mx_auto_rows = []
+        _mx_source_notes = {}
+        _mx_error = None
+        try:
+            _mx_df, _mx_notes, _mx_summary = L.construir_tabla_sectorial_live(nombre_empresa_focal=_mx_empresa)
+            _mx_source_notes = _mx_notes or {}
+            _mx_focal = str((_mx_emp or {}).get("ticker_yf") or "").split(".")[0].upper()
+            for _, _mx_row in _mx_df.iterrows():
+                _mx_name = str(_mx_row.get("Empresa", ""))
+                _mx_multiple = _mx_row.get("EV/EBITDA (x)")
+                _mx_note = str(_mx_source_notes.get(_mx_name, _mx_row.get("Fuente múltiplo", "")))
+                _mx_is_target = (
+                    _mx_name.upper() == _mx_focal
+                    or _mx_name.upper() == str(_mx_empresa or "").upper()
+                    or (_mx_emp is not None and _mx_name.upper() == str(_mx_emp.get("ticker_yf") or "").split(".")[0].upper())
+                )
+                _mx_note_low = _mx_note.lower()
+                _mx_observed = any(k in _mx_note_low for k in ("yahoo finance", "marketcap", "market cap", "market data", "bvc live"))
+                _mx_fallback = any(k in _mx_note_low for k in ("fallback", "sectorial", "estimado", "sin ticker", "error", "no disponible"))
+                if not _mx_is_target and _mx_observed and not _mx_fallback:
+                    try:
+                        _mx_val = float(_mx_multiple)
+                        if np.isfinite(_mx_val) and 0 < _mx_val <= 80:
+                            _mx_auto_rows.append({
+                                "Comparable": _mx_name,
+                                "EV/EBITDA (x)": _mx_val,
+                                "Fuente / nota": _mx_note,
+                            })
+                    except (TypeError, ValueError):
+                        pass
+        except Exception as _mx_exc:
+            _mx_error = str(_mx_exc)
+        if _mx_error:
+            st.warning(f"No se pudo construir la lista automática de comparables: {_mx_error}")
+        if _mx_auto_rows:
+            st.markdown("###### Comparables con múltiplos de mercado identificados")
+            st.dataframe(pd.DataFrame(_mx_auto_rows), hide_index=True, use_container_width=True)
+        else:
+            st.warning(
+                "No se identificaron comparables automáticos con fuente de mercado suficientemente clara. "
+                "Puedes ingresar múltiplos verificados manualmente; no se reemplazan datos ausentes con múltiplos ficticios."
+            )
+        _mx_manual = []
+        if _mx_manual_text.strip():
+            try:
+                _mx_manual = [float(v.strip()) for v in _mx_manual_text.split(",") if v.strip()]
+                if any(not np.isfinite(v) or v <= 0 or v > 80 for v in _mx_manual):
+                    raise ValueError("Cada múltiplo debe estar entre 0 y 80.")
+            except ValueError as _mx_exc:
+                st.error(f"Revisa los múltiplos ingresados: {_mx_exc}")
+                _mx_manual = []
+        _mx_values = [r["EV/EBITDA (x)"] for r in _mx_auto_rows] + _mx_manual
+        if st.button("Calcular valoración por múltiplos", type="primary", key="multiples_calculate"):
+            try:
+                from multiples_valuation import valoracion_por_multiplos as _mx_calculate
+                _mx_result = _mx_calculate(
+                    ebitda_objetivo=float(_mx_ebitda),
+                    multiples_comparables=_mx_values,
+                    deuda_neta=float(_mx_deuda_neta),
+                    acciones_millones=float(_mx_acciones_millones) if _mx_acciones_millones > 0 else None,
+                )
+                st.session_state["multiples_valuation_result"] = {
+                    "empresa": _mx_empresa,
+                    "ebitda": float(_mx_ebitda),
+                    "deuda_neta": float(_mx_deuda_neta),
+                    "acciones": float(_mx_acciones_millones),
+                    "multiples": list(_mx_values),
+                    "resultado": _mx_result,
+                }
+            except Exception as _mx_exc:
+                st.session_state.pop("multiples_valuation_result", None)
+                st.error(f"No se pudo calcular la valoración: {_mx_exc}")
+        _mx_saved = st.session_state.get("multiples_valuation_result")
+        if _mx_saved and _mx_saved.get("empresa") != _mx_empresa:
+            _mx_saved = None
+        if _mx_saved:
+            _mx_res = _mx_saved["resultado"]
+            st.markdown("###### Resultado de valoración")
+            _mx_a, _mx_b, _mx_c, _mx_d = st.columns(4)
+            _mx_a.metric("Múltiplo mediano", f"{_mx_res['multiple_mediano']:.2f}x")
+            _mx_b.metric("Valor de empresa (EV)", f"{_mx_res['enterprise_value']:,.2f}")
+            _mx_c.metric("Valor del patrimonio", f"{_mx_res['equity_value']:,.2f}")
+            if _mx_res.get("valor_por_accion") is not None:
+                _mx_d.metric("Valor por acción", f"{_mx_res['valor_por_accion']:,.2f}")
+            else:
+                _mx_d.metric("Valor por acción", "N/D")
+            st.caption(
+                f"Comparables utilizados: {_mx_res['n_comparables']} · "
+                f"Rango intercuartílico EV/EBITDA: {_mx_res['q1']:.2f}x–{_mx_res['q3']:.2f}x. "
+                "El valor del patrimonio se obtiene como EV menos deuda neta. "
+                "El valor por acción solo se calcula si ingresaste acciones en millones."
+            )
+            st.dataframe(pd.DataFrame([
+                {"Concepto": "EBITDA objetivo", "Valor": _mx_saved["ebitda"]},
+                {"Concepto": "Múltiplo mediano", "Valor": _mx_res["multiple_mediano"]},
+                {"Concepto": "EV por múltiplo mediano", "Valor": _mx_res["enterprise_value"]},
+                {"Concepto": "Deuda neta", "Valor": _mx_saved["deuda_neta"]},
+                {"Concepto": "Equity estimado", "Valor": _mx_res["equity_value"]},
+                {"Concepto": "Múltiplo mínimo", "Valor": _mx_res["multiple_min"]},
+                {"Concepto": "Múltiplo máximo", "Valor": _mx_res["multiple_max"]},
+            ]), hide_index=True, use_container_width=True)
+            st.caption(
+                "Resultado indicativo, no recomendación de inversión. Verifica que los comparables compartan "
+                "sector, geografía, crecimiento, márgenes, apalancamiento y normas contables. "
+                "El múltiplo automático solo se usa cuando la nota de fuente identifica datos de mercado; "
+                "los valores manuales dependen de la verificación del usuario."
             )
 
     st.markdown(
