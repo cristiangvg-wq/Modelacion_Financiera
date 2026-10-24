@@ -5283,14 +5283,10 @@ def main():
                 help="Deuda financiera menos caja. Si es negativa, la empresa tiene caja neta.",
             )
         with _mx_c3:
-            _mx_acciones_default = _mx_params.get("acciones")
-            try:
-                _mx_acciones_default = float(_mx_acciones_default) if _mx_acciones_default else 0.0
-            except (TypeError, ValueError):
-                _mx_acciones_default = 0.0
+            # No se precargan acciones del DCF: su escala puede diferir del campo en millones.
             _mx_acciones_millones = st.number_input(
                 "Acciones en circulación (millones, opcional)",
-                min_value=0.0, value=max(0.0, _mx_acciones_default), step=1.0,
+                min_value=0.0, value=0.0, step=1.0,
                 format="%.4f", key="multiples_acciones_millones",
                 help="Si EBITDA/EV están en miles de millones y las acciones en millones, el valor por acción se calcula multiplicando equity por 1.000 y dividiendo por acciones.",
             )
@@ -5363,6 +5359,10 @@ def main():
                 )
                 st.session_state["multiples_valuation_result"] = {
                     "empresa": _mx_empresa,
+                    "request": (
+                        _mx_empresa, float(_mx_ebitda), float(_mx_deuda_neta),
+                        float(_mx_acciones_millones), tuple(_mx_values),
+                    ),
                     "ebitda": float(_mx_ebitda),
                     "deuda_neta": float(_mx_deuda_neta),
                     "acciones": float(_mx_acciones_millones),
@@ -5373,8 +5373,13 @@ def main():
                 st.session_state.pop("multiples_valuation_result", None)
                 st.error(f"No se pudo calcular la valoración: {_mx_exc}")
         _mx_saved = st.session_state.get("multiples_valuation_result")
-        if _mx_saved and _mx_saved.get("empresa") != _mx_empresa:
+        _mx_current_request = (
+            _mx_empresa, float(_mx_ebitda), float(_mx_deuda_neta),
+            float(_mx_acciones_millones), tuple(_mx_values),
+        )
+        if _mx_saved and _mx_saved.get("request") != _mx_current_request:
             _mx_saved = None
+            st.info("Cambiaste la empresa o uno de los supuestos. Pulsa **Calcular valoración por múltiplos** para actualizar el resultado.")
         if _mx_saved:
             _mx_res = _mx_saved["resultado"]
             st.markdown("###### Resultado de valoración")
