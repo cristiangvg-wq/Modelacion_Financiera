@@ -1889,6 +1889,17 @@ def descargar_financieros_curados(nombre_empresa):
                 nombre_empresa = k
                 break
     if not block:
+        # No sustituir una serie financiera no curada por datos ficticios. Nutresa requiere
+        # reconciliar los estados consolidados 2025/2024 y el cambio extraordinario de deuda
+        # asociado a activos financieros; hasta incorporar la serie completa, explicitar el límite.
+        nombre_norm = str(nombre_empresa or "").upper()
+        if "NUTRESA" in nombre_norm:
+            return None, (
+                "NUTRESA: no hay serie histórica consolidada curada en el repositorio. "
+                "No se debe interpretar una valoración basada en Yahoo con CAPEX/NWC proxy "
+                "como resultado validado. Cargar/reconciliar EEFF consolidados oficiales "
+                "2025 y 2024, deuda, caja, NCI, asociadas y flujos antes de concluir Equity."
+            )
         return None, "No hay serie pública curada para esta empresa"
 
     años = block["años"]
