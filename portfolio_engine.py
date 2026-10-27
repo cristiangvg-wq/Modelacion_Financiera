@@ -174,3 +174,61 @@ def construir_frontera(
     if frontier.empty:
         raise RuntimeError("No se pudo construir la frontera con estas restricciones.")
     return frontier.sort_values("Volatilidad").reset_index(drop=True)
+
+
+MONEDAS_SOPORTADAS_FX = {"COP", "USD"}
+
+
+def convertir_a_moneda_comun(
+    precios: pd.DataFrame,
+    monedas: dict,
+    fx_cop_por_usd: pd.Series | None,
+    moneda_base: str = "USD",
+) -> pd.DataFrame:
+    """Expresa todas las series de precios en `moneda_base` (COP o USD).
+
+    `fx_cop_por_usd` es la serie diaria de COP por 1 USD (Yahoo: ``COP=X``).
+    La conversión se hace fecha a fecha (no con una tasa fija), de modo que la
+    volatilidad cambiaria queda incorporada en los retornos del inversionista en
+    `moneda_base`. Fechas sin tasa se rellenan con la última tasa conocida
+    (máximo 5 días hábiles); si aun así faltan, se descartan.
+    """
+    base = str(moneda_base or "").upper()
+    if base not in MONEDAS_SOPORTADAS_FX:
+        raise ValueError(f"Moneda base no soportada: {moneda_base}. Usa COP o USD.")
+    if precios is None or precios.empty:
+        raise ValueError("No hay precios para convertir.")
+    mon = {str(k): str(v or "").upper() for k, v in (monedas or {}).items()}
+    faltan = [c for c in precios.columns if not mon.get(str(c))]
+    if faltan:
+        raise ValueError("Moneda no confirmada para: " + ", ".join(map(str, faltan)))
+    no_soportadas = sorted({m for c, m in mon.items() if c in map(str, precios.columns) and m not in MONEDAS_SOPORTADAS_FX})
+    if no_soportadas:
+        raise ValueError("Monedas sin conversión disponible: " + ", ".join(no_soportadas))
+    requiere_fx = any(mon[str(c)] != base for c in precios.columns)
+    out = precios.copy().sort_index()
+    if not requiere_fx:
+        return out
+    if fx_cop_por_usd is None or len(fx_cop_por_usd) == 0:
+        raise ValueError("Se requiere la serie COP/USD para convertir a una moneda común.")
+    fx = pd.to_numeric(pd.Series(fx_cop_por_usd), errors="coerce").replace([np.inf, -np.inf], np.nan)
+    fx.index = pd.to_datetime(fx.index)
+    out.index = pd.to_datetime(out.index)
+    if getattr(fx.index, "tz", None) is not None:
+        fx.index = fx.index.tz_localize(None)
+    if getattr(out.index, "tz", None) is not None:
+        out.index = out.index.tz_localize(None)
+    fx = fx.sort_index()
+    fx = fx[~fx.index.duplicated(keep="last")]
+    fx_al = fx.reindex(out.index.union(fx.index)).ffill(limit=5).reindex(out.index)
+    if (fx_al.dropna() <= 0).any():
+        raise ValueError("La serie COP/USD contiene valores no positivos.")
+    for c in out.columns:
+        m = mon[str(c)]
+        if m == base:
+            continue
+        if m == "COP" and base == "USD":
+            out[c] = out[c] / fx_al
+        elif m == "USD" and base == "COP":
+            out[c] = out[c] * fx_al
+    return out.dropna(how="any")

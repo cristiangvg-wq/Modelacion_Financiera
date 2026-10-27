@@ -2893,6 +2893,9 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
 
 
 def main():
+    # Estado de la capa lógica aislado por sesión (ver vincular_estado_sesion).
+    if hasattr(L, "vincular_estado_sesion"):
+        L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
     _init_state()
     _aplicar_empresa_pendiente()
 

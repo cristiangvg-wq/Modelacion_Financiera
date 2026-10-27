@@ -57,6 +57,80 @@ try:
 except ImportError:
     HAS_YF = False
 
+import threading as _threading
+import time as _time
+from collections.abc import MutableMapping as _MutableMapping
+
+# =============================================================================
+# ESTADO POR SESIÓN
+# Streamlit importa este módulo una sola vez por proceso: cualquier dict global
+# queda compartido entre TODOS los usuarios conectados. Los registros mutables
+# (empresas descargadas, resultados de pestañas, credenciales del conector de
+# mercado y último error de IA) se resuelven contra un almacén ligado al hilo
+# de ejecución de la sesión mediante vincular_estado_sesion(). Sin vínculo
+# (pruebas, scripts, notebooks) se usa un almacén por defecto del proceso.
+# =============================================================================
+_ESTADO_LOCAL = _threading.local()
+_ESTADO_POR_DEFECTO = {}
+
+
+def vincular_estado_sesion(almacen):
+    """Asocia el hilo actual a `almacen` (p. ej. un dict dentro de st.session_state)."""
+    _ESTADO_LOCAL.almacen = almacen if isinstance(almacen, dict) else None
+    return almacen
+
+
+def desvincular_estado_sesion():
+    _ESTADO_LOCAL.almacen = None
+
+
+def _almacen_estado():
+    alm = getattr(_ESTADO_LOCAL, "almacen", None)
+    return alm if alm is not None else _ESTADO_POR_DEFECTO
+
+
+class _DictSesion(_MutableMapping):
+    """Dict cuyo contenido vive en el almacén de la sesión activa."""
+
+    def __init__(self, nombre, fabrica):
+        self._nombre = nombre
+        self._fabrica = fabrica
+
+    def _d(self):
+        alm = _almacen_estado()
+        if self._nombre not in alm or not isinstance(alm[self._nombre], dict):
+            alm[self._nombre] = self._fabrica()
+        return alm[self._nombre]
+
+    def __getitem__(self, k):
+        return self._d()[k]
+
+    def __setitem__(self, k, v):
+        self._d()[k] = v
+
+    def __delitem__(self, k):
+        del self._d()[k]
+
+    def __iter__(self):
+        return iter(list(self._d().keys()))
+
+    def __len__(self):
+        return len(self._d())
+
+    def copy(self):
+        return dict(self._d())
+
+    def __repr__(self):
+        return f"_DictSesion({self._nombre}={self._d()!r})"
+
+
+def _set_ia_error(msg):
+    _almacen_estado()["_ia_last_error"] = msg
+
+
+def _get_ia_error():
+    return _almacen_estado().get("_ia_last_error")
+
 # =============================================================================
 # API KEYS (IA asistente)
 # En Hugging Face Spaces: añade GEMINI_API_KEY / XAI_API_KEY / OPENAI_API_KEY
@@ -240,7 +314,7 @@ EMPRESAS = {
 # Registro en tiempo de ejecución: empresas descargadas vía Yahoo Finance
 # (tickers arbitrarios fuera del catálogo BVC)
 # ---------------------------------------------------------------------------
-EMPRESAS_RUNTIME = {}  # nombre_display -> mismo shape que EMPRESAS[k]
+EMPRESAS_RUNTIME = _DictSesion("empresas_runtime", dict)  # nombre_display -> mismo shape que EMPRESAS[k] (por sesión)
 
 # Snapshot inmutable del catálogo BVC al importar el módulo.
 # Evita que una sesión (p.ej. AAPL) corrompa ticker_yf de ISA en memoria.
@@ -276,13 +350,22 @@ def _restaurar_entrada_catalogo(nombre_empresa):
 # ---------------------------------------------------------------------------
 # BVC (.CL) vs resto del mundo — tickers y monedas alineadas
 # ---------------------------------------------------------------------------
+# Catálogo de nemotécnicos de la Bolsa de Valores de Colombia (BVC/BVC-Nu).
+# ÚNICA fuente que autoriza a añadir el sufijo Yahoo ".CL". Un ticker fuera de
+# esta lista solo recibe ".CL" si el usuario lo escribe explícitamente o si
+# Yahoo confirma cotización en COP (ver buscar_y_descargar_empresa).
 _TICKERS_BVC = {
-    "ISA", "GEB", "CELSIA", "EPM", "ENELAM", "BVC", "ECOPETROL",
-    "PFBCOLOM", "GRUPOSURA", "PFGRUPSURA", "NUTRESA", "CEMARGOS", "CLH",
-    "CORFICOLCF", "PFDAVVNDA", "BANCOLOMBIA", "EXITO", "ETB", "TERPEL",
-    "PROMIGAS", "CNEC", "CONCONCRET", "BOGOTA", "OCCIDENTE", "PREVER",
-    "MINEROS", "FABRICATO", "TABLEMAC", "ELCONDOR", "PFBANCOLOMBIA",
-    "GRUPOARGOS", "PFGRUPOARGOS", "PFAVAL", "CIBEST",
+    # Energía, utilities e infraestructura
+    "ISA", "GEB", "CELSIA", "EPM", "ENELAM", "ECOPETROL", "PROMIGAS", "TERPEL",
+    "CNEC", "CONCONCRET", "ETB", "MINEROS",
+    # Financiero
+    "BVC", "BCOLOMBIA", "PFBCOLOM", "CIBEST", "PFCIBEST", "BANCOLOMBIA", "PFBANCOLOMBIA",
+    "GRUPOAVAL", "PFAVAL", "BOGOTA", "OCCIDENTE", "POPULAR", "BBVACOL",
+    "PFDAVVNDA", "CORFICOLCF", "PFCORFICOL", "GRUBOLIVAR", "GRUPOSURA", "PFGRUPSURA",
+    # Holdings, industria y consumo
+    "GRUPOARGOS", "PFGRUPOARG", "PFGRUPOARGOS", "CEMARGOS", "PFCEMARGOS", "CLH",
+    "NUTRESA", "EXITO", "VALOREM", "ENKA", "FABRICATO", "TABLEMAC", "ELCONDOR",
+    "PREVER", "HCOLSEL", "ICOLCAP",
 }
 _TICKERS_NUNCA_CL = {
     "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX",
@@ -291,18 +374,33 @@ _TICKERS_NUNCA_CL = {
     "SO", "D", "AEP", "EXC", "ORCL", "CRM", "ADBE", "INTC", "AMD", "TSM",
     "AVGO", "QCOM", "KO", "PEP", "WMT", "COST", "HD", "MCD", "NKE", "DIS",
     "T", "VZ", "IBM", "CSCO", "BA", "CAT", "GE", "HON", "SPY", "QQQ",
+    "PLTR", "UBER", "SHOP", "PYPL", "SBUX", "BABA", "PBR", "VALE", "AMX",
+    # ADRs colombianos en NYSE: cotizan en USD, NUNCA llevan .CL
+    "EC", "CIB", "AVAL", "TGLS",
 }
 
 
 def _tickers_bvc_conocidos():
+    """Nemotécnicos BVC: lista curada + catálogo estático + descargas runtime .CL.
+
+    Las descargas runtime solo aportan su base si quedaron registradas con sufijo
+    .CL (cotización COP confirmada). Antes cualquier ticker descargado (p. ej.
+    PLTR) entraba en este conjunto y la siguiente normalización lo convertía en
+    PLTR.CL, contaminando tickers internacionales.
+    """
     s = set(_TICKERS_BVC)
-    for emp in list(EMPRESAS.values()) + list(EMPRESAS_RUNTIME.values()):
+    for emp in _EMPRESAS_CATALOGO_INMUTABLE.values():
         for key in ("ticker_bvc", "ticker_yf"):
             raw = emp.get(key)
-            if not raw:
-                continue
-            u = str(raw).upper().strip()
-            base = u[:-3] if u.endswith(".CL") else u.split(".")[0]
+            if raw:
+                u = str(raw).upper().strip()
+                base = u[:-3] if u.endswith(".CL") else u.split(".")[0]
+                if base and base not in _TICKERS_NUNCA_CL:
+                    s.add(base)
+    for emp in list(EMPRESAS_RUNTIME.values()):
+        u = str(emp.get("ticker_yf") or "").upper().strip()
+        if u.endswith(".CL"):
+            base = u[:-3]
             if base and base not in _TICKERS_NUNCA_CL:
                 s.add(base)
     return s
@@ -348,6 +446,14 @@ def asegurar_sufijo_cl_bvc(ticker, forzar_si_bvc=True):
 
 
 def candidatos_ticker_yf(query):
+    """Candidatos Yahoo en orden de prioridad.
+
+    - BVC conocido  → [BASE.CL]       (nunca se prueba la versión sin sufijo: en
+                                       Yahoo podría ser otro emisor extranjero)
+    - Internacional → [BASE]
+    - Desconocido   → [BASE, BASE.CL] (el .CL solo se acepta si Yahoo confirma
+                                       cotización en COP; ver _es_candidato_bvc_valido)
+    """
     q = (query or "").strip().upper().replace(" ", "")
     if not q:
         return []
@@ -357,8 +463,20 @@ def candidatos_ticker_yf(query):
     if base in _TICKERS_NUNCA_CL:
         return [base]
     if base in _tickers_bvc_conocidos():
-        return [f"{base}.CL", base]
+        return [f"{base}.CL"]
+    if base.isalpha() and len(base) >= 3:
+        return [base, f"{base}.CL"]
     return [base]
+
+
+def _es_candidato_bvc_valido(cand, info):
+    """Un .CL fuera del catálogo solo es válido si Yahoo lo cotiza en COP."""
+    c = str(cand or "").upper()
+    if not c.endswith(".CL"):
+        return True
+    if c[:-3] in _tickers_bvc_conocidos():
+        return True
+    return str((info or {}).get("currency") or "").upper() == "COP"
 
 
 def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
@@ -455,10 +573,10 @@ def aplicar_monedas_a_empresa(nombre_empresa=None, emp=None):
 # ---------------------------------------------------------------------------
 # Resultados de pestañas en la sesión (consulta asistida + reset al cambiar empresa)
 # ---------------------------------------------------------------------------
-RESULTADOS_SESION = {
-    "empresa": None,
-    "tabs": {},  # "1".."7" -> dict serializable
-}
+RESULTADOS_SESION = _DictSesion(
+    "resultados_sesion",
+    lambda: {"empresa": None, "tabs": {}},  # "1".."7" -> dict serializable
+)
 
 
 def reset_resultados_sesion(nombre_empresa=None):
@@ -476,6 +594,20 @@ def guardar_resultado_tab(tab_id, nombre_empresa, payload):
         RESULTADOS_SESION["tabs"] = {}
     RESULTADOS_SESION["empresa"] = nombre_empresa
     RESULTADOS_SESION["tabs"][str(tab_id)] = payload
+
+
+def metricas_valoracion_sesion(nombre_empresa):
+    """Métricas numéricas de la última corrida de la pestaña 4 para ESTA empresa.
+
+    Devuelve None si no hay corrida o si pertenece a otra empresa (nunca mezcla).
+    """
+    if RESULTADOS_SESION.get("empresa") != nombre_empresa:
+        return None
+    t4 = (RESULTADOS_SESION.get("tabs") or {}).get("4") or {}
+    m = t4.get("metricas")
+    if isinstance(m, dict) and m.get("empresa") == nombre_empresa:
+        return dict(m)
+    return None
 
 
 def _html_a_texto(html, max_len=2500):
@@ -932,6 +1064,8 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
         try:
             t_obj = yf.Ticker(cand)
             info = t_obj.info or {}
+            if not _es_candidato_bvc_valido(cand, info):
+                continue
             # Validar que haya algo útil
             if info.get("regularMarketPrice") or info.get("currentPrice") or info.get("shortName") or info.get("longName"):
                 used_ticker = cand
@@ -1238,12 +1372,15 @@ def glosario_html():
 # =============================================================================
 
 # Estado de configuración del conector (se actualiza desde la UI)
-MERCADO_CONFIG = {
-    "proveedor": "yahoo",          # yahoo | api_key | manual
-    "api_key": "",
-    "api_base_url": "",            # opcional: endpoint propio del vendor
-    "api_timeout": 12,
-}
+MERCADO_CONFIG = _DictSesion(
+    "mercado_config",
+    lambda: {
+        "proveedor": "yahoo",          # yahoo | api_key | manual
+        "api_key": "",                 # credencial del usuario: NUNCA compartida entre sesiones
+        "api_base_url": "",            # opcional: endpoint propio del vendor
+        "api_timeout": 12,
+    },
+)
 
 
 def _validar_url_vendor(url):
@@ -1399,14 +1536,19 @@ def _proveedor_yahoo(ticker_yf):
             )
 
         if cambio_pct is None:
+            # Yahoo entrega regularMarketChangePercent YA en puntos porcentuales
+            # (-0.31 = -0,31 %). Multiplicar por 100 cuando |x|<1 inflaba 100x
+            # cualquier variación diaria pequeña.
             ch = _finite_or_none(info.get("regularMarketChangePercent"))
             if ch is None:
                 ch = _yf_fast_get(fi, "regular_market_change_percent", "change_percent")
             if ch is not None:
-                cambio_pct = ch * 100.0 if abs(ch) < 1.0 else ch
+                cambio_pct = ch
 
         # --- Capitalización ---
-        mcap = _finite_or_none(info.get("marketCap")) or _finite_or_none(info.get("enterpriseValue"))
+        # Capitalización bursátil = precio × acciones. El EV (incluye deuda neta) NO
+        # es un sustituto válido: inflaría P/VL y múltiplos de equity.
+        mcap = _finite_or_none(info.get("marketCap"))
         if mcap is None:
             mcap = _yf_fast_get(fi, "market_cap", "marketCap")
         if mcap is None and precio and precio > 0:
@@ -1426,10 +1568,11 @@ def _proveedor_yahoo(ticker_yf):
         )
 
         # --- P/E ---
+        # P/E trailing → forward. El PEG (P/E ÷ crecimiento) es otra métrica y no
+        # puede usarse como respaldo del P/E.
         pe = (
             _finite_or_none(info.get("trailingPE"))
             or _finite_or_none(info.get("forwardPE"))
-            or _finite_or_none(info.get("pegRatio"))
         )
         if pe is None and precio and precio > 0:
             eps = (
@@ -1458,9 +1601,11 @@ def _proveedor_yahoo(ticker_yf):
                 if ok else f"Yahoo no devolvió precio usable para {ticker_yf}."
             ),
             "precio": precio,
+            # Moneda de cotización declarada por Yahoo; solo se infiere por mercado
+            # cuando el proveedor no la informa.
             "moneda": (
-                "COP" if str(ticker_yf or "").upper().endswith(".CL")
-                else (info.get("currency") or "USD")
+                str(info.get("currency") or "").upper()
+                or ("COP" if str(ticker_yf or "").upper().endswith(".CL") else "USD")
             ),
             "cambio_pct": cambio_pct,
             "market_cap": mcap,
@@ -1598,7 +1743,46 @@ def _proveedor_manual(ticker_yf=None, ticker_bvc=None):
     )
 
 
+# Caché de cotizaciones (TTL). Dos objetivos:
+#  1) rendimiento: cada pestaña pedía la misma cotización a Yahoo (2-3 HTTP c/u);
+#  2) consistencia cruzada: todas las pestañas de una corrida leen la MISMA
+#     instantánea de precio, nunca ticks distintos tomados segundos aparte.
+MERCADO_CACHE_TTL_SEG = 300
+_CACHE_MERCADO = {}
+_CACHE_MERCADO_LOCK = _threading.Lock()
+
+
+def limpiar_cache_mercado(ticker=None):
+    with _CACHE_MERCADO_LOCK:
+        if ticker is None:
+            _CACHE_MERCADO.clear()
+        else:
+            t = str(ticker).upper()
+            for k in [k for k in _CACHE_MERCADO if k[1] == t]:
+                _CACHE_MERCADO.pop(k, None)
+
+
 def obtener_datos_mercado_bvc(ticker_yf, ticker_bvc=None, proveedor=None):
+    """Fachada cacheada (TTL) del conector de mercado; ver _obtener_datos_mercado_sin_cache."""
+    tk = asegurar_sufijo_cl_bvc(ticker_yf) if ticker_yf else asegurar_sufijo_cl_bvc(ticker_bvc)
+    prov = (proveedor or MERCADO_CONFIG.get("proveedor") or "yahoo").strip().lower()
+    # La URL del vendor forma parte de la llave; la API key NO se guarda en ella.
+    clave = (prov, str(tk or "").upper(), str(ticker_bvc or "").upper(),
+             MERCADO_CONFIG.get("api_base_url") or "")
+    ahora = _time.monotonic()
+    with _CACHE_MERCADO_LOCK:
+        hit = _CACHE_MERCADO.get(clave)
+        if hit and ahora - hit[0] < MERCADO_CACHE_TTL_SEG:
+            return dict(hit[1])
+    res = _obtener_datos_mercado_sin_cache(ticker_yf, ticker_bvc=ticker_bvc, proveedor=proveedor)
+    if isinstance(res, dict) and res.get("ok"):
+        res.setdefault("consultado_utc", _time.strftime("%Y-%m-%d %H:%M UTC", _time.gmtime()))
+        with _CACHE_MERCADO_LOCK:
+            _CACHE_MERCADO[clave] = (ahora, dict(res))
+    return res
+
+
+def _obtener_datos_mercado_sin_cache(ticker_yf, ticker_bvc=None, proveedor=None):
     """
     Fachada del conector por capas.
 
@@ -2702,6 +2886,33 @@ def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None)
     return None
 
 
+def instantanea_precio_mercado(nombre_empresa):
+    """Precio + metadatos (fuente, fecha, moneda) de la instantánea cacheada.
+
+    Es la ÚNICA fuente de precio para cabecera, pestañas, comité IA, simulador y
+    portafolio: todos leen la misma cotización dentro del TTL de la caché.
+    """
+    out = {"precio": None, "moneda": None, "fuente": None, "fecha": None, "ticker": None}
+    emp = resolver_empresa(nombre_empresa) if nombre_empresa else None
+    emp = emp or {}
+    tk = ticker_yf_empresa(nombre_empresa) if nombre_empresa else None
+    tk = tk or emp.get("ticker_yf")
+    if not tk:
+        return out
+    out["ticker"] = tk
+    precio = resolver_precio_mercado(nombre_empresa)
+    out["precio"] = precio
+    try:
+        mkt = obtener_datos_mercado_bvc(tk, ticker_bvc=emp.get("ticker_bvc"))
+        if mkt and mkt.get("ok"):
+            out["moneda"] = mkt.get("moneda")
+            out["fuente"] = mkt.get("fuente") or mkt.get("proveedor")
+            out["fecha"] = mkt.get("fecha_precio") or mkt.get("consultado_utc")
+    except Exception:
+        pass
+    return out
+
+
 def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
     """Precio de mercado en moneda de cotización. UI → conector Yahoo/runtime."""
     try:
@@ -2711,7 +2922,9 @@ def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
         pass
     emp = resolver_empresa(nombre_empresa) if nombre_empresa else None
     emp = emp or {}
-    tk = emp.get("ticker_yf") or (ticker_yf_empresa(nombre_empresa) if nombre_empresa else None)
+    # Ticker canónico primero (a prueba de contaminación de sesión), igual que en
+    # instantanea_precio_mercado: misma llave de caché → mismo precio en todo el app.
+    tk = (ticker_yf_empresa(nombre_empresa) if nombre_empresa else None) or emp.get("ticker_yf")
     if not tk:
         return None
     try:
@@ -2848,15 +3061,19 @@ def forzar_vps_upside(val, nombre_empresa=None, acciones_ui=None, precio=None):
             br["Nota VPS"] = vu["nota_vps"]
             val["bridge"] = br
 
-    # Último recurso: solo upside si ya hay VPS y precio
+    # Último recurso: upside solo si ya hay VPS y precio, con las MISMAS guardas que
+    # calcular_vps_y_upside (monedas confirmadas e iguales y ratio VPS/precio en
+    # [1/100, 100]). Antes este atajo aceptaba monedas desconocidas y saltaba el
+    # control de escala, produciendo upsides distintos entre pestañas.
     if (val.get("upside_pct") is None) and vps is not None and px is not None:
         try:
             px = float(px)
             vps = float(vps)
-            if px > 0 and np.isfinite(vps):
-                # Solo si monedas alineadas o desconocidas
-                if (not mm or not mp or str(mm).upper() == str(mp).upper()):
-                    val["upside_pct"] = (vps / px - 1.0) * 100.0
+            mm_u, mp_u = str(mm or "").upper(), str(mp or "").upper()
+            if px > 0 and np.isfinite(vps) and mm_u and mp_u and mm_u == mp_u:
+                ratio = vps / px
+                if 0.01 <= ratio <= 100.0:
+                    val["upside_pct"] = (ratio - 1.0) * 100.0
         except Exception:
             pass
     if px is not None:
@@ -5963,9 +6180,21 @@ def _dcf_rapido_desde_ctx(ctx, precio_mkt=None):
         return {"error": str(e)}
 
 
+GEMINI_MODELOS_PREFERIDOS = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-2.5-flash",
+)
+GEMINI_TIMEOUT_SEG = 45
+GEMINI_PRESUPUESTO_SEG = 120
+
+
 def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, proveedor="auto"):
     """Llama a xAI, OpenAI o Google Gemini si hay API key (argumento o variable de entorno).
-    Devuelve texto o None. El último error queda en _llamar_ia_redaccion._last_error.
+    Devuelve texto o None. El último error queda en _get_ia_error() (por sesión).
     """
     import os
     import json as _json
@@ -6012,7 +6241,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
         elif os.environ.get("OPENAI_API_KEY"):
             use = "openai"
         else:
-            _llamar_ia_redaccion._last_error = None
+            _set_ia_error(None)
             return None
 
     def _http_json(url, body_dict, headers, timeout=90):
@@ -6021,40 +6250,38 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return _json.loads(resp.read().decode("utf-8"))
 
-    # ---------- Gemini (Google AI Studio — capa gratuita habitual) ----------
+    # ---------- Gemini (Google AI Studio) ----------
     if use == "gemini":
         key = key_gem
         if not key:
-            _llamar_ia_redaccion._last_error = (
+            _set_ia_error(
                 "Proveedor gemini sin API key. Crea una gratis en "
-                "https://aistudio.google.com/apikey y pégala aquí "
-                "(o define GEMINI_API_KEY)."
+                "https://aistudio.google.com/apikey y pégala en la app "
+                "(o define GEMINI_API_KEY en st.secrets / variables de entorno)."
             )
             return None
         models = []
         env_m = (os.environ.get("GEMINI_MODEL") or "").strip()
         if env_m:
             models.append(env_m)
-        # Modelos vigentes en Gemini API (oct 2026). gemini-pro / 1.5 / 2.0-flash ya no sirven.
-        # Preferir Flash-Lite y Flash (cuota free tier habitual en AI Studio).
-        for m in (
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-            "gemini-3.8-flash",
-            "gemini-3.6-flash",
-            "gemini-2.5-pro",
-        ):
+        # Familias vigentes en la Gemini API (oct-2026). Se prueban en orden: un 404
+        # (modelo retirado/inexistente) o 429 (cuota por modelo) pasa al siguiente.
+        # GEMINI_MODEL permite fijar uno concreto sin tocar el código.
+        for m in GEMINI_MODELOS_PREFERIDOS:
             if m not in models:
                 models.append(m)
         last_err = None
+        t0 = _time.monotonic()
         for model in models:
+            if _time.monotonic() - t0 > GEMINI_PRESUPUESTO_SEG:
+                last_err = (last_err or "") + " · presupuesto de tiempo agotado."
+                break
+            # La clave viaja en cabecera (x-goog-api-key), nunca en la URL: las URLs
+            # quedan en logs de proxies y trazas de excepciones.
             url = (
                 "https://generativelanguage.googleapis.com/v1beta/models/"
                 + urllib.parse.quote(model, safe="")
-                + ":generateContent?key="
-                + urllib.parse.quote(key, safe="")
+                + ":generateContent"
             )
             body_dict = {
                 "system_instruction": {"parts": [{"text": sistema}]},
@@ -6070,38 +6297,36 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                 data = _http_json(
                     url,
                     body_dict,
-                    headers={"Content-Type": "application/json"},
-                    timeout=90,
+                    headers={"Content-Type": "application/json", "x-goog-api-key": key},
+                    timeout=GEMINI_TIMEOUT_SEG,
                 )
                 cands = data.get("candidates") or []
                 if not cands:
-                    # bloqueo de seguridad u otro
                     fb = data.get("promptFeedback") or data
                     last_err = f"Gemini sin candidatos (modelo={model}). Feedback: {str(fb)[:300]}"
                     continue
                 parts = (cands[0].get("content") or {}).get("parts") or []
                 text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
                 if text:
-                    _llamar_ia_redaccion._last_error = None
+                    _set_ia_error(None)
+                    _almacen_estado()["_ia_ultimo_modelo"] = model
                     return text
-                last_err = f"Gemini respuesta vacía (modelo={model})."
+                last_err = f"Gemini respuesta vacía (modelo={model}, finishReason={cands[0].get('finishReason')})."
             except urllib.error.HTTPError as e:
                 try:
                     detail = e.read().decode("utf-8", errors="replace")[:500]
                 except Exception:
                     detail = str(e)
+                detail = detail.replace(key, "***") if key else detail
                 last_err = f"HTTP {e.code} Gemini modelo={model}. Detalle: {detail}"
-                if e.code in (401, 403):
-                    _llamar_ia_redaccion._last_error = (
-                        last_err + " — key inválida o API Gemini no habilitada en el proyecto."
-                    )
+                if e.code in (400, 401, 403) and ("API_KEY" in detail.upper() or e.code != 400):
+                    _set_ia_error(last_err + " — key inválida o API Gemini no habilitada en el proyecto.")
                     return None
-                # 404 modelo inexistente → probar siguiente
-                continue
+                continue  # 404 modelo inexistente / 429 cuota / 5xx → siguiente modelo
             except Exception as e:
                 last_err = f"Error Gemini ({type(e).__name__}): {e}"
                 break
-        _llamar_ia_redaccion._last_error = last_err or "Gemini no respondió."
+        _set_ia_error(last_err or "Gemini no respondió.")
         return None
 
     # ---------- xAI / OpenAI (OpenAI-compatible chat completions) ----------
@@ -6109,7 +6334,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
         key = key_xai if (key_ui or os.environ.get("XAI_API_KEY")) else key_ui
         key = (key or key_ui or "").strip()
         if not key:
-            _llamar_ia_redaccion._last_error = (
+            _set_ia_error(
                 "Proveedor xai sin API key. Crea una de pago en https://console.x.ai "
                 "(Grok Inference, permisos 2/2) o define XAI_API_KEY."
             )
@@ -6124,7 +6349,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
         key = key_oai if (key_ui or os.environ.get("OPENAI_API_KEY")) else key_ui
         key = (key or key_ui or "").strip()
         if not key:
-            _llamar_ia_redaccion._last_error = (
+            _set_ia_error(
                 "Proveedor openai sin API key o sin créditos. "
                 "https://platform.openai.com/api-keys"
             )
@@ -6164,7 +6389,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                     .get("content")
                 )
                 if content:
-                    _llamar_ia_redaccion._last_error = None
+                    _set_ia_error(None)
                     return content
                 last_err = f"Respuesta vacía del proveedor (modelo={model})."
             except urllib.error.HTTPError as e:
@@ -6174,10 +6399,10 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                     detail = str(e)
                 last_err = f"HTTP {e.code} al llamar {base} modelo={model}. Detalle: {detail}"
                 if e.code in (401, 403):
-                    _llamar_ia_redaccion._last_error = last_err + " (clave inválida o sin permiso)"
+                    _set_ia_error(last_err + " (clave inválida o sin permiso)")
                     return None
                 if e.code == 429:
-                    _llamar_ia_redaccion._last_error = last_err + " (sin créditos o rate limit)"
+                    _set_ia_error(last_err + " (sin créditos o rate limit)")
                     return None
                 if e.code in (400, 404):
                     break  # siguiente modelo
@@ -6185,10 +6410,10 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                 last_err = f"Error de red/API ({type(e).__name__}): {e}"
                 break
 
-    _llamar_ia_redaccion._last_error = last_err or "No se pudo obtener respuesta de la IA."
+    _set_ia_error(last_err or "No se pudo obtener respuesta de la IA.")
     return None
 
-_llamar_ia_redaccion._last_error = None
+_set_ia_error(None)
 
 
 def _texto_a_html(texto):
@@ -6287,7 +6512,7 @@ def _estructurar_respuesta_ia(pregunta, hechos, dcf, mkt, web_hits, modo_definic
         return ia, "ia"
 
     # Si hubo intento de IA y falló, dejar rastro en el fallback
-    ia_err = getattr(_llamar_ia_redaccion, "_last_error", None)
+    ia_err = _get_ia_error()
 
     # Fallback determinístico explicativo
     if modo_definicion:
@@ -6462,7 +6687,7 @@ def asistente_consulta_financiera(pregunta, nombre_empresa, api_key=None, provee
     elif modo == "glosario":
         badge = "Definición pedagógica · glosario de la plataforma"
     else:
-        err_ia = getattr(_llamar_ia_redaccion, "_last_error", None)
+        err_ia = _get_ia_error()
         if err_ia:
             badge = f"Respuesta estructurada (la IA no respondió: {err_ia[:180]})"
         else:
@@ -6529,10 +6754,17 @@ def _metricas_comite_para_ia(nombre_empresa):
                 out["roic_calc"] = calcular_roic(float(df["NOPAT"].mean()), float(cap))
             except Exception:
                 pass
-        # Preferir resultados de sesión (tab4/tab7) si existen
+        # Preferir la corrida de la pestaña 4 de ESTA empresa (supuestos del usuario).
+        # El DCF rápido con parámetros de catálogo solo rellena lo que falte; así el
+        # simulador, el portafolio y el comité muestran el mismo VPS/upside que tab 4.
         try:
-            reg = RESULTADOS_SESION.get(nombre_empresa) or RESULTADOS_SESION.get("global") or {}
-            # structure may vary; soft merge
+            m4 = metricas_valoracion_sesion(nombre_empresa)
+            if m4:
+                for k, v in m4.items():
+                    if v is not None:
+                        out[k] = v
+                out["origen_metricas"] = "pestaña 4 (sesión)"
+                return out
         except Exception:
             pass
         # Refinar con valoración completa si hay params suficientes
@@ -6861,7 +7093,7 @@ Entrega el resultado **estrictamente** bajo este formato:
         sistema, user_content, temperature=0.35, api_key=api_key, proveedor=proveedor or "gemini"
     )
     if not texto:
-        err = getattr(_llamar_ia_redaccion, "_last_error", None) or "Sin respuesta del proveedor de IA."
+        err = _get_ia_error() or "Sin respuesta del proveedor de IA."
         return (
             f'<div class="result-note" style="border-left:4px solid #DC2626">'
             f"<b>No se pudo generar la deliberación del comité.</b><br>{_html.escape(str(err))}<br>"
@@ -7236,9 +7468,17 @@ si los flujos, el crecimiento o el costo del dinero cambian.
     "<b>PV FCFF</b> = valor presente de los flujos del horizonte. <b>PV Terminal</b> = valor presente de todo lo que viene después.")}
 """
         try:
+            _b2 = escenarios.get("Base") or {}
             guardar_resultado_tab("2", nombre_empresa, {
                 "tabla_escenarios": _df_a_registros(df_esc, 6),
                 "texto": _html_a_texto(resumen, 2200),
+                "metricas": {
+                    "val_ev": _finite_or_none(_b2.get("EV")),
+                    "val_equity": _finite_or_none(_b2.get("Equity_Value")),
+                    "vps_modelo": _finite_or_none(_b2.get("value_per_share")),
+                    "upside": _finite_or_none(_b2.get("upside_pct")),
+                    "precio_mercado": _finite_or_none(_b2.get("precio_mercado")),
+                },
             })
         except Exception:
             pass
@@ -7497,10 +7737,44 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         # Salida 3 (memo): resumen numérico + sensibilidad + puente EV→Equity. Sin bloques repetidos.
         resumen = resumen + formatear_bridge_html(val_base, moneda_modelo=mon_modelo, moneda_precio=mon_precio, nombre_empresa=nombre_empresa)
         try:
+            _snap = instantanea_precio_mercado(nombre_empresa)
             guardar_resultado_tab("4", nombre_empresa, {
                 "decision": _html_a_texto(decision_html, 1800),
                 "kpis": _df_a_registros(kpis, 15) if kpis is not None else None,
                 "memo": _html_a_texto(resumen, 2200),
+                # Métricas numéricas canónicas (fuente única para comité IA,
+                # simulador y portafolio; evita re-parsear tablas formateadas).
+                "metricas": {
+                    "empresa": nombre_empresa,
+                    "ticker": ticker_canonico_empresa(nombre_empresa),
+                    "moneda": mon_modelo,
+                    "moneda_precio": mon_precio,
+                    "monedas_alineadas": bool(mon_modelo and mon_precio and mon_modelo == mon_precio),
+                    "precio_mercado": _finite_or_none(precio_p),
+                    "vps_modelo": _finite_or_none(val_base.get("value_per_share")),
+                    "upside": _finite_or_none(val_base.get("upside_pct")),
+                    "acciones": _finite_or_none(val_base.get("acciones")),
+                    "wacc_calc": _finite_or_none(wacc),
+                    "ke_calc": _finite_or_none(ke),
+                    "roic_calc": _finite_or_none(roic),
+                    "roic_fuente": "NOPAT medio proyectado / capital invertido (pestaña 4)",
+                    "de_ratio": _finite_or_none(de_ratio),
+                    "g": _finite_or_none(g),
+                    "val_ev": _finite_or_none(val_base.get("EV")),
+                    "val_equity": _finite_or_none(val_base.get("Equity_Value")),
+                    "equity_pesimista": _finite_or_none(val_pes.get("Equity_Value")),
+                    "decision_modelo": decision,
+                    "unidad_modelo": f"miles de millones de {mon_modelo}",
+                    "unidad_precio": "por acción",
+                    "fuente_precio": _snap.get("fuente"),
+                    "fecha_precio": _snap.get("fecha"),
+                    "fuente_valoracion": "DCF FCFF · modelacion_logic.tab4_recomendacion · escenario base",
+                    "supuestos": {
+                        "horizonte": horizonte, "rf": float(rf), "erp": float(erp), "crp": float(crp),
+                        "kd": float(kd), "tax": float(tax), "beta_u": float(beta_u),
+                        "capex_extra": float(capex_extra), "mid_year": bool(mid_year),
+                    },
+                },
             })
         except Exception:
             pass
@@ -9001,6 +9275,13 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
                 "texto": _html_a_texto(html, 2200),
                 "kpis": _df_a_registros(resumen_tabla, 15),
                 "pdf_generado": bool(pdf_ok),
+                "metricas": {
+                    "val_ev": _finite_or_none(val_base.get("EV")),
+                    "val_equity": _finite_or_none(val_base.get("Equity_Value")),
+                    "vps_modelo": _finite_or_none(vps),
+                    "upside": _finite_or_none(upside),
+                    "precio_mercado": _finite_or_none(precio),
+                },
             })
         except Exception:
             pass
