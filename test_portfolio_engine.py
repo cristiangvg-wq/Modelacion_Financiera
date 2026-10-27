@@ -49,6 +49,10 @@ class TestPortfolioEngine(unittest.TestCase):
                 np.array([[0.04, 0.01], [0.01, 0.02]]), 0.02,
             )
 
+    def test_metricas_rechaza_portafolio_vacio(self):
+        with self.assertRaisesRegex(ValueError, "al menos un activo"):
+            metricas_portafolio(np.array([]), np.array([]), np.empty((0, 0)), 0.02)
+
     def test_metricas_rechaza_covarianza_no_simetrica(self):
         with self.assertRaisesRegex(ValueError, "simétrica"):
             metricas_portafolio(
