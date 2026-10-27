@@ -6723,7 +6723,10 @@ def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, we, wd = calcular_wacc(de_ratio, kd, ke, tax)
         nopat_prom = float(df_proj["NOPAT"].mean())
-        roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
+        try:
+            roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
+        except (TypeError, ValueError, ZeroDivisionError):
+            roic = float("nan")
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(), df_proj["Delta_NWC"].mean(), nopat_prom)
         g_sost = roic * reinv
         pruebas = []
@@ -6731,10 +6734,12 @@ def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             pruebas.append(("✅ g < WACC", f"Bien. Crecimiento ({g*100:.2f}%) < costo del dinero ({wacc*100:.2f}%). Modelo estable."))
         else:
             pruebas.append(("❌ g ≥ WACC", f"Problema. Crecimiento ≥ costo del dinero. El valor de largo plazo se infla de forma irreal."))
-        if roic > wacc:
+        if np.isfinite(roic) and roic > wacc:
             pruebas.append(("✅ ROIC > WACC", f"Crea valor: rinde {roic*100:.2f}% y el dinero le cuesta {wacc*100:.2f}%."))
-        else:
+        elif np.isfinite(roic):
             pruebas.append(("⚠️ ROIC ≤ WACC", f"No crea valor: rinde {roic*100:.2f}% vs costo {wacc*100:.2f}%."))
+        else:
+            pruebas.append(("ℹ️ ROIC no disponible", "Falta una base contable válida de capital invertido."))
         diff = abs(g - g_sost)
         if diff < 0.015:
             pruebas.append(("✅ g coherente", f"Crecimiento sostenible estimado ≈ {g_sost*100:.2f}% (muy parecido a tu g)."))
@@ -7924,15 +7929,10 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 
         # ROIC / auditoría
         nopat_prom = df_proj["NOPAT"].mean()
-        cap_roic = float(capital_invertido or 0)
-        if cap_roic > 0 and abs(float(nopat_prom)) / cap_roic > 0.80:
-            cap_alt = max(cap_roic, 3.0 * abs(float(nopat_prom)))
-            roic = float(nopat_prom) / cap_alt
-        else:
-            try:
-                roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
-            except Exception:
-                roic = float("nan")
+        try:
+            roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
+        except (TypeError, ValueError, ZeroDivisionError):
+            roic = float("nan")
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(),
                                  df_proj["Delta_NWC"].mean(), nopat_prom)
         g_sost = roic * reinv
