@@ -36,7 +36,7 @@ def valoracion_por_multiplos(
             m = float(value)
         except (TypeError, ValueError):
             continue
-        if math.isfinite(m) and 0 < m <= 80:
+        if math.isfinite(m) and m > 0:
             valid.append(m)
     if not valid:
         raise ValueError("Se necesita al menos un múltiplo EV/EBITDA válido y verificado.")
