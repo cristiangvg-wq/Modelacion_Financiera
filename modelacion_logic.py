@@ -3906,7 +3906,15 @@ def procedencia_datos(mensaje_carga, ticker_yf=None, mkt=None):
     if "excel" in msg and "error" not in msg and "insuficientes" not in msg and "respaldo" not in msg:
         nivel, etiqueta = "ALTA", "Estados / Excel del usuario"
     elif "yahoo" in msg or "yfinance" in msg:
-        nivel, etiqueta = "MEDIA", "Descarga pública Yahoo Finance (agregada; no es el PDF auditado)"
+        # La serie Yahoo puede combinar partidas reportadas con CAPEX/NWC aproximados.
+        # No debe etiquetarse como calidad MEDIA si la propia carga declara proxies.
+        if "proxy" in msg or "estimad" in msg or "aproximad" in msg:
+            nivel, etiqueta = (
+                "MEDIA-BAJA",
+                "Yahoo Finance con partidas proxy/estimadas; FCFF, ROIC, MVA y TIR son indicativos",
+            )
+        else:
+            nivel, etiqueta = "MEDIA", "Descarga pública Yahoo Finance (agregada; no es el PDF auditado)"
     elif "curada" in msg or "curado" in msg or "pública curada" in msg or "publica_curada" in msg or "catálogo" in msg or "catalogo" in msg:
         nivel, etiqueta = "MEDIA", "Serie de catálogo/curada (ilustrativa; NWC/FCFF pueden ser estimados — validar vs EEFF)"
     elif "respaldo" in msg or "backup" in msg:
