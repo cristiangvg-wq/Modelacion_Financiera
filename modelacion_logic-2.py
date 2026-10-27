@@ -3883,6 +3883,12 @@ def motor_decision_institucional(
         )
     if procedencia.get("nivel_calidad") == "MEDIA-BAJA":
         alertas.append("Datos financieros de respaldo ilustrativos: no usar como única base de una decisión real.")
+    elif procedencia.get("nivel_calidad") != "ALTA":
+        alertas.append(
+            "ROIC, MVA y TIR implícita son indicativos porque la fuente financiera no está verificada "
+            "con estados financieros completos; valida periodo, unidades y capital invertido antes "
+            "de interpretar las alertas como una conclusión económica sobre la empresa."
+        )
     if de_ratio > 2.0:
         alertas.append("Apalancamiento D/E > 2.0: riesgo financiero elevado.")
     elif de_ratio > 1.5:
@@ -6822,7 +6828,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             "Indicador": [
                 "Decisión de comité (modelo)", "Score heurístico", "Calidad de datos",
                 "Fuente financiera", "Fuente mercado", "Ke (CAPM)", "WACC", "ROIC",
-                "ΔEV por CAPEX extra", "Equity base", "Equity pesimista", "VPN proyecto*", "TIR proyecto*"
+                "ΔEV por CAPEX extra", "Equity base", "Equity pesimista", "MVA firma (EV − capital invertido)", "TIR implícita firma*"
             ],
             "Valor": [
                 decision, f"{score}/7", prov["nivel_calidad"], prov["fuente_financiera"], prov["fuente_mercado"],
