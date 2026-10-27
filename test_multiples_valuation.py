@@ -17,11 +17,12 @@ class MultiplesValuationTests(unittest.TestCase):
         self.assertEqual(result["valor_por_accion"], 65000)
         self.assertEqual(result["n_comparables"], 3)
 
-    def test_ignores_invalid_multiples_and_reports_quartiles(self):
+    def test_ignores_nonpositive_and_nonfinite_multiples_but_keeps_large_observed_values(self):
         result = valoracion_por_multiplos(100, [7, 8, 9, 10, -1, float("nan"), 100])
-        self.assertEqual(result["multiples_validos"], [7, 8, 9, 10])
-        self.assertEqual(result["q1"], 7.75)
-        self.assertEqual(result["q3"], 9.25)
+        self.assertEqual(result["multiples_validos"], [7, 8, 9, 10, 100])
+        self.assertEqual(result["multiple_mediano"], 9)
+        self.assertEqual(result["q1"], 8)
+        self.assertEqual(result["q3"], 10)
 
     def test_negative_net_debt_means_net_cash(self):
         result = valoracion_por_multiplos(10, [5], deuda_neta=-20)
