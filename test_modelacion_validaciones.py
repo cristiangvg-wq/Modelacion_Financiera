@@ -462,5 +462,35 @@ class TestNucleoValoracion(unittest.TestCase):
             os.unlink(path)
 
 
+    def test_capital_invertido_yahoo_usa_deuda_patrimonio_menos_efectivo(self):
+        balance = pd.DataFrame(
+            [[10_000_000_000], [50_000_000_000], [5_000_000_000]],
+            index=["Total Debt", "Stockholders Equity", "Cash And Cash Equivalents"],
+            columns=["2025-09-27"],
+        )
+        capital = L.capital_invertido_operativo_yahoo({
+            "totalDebt": 10_000_000_000,
+            "totalStockholderEquity": 50_000_000_000,
+            "totalCash": 5_000_000_000,
+            "_balance_sheet": balance,
+        })
+        self.assertEqual(capital, 55.0)
+
+    def test_capital_invertido_yahoo_no_usa_activos_o_market_cap_como_proxy(self):
+        capital = L.capital_invertido_operativo_yahoo({
+            "totalAssets": 100_000_000_000,
+            "marketCap": 200_000_000_000,
+        })
+        self.assertIsNone(capital)
+
+    def test_capital_base_roic_falla_si_no_hay_base_valida(self):
+        with self.assertRaisesRegex(ValueError, "falta una base de capital"):
+            L.capital_base_roic(0.0, 100.0)
+
+    def test_capital_base_roic_no_usa_piso_artificial_de_nopat(self):
+        self.assertEqual(L.capital_base_roic(55.0, 100.0), 55.0)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
