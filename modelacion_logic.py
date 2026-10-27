@@ -3227,6 +3227,19 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
     emp_catalogo = emp_resuelta is not None
     df_backup = df_historico_empresa(nombre_empresa)
     if archivo is None:
+        # Nutresa: bloquear explícitamente el FCFF proxy/Yahoo hasta cargar una serie
+        # consolidada histórica reconciliada. La presencia de datos de mercado no valida
+        # CAPEX, variación de capital de trabajo ni deuda/caja del puente EV→Equity.
+        nombre_norm = str(nombre_empresa or "").upper()
+        if "NUTRESA" in nombre_norm:
+            raise ValueError(
+                "NUTRESA: valoración fundamental pendiente de reconciliación. "
+                "No se utilizará Yahoo ni CAPEX/NWC proxy como serie de FCFF validada. "
+                "Cargue un Excel/CSV con EEFF consolidados históricos reconciliados "
+                "y en una única escala; verifique deuda financiera, activos financieros, "
+                "caja, pasivos por arrendamiento, NCI y asociadas contra los EEFF oficiales "
+                "2025/2024. Hasta entonces, Equity/EV y métricas derivadas no son concluyentes."
+            )
         if usar_datos_publicos and emp_catalogo:
             df_pub, msg_pub, _tipo = obtener_datos_financieros_publicos(nombre_empresa)
             if df_pub is not None and len(df_pub) >= 3:
