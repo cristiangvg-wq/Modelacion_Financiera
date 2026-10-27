@@ -2609,7 +2609,7 @@ def _init_state():
     defaults = {
         "empresa_sel": None,
         "params": None,
-        "rf": 0.12,
+        "rf": float(L.CAPM_POR_MERCADO.get("CO", {}).get("rf", 0.13)),
         "erp": 0.055,
         "crp": 0.0,
         "g_max_macro": 0.04,
@@ -2912,7 +2912,7 @@ def _cargar_params_empresa(nombre):
         st.session_state["erp"] = min(float(st.session_state.get("erp", 0.05)), 0.05)
         st.session_state["crp"] = 0.0
     else:
-        st.session_state["rf"] = 0.12 if mon in ("COP", "") else 0.04
+        st.session_state["rf"] = float(L.CAPM_POR_MERCADO["CO"]["rf"]) if mon in ("COP", "") else 0.04
     _alinear_moneda_y_precio(nombre)
 
 
@@ -3583,7 +3583,7 @@ def main():
     # Validación de robustez pre-corrida (WACC vs g, finitud)
     try:
         if hasattr(L, "validar_inputs_valoracion"):
-            _warns = L.validar_inputs_valoracion(w["wacc"], g, g_max_macro=g_max_macro, acciones=acciones)
+            _warns = L.validar_inputs_valoracion(w["wacc"], g, g_max_macro=g_max_macro, acciones=acciones, kd=kd, rf=rf)
             for _m in (_warns or []):
                 st.warning(_m)
     except Exception:

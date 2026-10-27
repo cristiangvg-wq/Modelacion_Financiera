@@ -23,19 +23,19 @@ USUARIO_DEFECTO = ["NUTRESA", "AAPL", "PLTR"]
 
 def correr(nombre):
     p = L.params_empresa(nombre)
-    cop = L.moneda_empresa(nombre) == "COP"
-    rf, erp = (0.12, 0.055) if cop else (0.045, 0.05)
+    # Mismas anclas CAPM que usa la app (catálogo → CO; Yahoo → mercado del emisor)
+    rf, erp, crp, _ = L._capm_para_ui(p)
     a = (p["de_ratio"], p["kd"], p["tax"], p["g"])
     acc = p.get("acciones")
     L.reset_resultados_sesion(nombre)
-    L.tab2_simulacion_politicas(nombre, None, 5, *a, 0.0, p["beta_u"], p["deuda_neta"], rf, erp, 0.0, True,
+    L.tab2_simulacion_politicas(nombre, None, 5, *a, 0.0, p["beta_u"], p["deuda_neta"], rf, erp, crp, True,
                                 p.get("caja", 0), p.get("nci", 0), p.get("otros_claims", 0),
                                 p.get("asociados", 0), acc, p.get("exit_multiple", 8.0), True, 0.05)
     L.tab4_recomendacion(nombre, None, 5, *a, 0.0, p["beta_u"], p["capital_invertido"], p["deuda_neta"],
-                         rf, erp, 0.0, True, p.get("caja", 0), p.get("nci", 0), p.get("otros_claims", 0),
+                         rf, erp, crp, True, p.get("caja", 0), p.get("nci", 0), p.get("otros_claims", 0),
                          p.get("asociados", 0), acc, p.get("exit_multiple", 8.0), True, 0.05)
     L.tab7_informe_ejecutivo(nombre, None, 5, *a, 0.0, p["beta_u"], p["capital_invertido"], p["deuda_neta"],
-                             p.get("inversion_inicial", 0), rf, erp, 0.0, True, p.get("caja", 0), p.get("nci", 0),
+                             p.get("inversion_inicial", 0), rf, erp, crp, True, p.get("caja", 0), p.get("nci", 0),
                              p.get("otros_claims", 0), p.get("asociados", 0), acc,
                              p.get("exit_multiple", 8.0), True, 0.05)
     tabs = L.RESULTADOS_SESION["tabs"]

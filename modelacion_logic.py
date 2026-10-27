@@ -180,7 +180,10 @@ EMPRESAS = {
         "sector": "Transmisión de energía / Infraestructura",
         "descripcion": "Transporta electricidad a alta tensión en Colombia y Latinoamérica. También opera carreteras y telecomunicaciones.",
         "params": {"de_ratio": 1.20, "kd": 0.08, "tax": 0.22, "g": 0.03, "beta_u": 0.42,
-                   "capital_invertido": 45000, "deuda_neta": 40350, "inversion_inicial": 5000, "caja": 4610, "nci": 10400, "otros_claims": 0, "asociados": 4500, "acciones": 1108, "exit_multiple": 8.4, "moneda": "COP"},
+                   # Puente actualizado a jun-2026 (informe 2T26 ISA, miles de millones COP):
+                   # deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539.
+                   # Antes: deuda_neta 40.350 (≈10 billones por encima del reportado → VPS ~9.000 COP menor).
+                   "capital_invertido": 45000, "deuda_neta": 30430, "inversion_inicial": 5000, "caja": 3725, "nci": 10539, "otros_claims": 0, "asociados": 4500, "acciones": 1108, "exit_multiple": 8.4, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
             "Ingresos": [7200, 7800, 8400, 9045, 10180, 11117, 13356, 14171, 14935, 15918],
@@ -1093,9 +1096,9 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
     df_mm = df_fin.copy()
     if "Ingresos" in df_mm.columns:
         df_mm = df_mm[df_mm["Ingresos"].apply(lambda x: abs(float(x)) > 1e-9)]
-    # No incluir el año calendario en curso
-    anio_actual = datetime.now().year
-    df_mm = df_mm[df_mm.index.astype(int) < anio_actual]
+    # El downloader ya entrega solo ejercicios cerrados (por fecha de cierre).
+    cerrado_hasta = df_fin.attrs.get("ejercicio_cerrado_hasta")
+    df_mm.attrs.update(dict(df_fin.attrs))
 
     ticker_sym = str(used_ticker).split(".")[0].upper()
     name = (info.get("longName") or info.get("shortName") or ticker_sym)
@@ -1193,6 +1196,7 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
         "moneda": fin_cur,
         "moneda_precio": px_cur,
         "pais": info.get("country") or "",
+        "ejercicio_cerrado_hasta": cerrado_hasta,
     }
 
     precio = info.get("regularMarketPrice") or info.get("currentPrice")
@@ -2004,13 +2008,34 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         fin_currency_raw = info.get("financialCurrency") or info.get("currency")
         fin_currency = str(fin_currency_raw or "").upper().replace("US$", "USD").replace("COL", "COP")
         es_bvc_local = str(ticker_yf).upper().endswith(".CL")
-        if es_bvc_local and fin_currency and fin_currency not in ("COP", "COL"):
-            return None, (
-                f"Moneda incompatible en Yahoo para ticker BVC {ticker_yf}: "
-                f"financialCurrency/currency={fin_currency}. No se etiquetarán EEFF "
-                "como COP ni se aplicará una conversión FX spot a históricos. "
-                "Usa EEFF consolidados en COP o valida una serie con FX histórico."
-            )
+        # Emisores BVC que reportan en USD (p. ej. MINEROS): antes se bloqueaban por
+        # completo. Ahora el modelo se construye en la moneda de reporte (sin
+        # convertir históricos con FX spot) y solo el PRECIO se convierte a esa
+        # moneda con la tasa spot al calcular el upside (calcular_vps_y_upside).
+
+        # Tasa efectiva desde los propios estados (Yahoo "Tax Rate For Calcs" o
+        # impuesto/utilidad antes de impuestos). Antes un emisor US sin
+        # effectiveTaxRate en `info` (campo casi nunca presente) caía al 21 %
+        # estatutario aunque pagara ~30 % (XOM), sobrestimando NOPAT y FCFF.
+        if tax_efectiva is None:
+            try:
+                tasas = []
+                r_rate = _yf_pick_row(fin, ["Tax Rate For Calcs"])
+                if r_rate is not None:
+                    tasas = [float(v) for v in r_rate.values if v is not None and np.isfinite(float(v))]
+                if not tasas:
+                    r_tax = _yf_pick_row(fin, ["Tax Provision", "Income Tax Expense"])
+                    r_pre = _yf_pick_row(fin, ["Pretax Income", "Income Before Tax"])
+                    if r_tax is not None and r_pre is not None:
+                        for c in r_tax.index:
+                            tv, pv = r_tax.get(c), r_pre.get(c)
+                            if tv is not None and pv is not None and np.isfinite(float(tv)) and float(pv) > 0:
+                                tasas.append(float(tv) / float(pv))
+                tasas = [t for t in tasas[:3] if 0.0 < t < 0.55]
+                if tasas:
+                    tax_efectiva = float(np.median(tasas))
+            except Exception:
+                pass
 
         # --- Tasa impositiva efectiva (crítica para NOPAT/FCFF) ---
         if tax_efectiva is None:
@@ -2056,9 +2081,46 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         if len(years) < 2:
             return None, f"Yahoo devolvió pocos años ({len(years)}) para {ticker_yf}"
 
-        # No usar el año calendario en curso ni futuros (estados anuales aún no cerrados)
-        anio_actual = datetime.now().year
-        years = [y for y in years if y < anio_actual]
+        # Solo ejercicios CERRADOS: se decide por la fecha de cierre de cada columna,
+        # no por el año calendario. Antes se descartaba todo ejercicio rotulado con el
+        # año en curso, de modo que NKE (cierre 31-may-2026) perdía su último año fiscal.
+        hoy = pd.Timestamp(datetime.now().date())
+        cerrados = set()
+        for col in fin.columns:
+            try:
+                ts = pd.Timestamp(col)
+                if ts.tz is not None:
+                    ts = ts.tz_localize(None)
+                if ts <= hoy:
+                    cerrados.add(int(ts.year))
+            except Exception:
+                try:
+                    y = int(str(col)[:4])
+                    if y < hoy.year:
+                        cerrados.add(y)
+                except Exception:
+                    pass
+        years = [y for y in years if y in cerrados]
+
+        # NWC operativo desde el balance (activo corriente − caja e inversiones CP −
+        # (pasivo corriente − deuda CP)). Si falta, se usa la razón NWC/ingresos del
+        # año real más cercano; el 5 % genérico queda solo como último recurso.
+        nwc_real = {}
+        bs = getattr(t, "balance_sheet", None)
+        if bs is not None and not getattr(bs, "empty", True):
+            try:
+                ca = _series_from_yf_row(_yf_pick_row(bs, ["Current Assets", "Total Current Assets"]), fac)
+                cl = _series_from_yf_row(_yf_pick_row(bs, ["Current Liabilities", "Total Current Liabilities"]), fac)
+                cash_s = _series_from_yf_row(_yf_pick_row(bs, [
+                    "Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents",
+                ]), fac)
+                std = _series_from_yf_row(_yf_pick_row(bs, [
+                    "Current Debt And Capital Lease Obligation", "Current Debt",
+                ]), fac)
+                for y in set(ca) & set(cl):
+                    nwc_real[y] = (ca[y] - cash_s.get(y, 0.0)) - (cl[y] - std.get(y, 0.0))
+            except Exception:
+                nwc_real = {}
 
         rows = []
         prev_nwc = None
@@ -2082,8 +2144,14 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
             cx_raw = capex.get(y)
             # Proxy CAPEX más realista (tech/hardware ~3–4 %; antes 12 % sesgaba FCFF a la baja)
             cx = float(cx_raw) if cx_raw is not None else abs(ing) * 0.04
-            # NWC proxy 5 % (antes 8 %); muchas empresas tech tienen NWC bajo o negativo
-            nwc = abs(ing) * 0.05
+            if y in nwc_real:
+                nwc = float(nwc_real[y])
+            elif nwc_real:
+                y_ref = min(nwc_real, key=lambda k: abs(k - y))
+                ing_ref = rev.get(y_ref)
+                nwc = abs(ing) * (nwc_real[y_ref] / ing_ref) if ing_ref else abs(ing) * 0.05
+            else:
+                nwc = abs(ing) * 0.05
             delta = 0.0 if prev_nwc is None else nwc - prev_nwc
             # Unificar la política fiscal con el motor de proyección: sin escudo fiscal automático por pérdidas.
             nopat = float(calcular_nopat(eb, tax_efectiva))
@@ -2114,6 +2182,9 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         df.attrs["moneda_fuente"] = "Yahoo financialCurrency" if fin_currency else "inferida_por_ticker"
         df.attrs["unidad"] = "miles de millones"
         df.attrs["ticker_yf"] = ticker_yf
+        df.attrs["ejercicio_cerrado_hasta"] = int(max(df.index))
+        df.attrs["nwc_fuente"] = "balance Yahoo" if nwc_real else "proxy 5 % de ingresos"
+        df.attrs["tax_efectiva"] = tax_efectiva
         while len(df) > 3 and abs(float(df["Ingresos"].iloc[-1])) < 1e-9:
             df = df.iloc[:-1]
         extra = f" Omitidos {omitidos}." if omitidos else ""
@@ -2121,7 +2192,7 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
             f"Descargado desde Yahoo Finance ({ticker_yf}), {len(df)} años "
             f"({int(df.index.min())}–{int(df.index.max())}). "
             f"Tax efectiva usada={tax_efectiva:.1%}. "
-            f"NWC/CAPEX: real cuando disponible, proxy documentado si no.{extra}"
+            f"NWC: {df.attrs['nwc_fuente']}; CAPEX real cuando disponible.{extra}"
         )
     except Exception as e:
         return None, f"Error yfinance: {e}"
@@ -2259,6 +2330,8 @@ def obtener_datos_financieros_publicos(nombre_empresa, preferir_yahoo=True):
                 if n_incompletos:
                     aviso.append(f"{n_incompletos} año(s) con componentes financieros incompletos omitidos")
                 detalle = f" ({'; '.join(aviso)})" if aviso else ""
+                if emp.get("ejercicio_cerrado_hasta"):
+                    df.attrs["ejercicio_cerrado_hasta"] = int(emp["ejercicio_cerrado_hasta"])
                 return df, f"Histórico en sesión ({emp.get('ticker_yf') or nombre_empresa}), {len(df)} años válidos{detalle}.", "PUBLICA_RUNTIME"
 
     # 2) Catálogo estático: SIEMPRE priorizar sobre Yahoo (evita cola en cero / unidades raras)
@@ -2704,14 +2777,15 @@ def df_historico_empresa(nombre_empresa):
 # US: T-bond + mature ERP (Damodaran ~4,2–5%).
 CAPM_POR_MERCADO = {
     "US": {"rf": 0.045, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015},
-    "CO": {"rf": 0.12,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.025},
+    # CO: TES 10 años en COP por encima de 13 % (La República, 21-oct-2026). Antes 12 %.
+    "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.025},
     "BR": {"rf": 0.12,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.025},
     "MX": {"rf": 0.09,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02},
     "CL": {"rf": 0.055, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015},
     "GB": {"rf": 0.04,  "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015},
     "DEFAULT": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02},
 }
-CAPM_AS_OF = "2026-10"  # US rf~4.5% / ERP~5%; CO rf~12%. Revisar en cada ciclo de FOMC/BanRep.
+CAPM_AS_OF = "2026-10"  # US rf~4.5% / ERP~5%; CO rf~13% (TES 10a >13% al 21-oct-2026). Revisar en cada ciclo de FOMC/BanRep.
 
 
 
@@ -2945,6 +3019,62 @@ def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
     return None
 
 
+def fijar_tasa_cop_usd(valor=None):
+    """Fija (o borra con None) una tasa COP por USD manual para la sesión."""
+    alm = _almacen_estado()
+    if valor is None:
+        alm.pop("_tasa_cop_usd_manual", None)
+        return None
+    v = float(valor)
+    if not (1000.0 < v < 20000.0):
+        raise ValueError("La tasa COP/USD debe estar entre 1.000 y 20.000.")
+    alm["_tasa_cop_usd_manual"] = v
+    return v
+
+
+def tasa_cop_por_usd():
+    """COP por 1 USD: tasa manual de la sesión o spot Yahoo (COP=X, caché TTL).
+
+    Devuelve (tasa, fuente) o (None, motivo). Solo se usa para convertir el PRECIO
+    de mercado a la moneda del modelo; nunca para reexpresar estados históricos.
+    """
+    manual = _almacen_estado().get("_tasa_cop_usd_manual")
+    if manual:
+        return float(manual), "manual"
+    try:
+        mkt = obtener_datos_mercado_bvc("COP=X")
+        px = _finite_or_none((mkt or {}).get("precio")) if (mkt or {}).get("ok") else None
+        if px is not None and 1000.0 < px < 20000.0:
+            return float(px), f"spot {mkt.get('fuente') or 'yahoo:COP=X'} {mkt.get('fecha_precio') or ''}".strip()
+    except Exception:
+        pass
+    return None, "sin tasa COP/USD disponible"
+
+
+def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo):
+    """Convierte un precio por acción a la moneda del modelo (COP↔USD, tasa spot).
+
+    Devuelve dict {precio, fx, fuente_fx} ; fx=None si no hubo conversión o no fue posible.
+    """
+    out = {"precio": precio, "fx": None, "fuente_fx": None, "convertido": False}
+    mp = str(moneda_precio or "").upper()
+    mm = str(moneda_modelo or "").upper()
+    if precio is None or not mp or not mm or mp == mm:
+        return out
+    if {mp, mm} != {"COP", "USD"}:
+        out["precio"] = None
+        out["fuente_fx"] = f"sin conversión {mp}→{mm}"
+        return out
+    fx, fuente = tasa_cop_por_usd()
+    if fx is None:
+        out["precio"] = None
+        out["fuente_fx"] = fuente
+        return out
+    px = float(precio) / fx if (mp == "COP" and mm == "USD") else float(precio) * fx
+    out.update({"precio": px, "fx": fx, "fuente_fx": fuente, "convertido": True})
+    return out
+
+
 def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda_modelo=None, moneda_precio=None):
     """VPS y upside con recalibración de unidades.
 
@@ -2972,6 +3102,18 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
         mp = (moneda_precio or "").upper().strip()
         # Sin moneda confirmada en ambos lados, no calcular upside: ausencia de dato no equivale a igualdad.
         monedas_ok = bool(mm and mp and mm == mp)
+        fx_info = None
+        if precio_mercado is not None and mm and mp and mm != mp:
+            # Modelo y cotización en monedas distintas (MINEROS: EEFF USD / precio COP;
+            # ADR: EEFF COP / precio USD). Se convierte el precio con la tasa spot.
+            fx_info = convertir_precio_a_moneda_modelo(precio_mercado, mp, mm)
+            if fx_info.get("convertido"):
+                precio_mercado = fx_info["precio"]
+                monedas_ok = True
+                nota = (
+                    f"Precio convertido de {mp} a {mm} con {fx_info['fx']:,.2f} COP/USD "
+                    f"({fx_info['fuente_fx']})."
+                )
 
         if precio_mercado is not None and float(precio_mercado) > 0:
             px = float(precio_mercado)
@@ -3001,12 +3143,16 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
     except Exception as e:
         nota = f"VPS no calculable: {e}"
         vps, upside = None, None
+        fx_info = None
 
     return {
         "value_per_share": float(vps) if vps is not None and np.isfinite(vps) else None,
         "upside_pct": float(upside) if upside is not None and np.isfinite(upside) else None,
         "acciones": acciones_used,
         "nota_vps": nota,
+        "fx_aplicado": (fx_info or {}).get("fx") if (fx_info or {}).get("convertido") else None,
+        "fuente_fx": (fx_info or {}).get("fuente_fx") if fx_info else None,
+        "precio_moneda_modelo": (fx_info or {}).get("precio") if (fx_info or {}).get("convertido") else None,
     }
 
 
@@ -3055,6 +3201,10 @@ def forzar_vps_upside(val, nombre_empresa=None, acciones_ui=None, precio=None):
             upside = vu["upside_pct"]
         if vu.get("acciones") is not None:
             val["acciones"] = vu["acciones"]
+        if vu.get("fx_aplicado"):
+            val["fx_aplicado"] = vu["fx_aplicado"]
+            val["fuente_fx"] = vu.get("fuente_fx")
+            val["precio_moneda_modelo"] = vu.get("precio_moneda_modelo")
         if vu.get("nota_vps"):
             val["nota_vps"] = vu["nota_vps"]
             br = val.get("bridge") or {}
@@ -3185,9 +3335,15 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     # (AAPL ~15–16 % efectivo; hardcode 35 % o 21 % sin ETR sesgaba NOPAT/FCFF)
     country = (info.get("country") or info.get("countryCode") or "").upper()
     etr = _safe_float(info.get("effectiveTaxRate"))
+    etr_hist = _safe_float(getattr(df_hist, "attrs", {}).get("tax_efectiva")) if df_hist is not None else None
     if etr is not None and 0.0 < etr < 0.55:
         p["tax"] = round(float(etr), 4)
         p["tax_fuente"] = "yahoo_effectiveTaxRate"
+    elif etr_hist is not None and 0.0 < etr_hist < 0.55:
+        # Misma tasa con la que el downloader calculó NOPAT histórico: antes la
+        # pestaña usaba 21 % estatutario y el histórico otra tasa (NKE 17 %, XOM 30 %).
+        p["tax"] = round(float(etr_hist), 4)
+        p["tax_fuente"] = "estados_financieros (Tax Rate For Calcs / impuesto ÷ UAI)"
     elif country in ("COLOMBIA", "COL", "CO"):
         p["tax"] = 0.35
         p["tax_fuente"] = "estatutaria_CO"
@@ -4353,7 +4509,14 @@ def motor_decision_institucional(
         alertas.append("Apalancamiento D/E > 2.0: riesgo financiero elevado.")
     elif de_ratio > 1.5:
         alertas.append("Apalancamiento D/E > 1.5: monitorear covenants y refinanciación.")
-    if roic < wacc:
+    try:
+        roic_fin = roic is not None and np.isfinite(float(roic))
+    except (TypeError, ValueError):
+        roic_fin = False
+    if not roic_fin:
+        # NaN no es "ROIC > WACC": antes la comparación fallida caía en la rama de soporte.
+        alertas.append("ROIC no disponible (sin capital invertido en balance): no se evalúa creación de valor.")
+    elif roic < wacc:
         alertas.append("ROIC < WACC: el capital no cubre su costo en el escenario modelado.")
     else:
         soportes.append(f"ROIC ({roic*100:.1f}%) > WACC ({wacc*100:.1f}%): crea valor económico.")
@@ -4823,7 +4986,7 @@ def anclar_g_terminal(g, wacc, g_max_macro=0.05, margen_seguridad=0.01):
 
 
 
-def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, acciones=None):
+def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, acciones=None, kd=None, rf=None):
     """Validaciones de robustez antes de DCF / Generar todo.
     Retorna lista de mensajes (vacía = OK). No lanza salvo casos irrecuperables.
     """
@@ -4868,6 +5031,16 @@ def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, accio
                 msgs.append("Número de acciones ≤ 0: no se calculará VPS.")
         except Exception:
             msgs.append("Acciones no numéricas.")
+    if kd is not None and rf is not None:
+        try:
+            if float(kd) < float(rf):
+                msgs.append(
+                    f"Kd ({float(kd)*100:.2f}%) < tasa libre de riesgo ({float(rf)*100:.2f}%) en la misma moneda: "
+                    "el costo de la deuda no puede ser menor que el del Estado. El WACC queda subestimado y el "
+                    "valor sobrestimado; usar Kd ≥ rf + spread de crédito o modelar la deuda en su moneda original."
+                )
+        except (TypeError, ValueError):
+            pass
     return msgs
 
 
@@ -5648,7 +5821,11 @@ def _sanear_historico_tab1(df_hist):
     mask = df["Ingresos"].apply(lambda x: pd.notna(x) and abs(float(x)) > 1e-6)
     df = df.loc[mask]
     anio_actual = datetime.now().year
-    df = df.loc[df.index < anio_actual]
+    # Un ejercicio fiscal ya cerrado (p. ej. NKE FY2026, cierre en mayo) puede llevar
+    # el año en curso; solo se descarta lo que no esté marcado como cerrado.
+    cerrado = getattr(df_hist, "attrs", {}).get("ejercicio_cerrado_hasta")
+    limite = max(anio_actual, int(cerrado) + 1) if cerrado else anio_actual
+    df = df.loc[df.index < limite]
     omitidos = [y for y in antes if y not in set(df.index.astype(int))]
     notas = []
     if omitidos:
@@ -6850,6 +7027,8 @@ def auditar_contexto_comite_ia(metricas):
     if unit_price not in ("por acción", "por accion", "acción", "accion", "share"):
         warnings.append("Unidad del precio por acción no reconocida")
     price, vps = num("precio_mercado"), num("vps_modelo")
+    if m.get("fx_aplicado") and num("precio_mercado_moneda_modelo") is not None:
+        price = num("precio_mercado_moneda_modelo")  # mismo numerario que el VPS
     upside_calc = None
     monedas_comparables = bool(currency and price_currency and currency == price_currency) or bool(m.get("fx_aplicado"))
     if price is not None and vps is not None and price > 0 and vps > 0 and monedas_comparables:
@@ -7553,7 +7732,7 @@ def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 <p><b>1. ¿El crecimiento es realista?</b><br>
 g debe ser menor que WACC. Hoy: g=<b>{g*100:.2f}%</b> | WACC=<b>{wacc*100:.2f}%</b>. {"✅ Cumple." if g < wacc else "❌ No cumple."}</p>
 <p><b>2. ¿La empresa crea valor?</b><br>
-ROIC ≈ <b>{roic*100:.2f}%</b> vs WACC <b>{wacc*100:.2f}%</b>. {"✅ Crea valor." if roic > wacc else "⚠️ No crea valor."}</p>
+ROIC ≈ <b>{(f"{roic*100:.2f}%" if np.isfinite(roic) else "N/D")}</b> vs WACC <b>{wacc*100:.2f}%</b>. {("✅ Crea valor." if roic > wacc else "⚠️ No crea valor.") if np.isfinite(roic) else "ℹ️ Sin capital invertido en balance: no se concluye."}</p>
 <p><b>3. ¿El crecimiento se sostiene?</b><br>
 Reinversión ≈ {reinv*100:.1f}% → crecimiento sostenible ≈ <b>{g_sost*100:.2f}%</b>.</p>
 <p><b>4. ¿Cuánta deuda?</b><br>
@@ -7605,14 +7784,23 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         delta_ev = val_base["EV"] - val_ref["EV"]
         margen_seg = wacc - g
         riesgo_liq = "Alto" if df_proj["FCFF"].min() < 0 else ("Medio" if df_proj["FCFF"].mean() < 0.03 * df_proj["Ingresos"].mean() else "Bajo")
-        roic = calcular_roic(df_proj["NOPAT"].mean(), capital_invertido)
-        creacion = roic > wacc
+        # Misma base de ROIC que las pestañas 3 y 7. Sin capital invertido en el
+        # balance (frecuente en descargas Yahoo) el ROIC es N/D: antes calcular_roic
+        # lanzaba una excepción y la pestaña 4 completa fallaba (caso XOM).
+        try:
+            roic = float(df_proj["NOPAT"].mean()) / capital_base_roic(capital_invertido, df_proj["NOPAT"].mean())
+        except (TypeError, ValueError, ZeroDivisionError):
+            roic = float("nan")
+        roic_ok = bool(np.isfinite(roic))
+        creacion = roic_ok and roic > wacc
         score, razones = 0, []
         if g < wacc:
             score += 2; razones.append("Crecimiento menor al costo del dinero (modelo estable)")
         else:
             score -= 3; razones.append("Crecimiento ≥ costo del dinero (modelo inestable)")
-        if creacion:
+        if not roic_ok:
+            razones.append("ROIC no disponible: falta capital invertido en el balance")
+        elif creacion:
             score += 2; razones.append("La empresa rinde más de lo que cuesta financiarse")
         else:
             score -= 2; razones.append("La empresa no supera su costo de capital")
@@ -7659,8 +7847,9 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             equity_pesimista=val_pes["Equity_Value"], delta_ev_capex=delta_ev,
             riesgo_liq=riesgo_liq, procedencia=prov, score_heuristico=score,
             tv_pct=val_base.get("tv_pct_ev"), mult_terminal=val_base.get("mult_terminal"),
-            precio_mercado=precio_p, equity_por_accion=val_base.get("value_per_share"),
-            moneda_modelo=mon_modelo, moneda_precio=mon_precio,
+            precio_mercado=(val_base.get("precio_moneda_modelo") if val_base.get("fx_aplicado") else precio_p),
+            equity_por_accion=val_base.get("value_per_share"),
+            moneda_modelo=mon_modelo, moneda_precio=(mon_modelo if val_base.get("fx_aplicado") else mon_precio),
         )
         decision, color, just = motor["decision"], motor["color"], motor["sesgo"]
 
@@ -7672,7 +7861,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             ],
             "Valor": [
                 decision, f"{score}/7", prov["nivel_calidad"], prov["fuente_financiera"], prov["fuente_mercado"],
-                f"{ke*100:.2f}%", f"{wacc*100:.2f}%", f"{roic*100:.2f}%",
+                f"{ke*100:.2f}%", f"{wacc*100:.2f}%", (f"{roic*100:.2f}%" if roic_ok else "N/D"),
                 f"{delta_ev:,.0f}", f"{val_base['Equity_Value']:,.0f}", f"{val_pes['Equity_Value']:,.0f}",
                 f"{vpn_p:,.1f}" if vpn_p == vpn_p else "N/D",
                 f"{tir_p*100:.2f}%" if (tir_p == tir_p) else "N/D",
@@ -7723,7 +7912,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         resumen = f"""
 <div style="background:linear-gradient(135deg,{COLOR_PRIMARY} 0%,#1B6CA8 100%);padding:22px;border-radius:14px;margin-bottom:16px" class="dark-card">
 <h2 style="margin:0 0 6px 0;color:#5EEAD4 !important">Comité de inversión · {nombre_empresa}</h2>
-<p style="margin:0;color:#FFFFFF !important">Horizonte {horizonte} años · WACC {wacc*100:.2f}% · g {float(g)*100:.2f}% · ROIC {roic*100:.2f}%</p>
+<p style="margin:0;color:#FFFFFF !important">Horizonte {horizonte} años · WACC {wacc*100:.2f}% · g {float(g)*100:.2f}% · ROIC {(f"{roic*100:.2f}%" if roic_ok else "N/D")}</p>
 <p style="margin:8px 0 0 0;color:#E2E8F0 !important">EV base {val_base['EV']:,.0f} · Equity base {val_base['Equity_Value']:,.0f} · Equity pesimista {val_pes['Equity_Value']:,.0f} (miles M · moneda del emisor)</p>
 </div>
 <div class="section-card">
@@ -7749,8 +7938,11 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "ticker": ticker_canonico_empresa(nombre_empresa),
                     "moneda": mon_modelo,
                     "moneda_precio": mon_precio,
-                    "monedas_alineadas": bool(mon_modelo and mon_precio and mon_modelo == mon_precio),
+                    "monedas_alineadas": bool(mon_modelo and mon_precio and (mon_modelo == mon_precio or val_base.get("fx_aplicado"))),
                     "precio_mercado": _finite_or_none(precio_p),
+                    "fx_aplicado": _finite_or_none(val_base.get("fx_aplicado")),
+                    "fuente_fx": val_base.get("fuente_fx"),
+                    "precio_mercado_moneda_modelo": _finite_or_none(val_base.get("precio_moneda_modelo")),
                     "vps_modelo": _finite_or_none(val_base.get("value_per_share")),
                     "upside": _finite_or_none(val_base.get("upside_pct")),
                     "acciones": _finite_or_none(val_base.get("acciones")),
@@ -8562,7 +8754,7 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
         ["Indicador", "Valor", "Qué significa"],
         ["WACC", f"{float(datos.get('wacc') or 0)*100:.2f}%", "Costo promedio del capital"],
         ["g terminal", f"{float(datos.get('g') or 0)*100:.2f}%", "Crecimiento de largo plazo"],
-        ["ROIC", f"{float(datos.get('roic') or 0)*100:.2f}%", "Retorno del capital invertido"],
+        ["ROIC", (f"{float(datos.get('roic'))*100:.2f}%" if _finite_or_none(datos.get('roic')) is not None else "N/D"), "Retorno del capital invertido"],
         ["D/E", f"{float(datos.get('de_ratio') or 0):.2f}", "Apalancamiento"],
         ["EV base", f"{float(datos.get('ev_base') or 0):,.0f}", f"Valor del negocio (miles M {mon})"],
         ["Equity base", f"{float(datos.get('equity_base') or 0):,.0f}", "Valor para los dueños"],
@@ -8793,7 +8985,9 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             score += 2; razones.append("crecimiento sostenible")
         else:
             score -= 3; razones.append("crecimiento inconsistente")
-        if roic > wacc:
+        if not np.isfinite(roic):
+            razones.append("ROIC no disponible")  # mismo criterio que la pestaña 4
+        elif roic > wacc:
             score += 2; razones.append("la empresa crea valor")
         else:
             score -= 2; razones.append("no supera su costo de capital")
@@ -8871,10 +9065,10 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             riesgo_liq=riesgo_liq,
             procedencia=prov,
             score_heuristico=score,
-            precio_mercado=precio,
+            precio_mercado=(val_base.get("precio_moneda_modelo") if val_base.get("fx_aplicado") else precio),
             equity_por_accion=val_base.get("value_per_share"),
             moneda_modelo=mon_modelo,
-            moneda_precio=mon_precio,
+            moneda_precio=(mon_modelo if val_base.get("fx_aplicado") else mon_precio),
         )
         decision = motor["decision"]
         dcolor = motor["color"]
@@ -8972,8 +9166,9 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             f"(misma lógica que la pestaña 4 · score heurístico auxiliar {score}/7). "
             f"Vetos: {vetos_txt}. Alertas: {alertas_txt}. "
             f"VPN del proyecto = {vpn:,.1f}; TIR = {tir_str} frente a WACC {wacc*100:.2f}%. "
-            f"ROIC proyectado {roic*100:.1f}% vs WACC {wacc*100:.1f}%. "
-            "No constituye orden de compra en bolsa ni asesoría de inversión."
+            + (f"ROIC proyectado {roic*100:.1f}% vs WACC {wacc*100:.1f}%. " if np.isfinite(roic)
+               else f"ROIC no disponible (sin capital invertido) · WACC {wacc*100:.1f}%. ")
+            + "No constituye orden de compra en bolsa ni asesoría de inversión."
         )
         if vm7.get("frase"):
             compra_texto += f" <b>Lectura del mercado:</b> {vm7['frase']}"
@@ -9179,7 +9374,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 <div class="section-card">
 <b>Números clave</b>
 <ul style="color:#E8EEF7;line-height:1.6">
-<li><b>WACC:</b> {wacc*100:.2f}% · <b>g:</b> {g*100:.2f}% · <b>ROIC:</b> {roic*100:.2f}%</li>
+<li><b>WACC:</b> {wacc*100:.2f}% · <b>g:</b> {g*100:.2f}% · <b>ROIC:</b> {(f"{roic*100:.2f}%" if np.isfinite(roic) else "N/D")}</li>
 <li><b>EV base:</b> {val_base['EV']:,.0f} · <b>Equity base:</b> {val_base['Equity_Value']:,.0f} (miles M · moneda del emisor)</li>
 <li><b>VPN proyecto:</b> {vpn:,.1f} · <b>TIR:</b> {tir_str} · <b>Payback:</b> {payback_str}</li>
 <li><b>FCFF promedio proyectado:</b> {df_proj['FCFF'].mean():,.0f}</li>
@@ -9243,7 +9438,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
                 "VPN proyecto", "TIR", "Payback", "FCFF prom. proy.",
             ],
             "Valor": [
-                decision, f"{score}/7", f"{wacc*100:.2f}", f"{roic*100:.2f}", f"{de_ratio:.2f}",
+                decision, f"{score}/7", f"{wacc*100:.2f}", (f"{roic*100:.2f}" if np.isfinite(roic) else "N/D"), f"{de_ratio:.2f}",
                 f"{val_base['EV']:,.0f}", f"{val_base['Equity_Value']:,.0f}",
                 f"{escenarios['Pesimista']['Equity_Value']:,.0f}",
                 f"{escenarios['Optimista']['Equity_Value']:,.0f}",
@@ -9362,7 +9557,8 @@ def _capm_para_ui(p):
     p = p or {}
     origen = p.get("origen_params", "catalogo")
     if origen in ("catalogo",) and p.get("rf") is None:
-        return (0.12, 0.055, 0.0, 0.04)
+        co = CAPM_POR_MERCADO["CO"]  # una sola fuente para las anclas de Colombia
+        return (co["rf"], co["erp"], co["crp"], co["g_max_macro"])
     # Preferir valores ya derivados; si faltan, DEFAULT global (no CO)
     _def = CAPM_POR_MERCADO.get("DEFAULT", {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04})
     return (
@@ -9393,8 +9589,8 @@ def al_cambiar_empresa(nombre_empresa):
     # Si es catálogo y no trae rf, anotar mercado CO en params para UI
     if p.get("origen_params") == "catalogo" or (nombre_empresa in EMPRESAS and "rf" not in p):
         p = dict(p)
-        p.setdefault("rf", 0.12)
-        p.setdefault("erp", 0.055)
+        p.setdefault("rf", CAPM_POR_MERCADO["CO"]["rf"])
+        p.setdefault("erp", CAPM_POR_MERCADO["CO"]["erp"])
         p.setdefault("crp", 0.0)
         p.setdefault("g_max_macro", 0.04)
         p.setdefault("mercado_capm", "CO")
