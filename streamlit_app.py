@@ -884,10 +884,7 @@ div[role="radiogroup"] label:has(input:checked) {
 .tf-table-wrap tr:nth-child(even) td, .section-card table tr:nth-child(even) td {
   background: rgba(30, 41, 59, 0.55) !important;
 }
-[data-testid="stDataFrame"] table th,
-[data-testid="stDataFrame"] table td {
-  text-align: left !important;
-}
+/* st.dataframe: se respeta la alineación nativa (texto izquierda, cifras derecha). */
 
 /* --- Auditoría UI/UX: lectura ejecutiva y alineación --- */
 /* Texto largo siempre a la izquierda, con medida de línea legible */
@@ -1062,11 +1059,13 @@ def _plotly_table(df, title="Tabla"):
             text = str(v).strip()
             if not text:
                 return "—"
-            # Texto largo: soft-wrap, sin truncar demasiado
-            max_chars = 320 if _is_text_col(colname) else 120
+            # Texto largo: soft-wrap en CUALQUIER columna. Antes solo las columnas
+            # «de texto» se partían en líneas; en columnas mixtas (p. ej. «Valor» del
+            # comité con la fuente financiera) el texto quedaba cortado en la celda.
+            max_chars = 320
             if len(text) > max_chars:
                 text = text[: max_chars - 1] + "…"
-            if _is_text_col(colname) and len(text) > 48:
+            if len(text) > 48:
                 parts, line, n = [], "", 0
                 for w in text.split():
                     if n + len(w) + 1 > 48 and line:
@@ -1097,6 +1096,9 @@ def _plotly_table(df, title="Tabla"):
                     widths.append(int(min(340, max(200, plain * 6))))
                 else:
                     widths.append(int(min(220, max(120, plain * 7))))
+            elif any("<br>" in x for x in vals):
+                # Columna mixta con textos largos (ya partidos en líneas de ≤48 caracteres)
+                widths.append(260)
             else:
                 plain_lens = [len(x.replace("<br>", " ")) for x in vals]
                 maxlen = max(plain_lens + [len(c)], default=6)
@@ -1107,8 +1109,21 @@ def _plotly_table(df, title="Tabla"):
         for _ in cols:
             fill.append(["#1E293B" if i % 2 == 0 else "#151C2C" for i in range(n_rows)])
 
-        # Alineación: preferencia izquierda (títulos y celdas)
-        aligns = ["left"] * len(cols)
+        # Alineación: texto/descripciones a la izquierda; cifras financieras a la
+        # derecha para que unidades, miles y decimales queden en columna.
+        import re as _re
+        _num_re = _re.compile(r"^[\s(+\-−$€£]*[\d.,]+\s*(%|x|×|pp|p\.p\.|COP|USD|M|B)?\)?\s*$", _re.I)
+
+        def _col_numerica(colname, vals):
+            if _is_text_col(colname) or _is_year_col(colname):
+                return False
+            llenos = [v for v in vals if v not in ("—", "")]
+            if not llenos:
+                return False
+            num = sum(1 for v in llenos if _num_re.match(str(v).replace("<br>", " ")))
+            return num / len(llenos) >= 0.6
+
+        aligns = ["right" if _col_numerica(c, v) else "left" for c, v in zip(cols, cell_vals)]
 
         has_wrap = any("<br>" in str(x) for col in cell_vals for x in col)
         cell_h = 40 if has_wrap else 30
@@ -1136,7 +1151,12 @@ def _plotly_table(df, title="Tabla"):
             paper_bgcolor="#0F172A",
             plot_bgcolor="#0F172A",
             margin=dict(l=4, r=4, t=8, b=4),
-            height=min(48 + header_h + cell_h * n_rows, 780),
+            # Altura según líneas reales de cada fila: con celdas partidas en varias
+            # líneas, una altura fija recortaba las últimas filas de la tabla.
+            height=min(48 + header_h + sum(
+                max(cell_h, 10 + 18 * max(str(col[i]).count("<br>") + 1 for col in cell_vals))
+                for i in range(n_rows)
+            ), 900),
         )
         if title:
             st.markdown(
@@ -3244,8 +3264,22 @@ def main():
             )
             mid_year = st.checkbox("Mid-year", value=True, key=f"my_{ek}")
             g_max_macro = st.slider(
-                "Techo g", 0.02, 0.06, float(st.session_state.get("g_max_macro", 0.04)), 0.005, key=f"gmax_{ek}"
+                "Techo g terminal (nominal)", 0.02, 0.06, float(st.session_state.get("g_max_macro", 0.04)), 0.005,
+                key=f"gmax_{ek}",
+                help="Crecimiento perpetuo máximo en la moneda del modelo: ~4 % en USD, ~6 % en COP "
+                     "(inflación implícita ~6 %). Se aplica también min(techo, WACC − 1 pp).",
             )
+            ronic_spread = st.slider(
+                "Spread RONIC − WACC (perpetuidad)", 0.0, float(L.RONIC_SPREAD_MAX),
+                float(st.session_state.get("ronic_spread", L.RONIC_SPREAD)), 0.01, key=f"ronic_{ek}",
+                help="Retorno sobre el capital NUEVO en perpetuidad por encima del WACC. 0 = el crecimiento "
+                     "no crea valor (conservador; utilities reguladas, commodities). Franquicias con ventajas "
+                     "duraderas (marcas, ecosistemas) justifican 3–10 pp. Afecta a todas las pestañas.",
+            )
+            try:
+                L.fijar_ronic_spread(ronic_spread)
+            except Exception:
+                pass
 
         with st.expander("Conector de mercado", expanded=False):
             prov = st.selectbox("Proveedor", ["yahoo", "api_key", "manual"])
@@ -3574,7 +3608,7 @@ def main():
         empresa, horizonte, metodo, tax, de_ratio, kd, g, capex_extra, beta_u,
         deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
         exit_multiple, mid_year, g_max_macro, usar_publicos,
-        capital_invertido, inversion_inicial, _hash_archivo, moneda,
+        capital_invertido, inversion_inicial, _hash_archivo, moneda, ronic_spread,
     ))
     _prev_fingerprint = st.session_state.get("_model_fingerprint")
     if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
@@ -4469,10 +4503,6 @@ def main():
                 "No se detectó ticker para la empresa seleccionada: introduce al menos dos tickers "
                 "manualmente o corrige el ticker en la ficha de la empresa."
             )
-        _prf = st.number_input(
-            "Tasa libre de riesgo anual (decimal)", min_value=0.0, max_value=0.50,
-            value=0.04, step=0.005, format="%.3f", key="portfolio_rf",
-        )
         _pmax = st.slider(
             "Peso máximo por activo", min_value=0.10, max_value=1.00,
             value=0.60, step=0.05, key="portfolio_max_weight",
@@ -4486,6 +4516,15 @@ def main():
         _pbase = st.selectbox(
             "Moneda de análisis", ["USD", "COP"], key="portfolio_base_currency",
             help="Todas las series se expresan en esta moneda antes de calcular retornos y covarianzas.",
+        )
+        # La tasa libre de riesgo del Sharpe debe estar en la MISMA moneda que los
+        # retornos: antes era 4 % fijo también para carteras en COP (TES ~13 %),
+        # lo que inflaba el Sharpe y sesgaba la cartera óptima hacia activos COP.
+        _rf_def = float(L.CAPM_POR_MERCADO["CO" if _pbase == "COP" else "US"]["rf"])
+        _prf = st.number_input(
+            f"Tasa libre de riesgo anual en {_pbase} (decimal)", min_value=0.0, max_value=0.50,
+            value=_rf_def, step=0.005, format="%.3f", key=f"portfolio_rf_{_pbase}",
+            help="Por defecto: bono soberano a 10 años de la moneda de análisis (UST en USD, TES en COP).",
         )
 
         def _norm_tk_portafolio(x):
