@@ -492,5 +492,22 @@ class TestNucleoValoracion(unittest.TestCase):
 
 
 
+    def test_filtrar_historico_proyectable_acepta_columnas_int64(self):
+        historico = pd.DataFrame({
+            "Año": [2016, 2017, 2018],
+            "Ingresos": pd.Series([7200, 7800, 8400], dtype="int64"),
+            "EBITDA": pd.Series([1200, 1300, 1400], dtype="int64"),
+            "EBIT": pd.Series([800, 900, 1000], dtype="int64"),
+            "CAPEX": pd.Series([300, 320, 340], dtype="int64"),
+            "NWC": pd.Series([100, 110, 120], dtype="int64"),
+        })
+        filtrado = L._filtrar_historico_proyectable(historico)
+        self.assertEqual(len(filtrado), 3)
+        for columna in ["Ingresos", "EBITDA", "EBIT", "CAPEX", "NWC"]:
+            self.assertTrue(pd.api.types.is_float_dtype(filtrado[columna].dtype))
+        self.assertEqual(filtrado["Ingresos"].tolist(), [7200.0, 7800.0, 8400.0])
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
