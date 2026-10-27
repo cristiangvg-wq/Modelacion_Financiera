@@ -57,6 +57,8 @@ def metricas_portafolio(pesos, mu, cov, tasa_libre_riesgo: float = 0.0) -> dict:
         raise ValueError("Dimensión de covarianza incompatible.")
     if not np.isfinite(w).all() or not np.isfinite(m).all() or not np.isfinite(c).all() or not np.isfinite(rf):
         raise ValueError("Pesos, retornos, covarianza y RF deben ser finitos.")
+    if not np.isclose(float(w.sum()), 1.0, rtol=0.0, atol=1e-6):
+        raise ValueError("Los pesos deben sumar 1 (100% del capital invertido).")
     ret = float(w @ m)
     var = float(w @ c @ w)
     if var < -1e-10:
