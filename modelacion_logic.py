@@ -375,20 +375,12 @@ def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
         tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
     if tk:
         tk = asegurar_sufijo_cl_bvc(tk)
-    # Catálogo BVC estático
+    # Catálogo BVC estático (no runtime): la unidad contable y la cotización son COP.
     if nombre_empresa and (nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE or nombre_empresa in EMPRESAS):
         return "COP", "COP"
-    if emp and (emp.get("ticker_bvc") or str(tk or "").endswith(".CL") or es_ticker_bvc(tk)):
-        if str(tk or "").endswith(".CL") or emp.get("ticker_bvc") or es_ticker_bvc(tk):
-            # Ticker local BVC: precio y modelo se expresan en COP. Los EEFF Yahoo
-            # en otra moneda se bloquean en descargar_financieros_yfinance; nunca se
-            # corrige la etiqueta sin convertir los importes.
-            if str(tk or "").endswith(".CL") or (emp.get("ticker_bvc") and es_ticker_bvc(emp.get("ticker_bvc"))):
-                return "COP", "COP"
-    if tk and str(tk).upper().endswith(".CL"):
-        return "COP", "COP"
     # Runtime Yahoo: respetar por separado la moneda real de los EEFF y la de
-    # cotización (p. ej. ADR EC: EEFF COP y precio USD). No inferir ambas del ticker.
+    # cotización (p. ej. ADR EC: EEFF COP y precio USD). Incluso para .CL, si
+    # Yahoo etiqueta la cotización en otra divisa, no ocultar la discrepancia.
     fuente_emp = str(emp.get("fuente") or "")
     params_emp = emp.get("params") or {}
     if fuente_emp.lower().startswith("yahoo"):
@@ -400,8 +392,19 @@ def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
             params_emp.get("moneda_precio") or params_emp.get("precio_moneda") or
             emp.get("moneda_precio") or params_emp.get("currency") or ""
         ).upper().replace("US$", "USD").replace("COL", "COP")
+        if str(tk or "").upper().endswith(".CL") or emp.get("ticker_bvc"):
+            return mm_runtime or "COP", mp_runtime or "COP"
         if mm_runtime and mp_runtime:
             return mm_runtime, mp_runtime
+    if emp and (emp.get("ticker_bvc") or str(tk or "").endswith(".CL") or es_ticker_bvc(tk)):
+        if str(tk or "").endswith(".CL") or emp.get("ticker_bvc") or es_ticker_bvc(tk):
+            # Ticker local BVC: precio y modelo se expresan en COP. Los EEFF Yahoo
+            # en otra moneda se bloquean en descargar_financieros_yfinance; nunca se
+            # corrige la etiqueta sin convertir los importes.
+            if str(tk or "").endswith(".CL") or (emp.get("ticker_bvc") and es_ticker_bvc(emp.get("ticker_bvc"))):
+                return "COP", "COP"
+    if tk and str(tk).upper().endswith(".CL"):
+        return "COP", "COP"
     if tk:
         base = str(tk).upper().split(".")[0]
         if base in _TICKERS_NUNCA_CL or (base.isalpha() and 1 <= len(base) <= 5 and "." not in str(tk)):
