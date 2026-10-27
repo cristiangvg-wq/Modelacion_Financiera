@@ -51,8 +51,8 @@ def metricas_portafolio(pesos, mu, cov, tasa_libre_riesgo: float = 0.0) -> dict:
     m = np.asarray(mu, dtype=float)
     c = np.asarray(cov, dtype=float)
     rf = float(tasa_libre_riesgo)
-    if w.ndim != 1 or m.ndim != 1 or len(w) != len(m):
-        raise ValueError("Dimensiones incompatibles entre pesos y retornos.")
+    if w.ndim != 1 or m.ndim != 1 or len(w) == 0 or len(w) != len(m):
+        raise ValueError("Dimensiones incompatibles entre pesos y retornos; se requiere al menos un activo.")
     if c.shape != (len(w), len(w)):
         raise ValueError("Dimensión de covarianza incompatible.")
     if not np.isfinite(w).all() or not np.isfinite(m).all() or not np.isfinite(c).all() or not np.isfinite(rf):
