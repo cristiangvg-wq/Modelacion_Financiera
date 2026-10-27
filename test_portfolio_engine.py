@@ -42,6 +42,13 @@ class TestPortfolioEngine(unittest.TestCase):
         self.assertAlmostEqual(result["retorno_esperado"], 0.07)
         self.assertGreater(result["volatilidad"], 0)
 
+    def test_metricas_rechaza_pesos_que_no_suman_cien_por_ciento(self):
+        with self.assertRaisesRegex(ValueError, "deben sumar 1"):
+            metricas_portafolio(
+                np.array([0.4, 0.4]), np.array([0.08, 0.06]),
+                np.array([[0.04, 0.01], [0.01, 0.02]]), 0.02,
+            )
+
     def test_frontera_devuelve_puntos(self):
         mu, cov = preparar_estadisticas(self.prices)
         frontier = construir_frontera(mu, cov, peso_maximo=0.6, n_puntos=7)
