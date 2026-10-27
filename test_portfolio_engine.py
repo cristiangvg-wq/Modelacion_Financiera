@@ -49,6 +49,19 @@ class TestPortfolioEngine(unittest.TestCase):
                 np.array([[0.04, 0.01], [0.01, 0.02]]), 0.02,
             )
 
+    def test_metricas_rechaza_covarianza_no_simetrica(self):
+        with self.assertRaisesRegex(ValueError, "simétrica"):
+            metricas_portafolio(
+                np.array([0.5, 0.5]), np.array([0.08, 0.06]),
+                np.array([[0.04, 0.01], [0.02, 0.02]]), 0.02,
+            )
+
+    def test_optimizador_rechaza_covarianza_no_semidefinida_positiva(self):
+        mu = pd.Series([0.08, 0.06], index=["AAA", "BBB"])
+        cov = pd.DataFrame([[0.01, 0.03], [0.03, 0.01]], index=mu.index, columns=mu.index)
+        with self.assertRaisesRegex(ValueError, "semidefinida positiva"):
+            optimizar_portafolio(mu, cov, peso_maximo=0.8)
+
     def test_frontera_devuelve_puntos(self):
         mu, cov = preparar_estadisticas(self.prices)
         frontier = construir_frontera(mu, cov, peso_maximo=0.6, n_puntos=7)
