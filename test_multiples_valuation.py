@@ -24,6 +24,16 @@ class MultiplesValuationTests(unittest.TestCase):
         self.assertEqual(result["q1"], 8)
         self.assertEqual(result["q3"], 10)
 
+    def test_accepts_numpy_array_of_comparables(self):
+        import numpy as np
+
+        result = valoracion_por_multiplos(100, np.array([7.0, 8.0, 9.0]))
+        self.assertEqual(result["multiple_mediano"], 8.0)
+
+    def test_rejects_text_instead_of_comparable_collection(self):
+        with self.assertRaisesRegex(ValueError, "no como texto"):
+            valoracion_por_multiplos(100, "789")
+
     def test_rejects_overflow_in_enterprise_value(self):
         with self.assertRaisesRegex(ValueError, "resultados no finitos"):
             valoracion_por_multiplos(1e308, [2.0])
