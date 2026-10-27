@@ -174,12 +174,19 @@ COLOR_DANGER = "#EF4444"
 # Valores financieros en miles de millones COP (reportes públicos) para catálogo BVC
 # Precio de mercado: Yahoo Finance (tickers BVC .CL)
 # =============================================================================
+# Calibración de supuestos del catálogo (oct-2026), todo en COP nominal:
+#  - Kd = rf CO (13 %) + spread de crédito: AAA local +1,0 pp (referencia: papeles
+#    comerciales GEB F1+ a 13,19 % E.A., oct-2026); BVC +1,5 pp; Ecopetrol +2,0 pp
+#    (BB+ internacional). Antes Kd 7–9 % < rf: WACC subestimado ~3 pp y valor inflado.
+#  - g terminal 5 % en utilities y BVC: por debajo de la inflación implícita a 10 años
+#    (6,15 %, BanRep ago-2026); Ecopetrol 3 % (activos en declive y precio en USD).
+#  - D/E a valor de mercado donde hay cotización y deuda neta reportada (ISA, GEB, BVC).
 EMPRESAS = {
     "ISA — Interconexión Eléctrica": {
         "ticker_bvc": "ISA", "ticker_yf": "ISA.CL",
         "sector": "Transmisión de energía / Infraestructura",
         "descripcion": "Transporta electricidad a alta tensión en Colombia y Latinoamérica. También opera carreteras y telecomunicaciones.",
-        "params": {"de_ratio": 1.20, "kd": 0.08, "tax": 0.22, "g": 0.03, "beta_u": 0.42,
+        "params": {"de_ratio": 0.95, "kd": 0.14, "tax": 0.22, "g": 0.05, "beta_u": 0.42,  # D/E mercado: 30.430 / (29.000 COP × 1.107,7 M acc.)
                    # Puente actualizado a jun-2026 (informe 2T26 ISA, miles de millones COP):
                    # deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539.
                    # Antes: deuda_neta 40.350 (≈10 billones por encima del reportado → VPS ~9.000 COP menor).
@@ -201,7 +208,7 @@ EMPRESAS = {
         "ticker_bvc": "GEB", "ticker_yf": "GEB.CL",
         "sector": "Transmisión y distribución de energía / Gas",
         "descripcion": "Grupo energético de Bogotá: transmisión eléctrica, gas natural y distribución.",
-        "params": {"de_ratio": 0.95, "kd": 0.075, "tax": 0.35, "g": 0.032, "beta_u": 0.40,
+        "params": {"de_ratio": 0.63, "kd": 0.14, "tax": 0.18, "g": 0.05, "beta_u": 0.40,  # D/E mercado 17.540/27.770; tasa efectiva 1T26 18 % (método de participación no gravado)
                    "capital_invertido": 38000, "deuda_neta": 17170, "inversion_inicial": 3500, "caja": 2430, "nci": 1500, "otros_claims": 0, "asociados": 800, "acciones": 9181, "exit_multiple": 13.6, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -220,7 +227,7 @@ EMPRESAS = {
         "ticker_bvc": "CELSIA", "ticker_yf": "CELSIA.CL",
         "sector": "Generación renovable y distribución",
         "descripcion": "Genera y vende electricidad con énfasis en renovables (solar, eólica, hídrica). Parte del Grupo Argos.",
-        "params": {"de_ratio": 1.10, "kd": 0.085, "tax": 0.35, "g": 0.028, "beta_u": 0.45,
+        "params": {"de_ratio": 1.10, "kd": 0.14, "tax": 0.35, "g": 0.05, "beta_u": 0.45,
                    "capital_invertido": 18000, "deuda_neta": 5030, "inversion_inicial": 2000, "caja": 300, "nci": 200, "otros_claims": 0, "asociados": 100, "acciones": 1033, "exit_multiple": 7.9, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -239,7 +246,7 @@ EMPRESAS = {
         "ticker_bvc": "EPM", "ticker_yf": None,
         "sector": "Generación, distribución, agua y gas",
         "descripcion": "Empresa pública de Medellín. Genera y distribuye energía, agua y gas.",
-        "params": {"de_ratio": 1.45, "kd": 0.09, "tax": 0.35, "g": 0.025, "beta_u": 0.45,
+        "params": {"de_ratio": 1.45, "kd": 0.14, "tax": 0.35, "g": 0.05, "beta_u": 0.45,
                    "capital_invertido": 70000, "deuda_neta": 42000, "inversion_inicial": 8000, "caja": 4000, "nci": 0, "otros_claims": 0, "asociados": 0, "acciones": None, "exit_multiple": 8.0, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -258,7 +265,7 @@ EMPRESAS = {
         "ticker_bvc": "ENELAM", "ticker_yf": None,  # ENELAM.CL no cotiza en Yahoo (404)
         "sector": "Generación y distribución eléctrica",
         "descripcion": "Operación colombiana del grupo Enel. Genera y distribuye electricidad.",
-        "params": {"de_ratio": 1.30, "kd": 0.082, "tax": 0.35, "g": 0.027, "beta_u": 0.58,
+        "params": {"de_ratio": 1.30, "kd": 0.14, "tax": 0.35, "g": 0.05, "beta_u": 0.58,
                    "capital_invertido": 28000, "deuda_neta": 15000, "inversion_inicial": 3000, "caja": 1500, "nci": 500, "otros_claims": 0, "asociados": 0, "acciones": None, "exit_multiple": 8.0, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -277,7 +284,7 @@ EMPRESAS = {
         "ticker_bvc": "BVC", "ticker_yf": "BVC.CL",
         "sector": "Servicios financieros / Bolsa de valores",
         "descripcion": "Opera la Bolsa de Valores de Colombia: compra-venta de acciones, bonos y otros títulos.",
-        "params": {"de_ratio": 0.35, "kd": 0.07, "tax": 0.35, "g": 0.04, "beta_u": 0.35,
+        "params": {"de_ratio": 0.06, "kd": 0.145, "tax": 0.35, "g": 0.05, "beta_u": 0.35,  # D/E mercado: deuda neta 61 / cap. 1,02 billones
                    "capital_invertido": 800, "deuda_neta": 61, "inversion_inicial": 100, "caja": 148, "nci": 0, "otros_claims": 0, "asociados": 0, "acciones": 60.5, "exit_multiple": 5.5, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -296,7 +303,7 @@ EMPRESAS = {
         "ticker_bvc": "ECOPETROL", "ticker_yf": "ECOPETROL.CL",
         "sector": "Petróleo, gas y energía",
         "descripcion": "La petrolera más grande de Colombia. Explora, produce y refina petróleo y gas. Controla ISA.",
-        "params": {"de_ratio": 1.00, "kd": 0.09, "tax": 0.35, "g": 0.02, "beta_u": 0.75,
+        "params": {"de_ratio": 1.00, "kd": 0.15, "tax": 0.35, "g": 0.03, "beta_u": 0.75,
                    "capital_invertido": 150000, "deuda_neta": 93726, "inversion_inicial": 15000, "caja": 11192, "nci": 3000, "otros_claims": 0, "asociados": 2000, "acciones": 41117, "exit_multiple": 4.8, "moneda": "COP"},
                         "historico": {
             "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -2775,15 +2782,20 @@ def df_historico_empresa(nombre_empresa):
 #     → CRP=0 si rf es TES (evitar doble conteo). ERP sobre bono local ~5–6%.
 #     g_max: PIB real ~2,2% (FMI) + inflación de largo plazo moderada → techo nominal ~4%.
 # US: T-bond + mature ERP (Damodaran ~4,2–5%).
+# g_lp = crecimiento NOMINAL de largo plazo en la moneda del mercado (inflación esperada
+# + crecimiento real bajo). Es el punto al que converge el crecimiento explícito de los
+# ingresos. Antes era un 3 % fijo para todas las monedas: en COP, con inflación implícita
+# de ~6 %, eso equivalía a suponer una contracción real perpetua del 3 % anual.
 CAPM_POR_MERCADO = {
-    "US": {"rf": 0.045, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015},
+    "US": {"rf": 0.045, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015, "g_lp": 0.03},
     # CO: TES 10 años en COP por encima de 13 % (La República, 21-oct-2026). Antes 12 %.
-    "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.025},
-    "BR": {"rf": 0.12,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.025},
-    "MX": {"rf": 0.09,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02},
-    "CL": {"rf": 0.055, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015},
-    "GB": {"rf": 0.04,  "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015},
-    "DEFAULT": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02},
+    # Inflación implícita (breakeven TES COP vs UVR) a 10 años: 6,15 % (BanRep, 21-ago-2026).
+    "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.06, "kd_spread": 0.01, "g_lp": 0.06},
+    "BR": {"rf": 0.12,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.05, "kd_spread": 0.025, "g_lp": 0.05},
+    "MX": {"rf": 0.09,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.045, "kd_spread": 0.02, "g_lp": 0.045},
+    "CL": {"rf": 0.055, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015, "g_lp": 0.035},
+    "GB": {"rf": 0.04,  "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015, "g_lp": 0.03},
+    "DEFAULT": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02, "g_lp": 0.03},
 }
 CAPM_AS_OF = "2026-10"  # US rf~4.5% / ERP~5%; CO rf~13% (TES 10a >13% al 21-oct-2026). Revisar en cada ciclo de FOMC/BanRep.
 
@@ -3666,7 +3678,42 @@ def _parse_columna_numerica(serie):
     return s.map(conv)
 
 
+def mercado_empresa(nombre_empresa):
+    """Código de mercado CAPM (CO/US/…) de la empresa, coherente con su moneda de modelo."""
+    try:
+        p = params_empresa(nombre_empresa) or {}
+        merc = p.get("mercado_capm")
+        if merc in CAPM_POR_MERCADO:
+            return merc
+    except Exception:
+        pass
+    mon = str(moneda_empresa(nombre_empresa) or "").upper()
+    return {"COP": "CO", "USD": "US", "BRL": "BR", "MXN": "MX", "CLP": "CL", "GBP": "GB"}.get(mon, "DEFAULT")
+
+
+def g_convergencia_empresa(nombre_empresa):
+    """Crecimiento nominal de largo plazo hacia el que converge la proyección explícita."""
+    m = CAPM_POR_MERCADO.get(mercado_empresa(nombre_empresa), CAPM_POR_MERCADO["DEFAULT"])
+    return float(m.get("g_lp", G_CONVERGENCIA))
+
+
 def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
+    """Carga el histórico (Excel/CSV o datos públicos) y anota la moneda/mercado.
+
+    Envoltorio de _cargar_y_limpiar_excel_impl: adjunta en df.attrs el crecimiento
+    nominal de convergencia del mercado de la empresa, que leen todas las proyecciones
+    (pestañas 1–7), de modo que la moneda del modelo y su inflación sean coherentes.
+    """
+    df, msg = _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=usar_datos_publicos)
+    if df is not None and hasattr(df, "attrs"):
+        try:
+            df.attrs["g_convergencia"] = g_convergencia_empresa(nombre_empresa)
+        except Exception:
+            pass
+    return df, msg
+
+
+def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=True):
     """Carga financiera con trazabilidad. No mezcla filas ni completa con otra empresa.
 
     Excel/CSV esperado: Año (opcional), Ingresos, EBITDA, EBIT, CAPEX y NWC.
@@ -4043,6 +4090,8 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     - Sin pisos/techos de margen específicos de un sector.
     """
     H = int(horizonte)
+    if g_convergencia is None:
+        g_convergencia = getattr(df_hist, "attrs", {}).get("g_convergencia")
     g_conv = G_CONVERGENCIA if g_convergencia is None else float(g_convergencia)
     años_fut = list(range(int(df_hist.index[-1]) + 1, int(df_hist.index[-1]) + 1 + H))
     ing = df_hist["Ingresos"].astype(float)
