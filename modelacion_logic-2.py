@@ -1970,6 +1970,7 @@ def obtener_datos_financieros_publicos(nombre_empresa, preferir_yahoo=True):
     if nombre_empresa in EMPRESAS and "historico" in EMPRESAS[nombre_empresa]:
         df_cat = df_historico_empresa(nombre_empresa)
         df_cat = _historico_sin_ceros_cola(df_cat)
+        df_cat = _filtrar_historico_proyectable(df_cat)
         if df_cat is not None and not df_cat.empty and len(df_cat) >= 3:
             return (
                 df_cat.copy(),
@@ -1987,13 +1988,16 @@ def obtener_datos_financieros_publicos(nombre_empresa, preferir_yahoo=True):
         if df is not None and len(df) >= 3:
             # Ya viene en miles de millones (descargar_financieros_yfinance); no re-escalar.
             df2 = _historico_sin_ceros_cola(df.copy())
+            df2 = _filtrar_historico_proyectable(df2)
             if df2 is not None and len(df2) >= 3:
                 return df2, msg, "PUBLICA_YAHOO"
 
     df, msg = descargar_financieros_curados(nombre_empresa)
     mensajes.append(msg)
     if df is not None and len(df) >= 3:
-        return _historico_sin_ceros_cola(df), msg, "PUBLICA_CURADA"
+        df_curado = _filtrar_historico_proyectable(_historico_sin_ceros_cola(df))
+        if df_curado is not None and len(df_curado) >= 3:
+            return df_curado, msg, "PUBLICA_CURADA"
 
     return None, " | ".join(mensajes) if mensajes else "Sin datos públicos", None
 
