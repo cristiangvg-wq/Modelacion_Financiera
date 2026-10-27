@@ -30,8 +30,18 @@ def valoracion_por_multiplos(
     if not math.isfinite(deuda):
         raise ValueError("La deuda neta debe ser finita.")
 
+    if multiples_comparables is None:
+        valores_entrada = []
+    elif isinstance(multiples_comparables, (str, bytes)):
+        raise ValueError("Los múltiplos comparables deben suministrarse como una colección numérica, no como texto.")
+    else:
+        try:
+            valores_entrada = list(multiples_comparables)
+        except TypeError as exc:
+            raise ValueError("Los múltiplos comparables deben ser una colección numérica.") from exc
+
     valid = []
-    for value in multiples_comparables or []:
+    for value in valores_entrada:
         try:
             m = float(value)
         except (TypeError, ValueError):
@@ -54,6 +64,10 @@ def valoracion_por_multiplos(
         if not math.isfinite(shares) or shares <= 0:
             raise ValueError("Las acciones en circulación deben ser positivas.")
     per_share = equity * 1000.0 / shares if shares is not None else None
+    if not math.isfinite(ev) or not math.isfinite(equity) or (
+        per_share is not None and not math.isfinite(per_share)
+    ):
+        raise ValueError("La valoración genera resultados no finitos; revisa EBITDA, múltiplos y unidades.")
     q1 = float(valid[(len(valid) - 1) // 4]) if len(valid) < 4 else _percentile(valid, 0.25)
     q3 = float(valid[(3 * (len(valid) - 1)) // 4]) if len(valid) < 4 else _percentile(valid, 0.75)
     return {

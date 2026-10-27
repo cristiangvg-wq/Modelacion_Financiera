@@ -1900,12 +1900,33 @@ def descargar_financieros_curados(nombre_empresa):
 
 
 def _historico_sin_ceros_cola(df):
-    """Elimina años finales con Ingresos ~0 (datos incompletos)."""
+    """Elimina años finales con ingresos numéricos iguales a cero; conserva los faltantes."""
     if df is None or df.empty or "Ingresos" not in df.columns:
         return df
     out = df.sort_index().copy()
-    while len(out) > 0 and abs(float(out["Ingresos"].iloc[-1])) < 1e-9:
+    while len(out) > 0:
+        try:
+            ingreso_final = float(out["Ingresos"].iloc[-1])
+        except (TypeError, ValueError):
+            break
+        # Un faltante no equivale a cero y no debe provocar una excepción ni borrar el año.
+        if not np.isfinite(ingreso_final) or abs(ingreso_final) >= 1e-9:
+            break
         out = out.iloc[:-1]
+    return out
+
+
+def _filtrar_historico_proyectable(df):
+    """Devuelve años con los componentes financieros mínimos completos y finitos."""
+    if df is None or df.empty:
+        return df
+    required = ["Ingresos", "EBITDA", "EBIT", "CAPEX", "NWC"]
+    if any(col not in df.columns for col in required):
+        return df.iloc[0:0].copy()
+    numeric = df[required].apply(pd.to_numeric, errors="coerce")
+    mask = np.isfinite(numeric.to_numpy(dtype=float)).all(axis=1)
+    out = df.loc[mask].copy()
+    out.loc[:, required] = numeric.loc[mask, required].astype(float)
     return out
 
 
@@ -1926,20 +1947,30 @@ def obtener_datos_financieros_publicos(nombre_empresa, preferir_yahoo=True):
     if nombre_empresa in EMPRESAS_RUNTIME or (emp and str(emp.get("fuente", "")).startswith("Yahoo")):
         hist = emp.get("historico")
         if hist and hist.get("Año") and len(hist["Año"]) >= 2:
-            df = _historico_sin_ceros_cola(pd.DataFrame(hist).set_index("Año"))
+            df_raw = _historico_sin_ceros_cola(pd.DataFrame(hist).set_index("Año"))
+            n_cola = len(hist["Año"]) - len(df_raw)
+            df = _filtrar_historico_proyectable(df_raw)
+            n_incompletos = len(df_raw) - len(df)
             if df is not None and len(df) >= 2:
-                # Si la cola tenía ceros, persistir limpieza en runtime
-                if nombre_empresa in EMPRESAS_RUNTIME and len(df) < len(hist["Año"]):
+                # Persistir solo filas utilizables y conservar faltantes opcionales sin convertirlos a float.
+                if nombre_empresa in EMPRESAS_RUNTIME and (n_cola > 0 or n_incompletos > 0):
                     limpio = {"Año": [int(a) for a in df.index]}
                     for c in df.columns:
-                        limpio[c] = [float(x) for x in df[c].values]
+                        limpio[c] = [float(x) if pd.notna(x) else None for x in df[c].values]
                     EMPRESAS_RUNTIME[nombre_empresa]["historico"] = limpio
-                return df, f"Histórico en sesión ({emp.get('ticker_yf') or nombre_empresa}), {len(df)} años sin cola en cero.", "PUBLICA_RUNTIME"
+                aviso = []
+                if n_cola:
+                    aviso.append(f"{n_cola} año(s) final(es) con ingresos cero omitidos")
+                if n_incompletos:
+                    aviso.append(f"{n_incompletos} año(s) con componentes financieros incompletos omitidos")
+                detalle = f" ({'; '.join(aviso)})" if aviso else ""
+                return df, f"Histórico en sesión ({emp.get('ticker_yf') or nombre_empresa}), {len(df)} años válidos{detalle}.", "PUBLICA_RUNTIME"
 
     # 2) Catálogo estático: SIEMPRE priorizar sobre Yahoo (evita cola en cero / unidades raras)
     if nombre_empresa in EMPRESAS and "historico" in EMPRESAS[nombre_empresa]:
         df_cat = df_historico_empresa(nombre_empresa)
         df_cat = _historico_sin_ceros_cola(df_cat)
+        df_cat = _filtrar_historico_proyectable(df_cat)
         if df_cat is not None and not df_cat.empty and len(df_cat) >= 3:
             return (
                 df_cat.copy(),
@@ -1957,13 +1988,16 @@ def obtener_datos_financieros_publicos(nombre_empresa, preferir_yahoo=True):
         if df is not None and len(df) >= 3:
             # Ya viene en miles de millones (descargar_financieros_yfinance); no re-escalar.
             df2 = _historico_sin_ceros_cola(df.copy())
+            df2 = _filtrar_historico_proyectable(df2)
             if df2 is not None and len(df2) >= 3:
                 return df2, msg, "PUBLICA_YAHOO"
 
     df, msg = descargar_financieros_curados(nombre_empresa)
     mensajes.append(msg)
     if df is not None and len(df) >= 3:
-        return _historico_sin_ceros_cola(df), msg, "PUBLICA_CURADA"
+        df_curado = _filtrar_historico_proyectable(_historico_sin_ceros_cola(df))
+        if df_curado is not None and len(df_curado) >= 3:
+            return df_curado, msg, "PUBLICA_CURADA"
 
     return None, " | ".join(mensajes) if mensajes else "Sin datos públicos", None
 

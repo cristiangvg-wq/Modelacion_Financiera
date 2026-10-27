@@ -51,12 +51,16 @@ def metricas_portafolio(pesos, mu, cov, tasa_libre_riesgo: float = 0.0) -> dict:
     m = np.asarray(mu, dtype=float)
     c = np.asarray(cov, dtype=float)
     rf = float(tasa_libre_riesgo)
-    if w.ndim != 1 or m.ndim != 1 or len(w) != len(m):
-        raise ValueError("Dimensiones incompatibles entre pesos y retornos.")
+    if w.ndim != 1 or m.ndim != 1 or len(w) == 0 or len(w) != len(m):
+        raise ValueError("Dimensiones incompatibles entre pesos y retornos; se requiere al menos un activo.")
     if c.shape != (len(w), len(w)):
         raise ValueError("Dimensión de covarianza incompatible.")
     if not np.isfinite(w).all() or not np.isfinite(m).all() or not np.isfinite(c).all() or not np.isfinite(rf):
         raise ValueError("Pesos, retornos, covarianza y RF deben ser finitos.")
+    if not np.allclose(c, c.T, rtol=0.0, atol=1e-8):
+        raise ValueError("La covarianza debe ser simétrica.")
+    if float(np.linalg.eigvalsh((c + c.T) / 2.0).min()) < -1e-8:
+        raise ValueError("La covarianza no es semidefinida positiva.")
     if not np.isclose(float(w.sum()), 1.0, rtol=0.0, atol=1e-6):
         raise ValueError("Los pesos deben sumar 1 (100% del capital invertido).")
     ret = float(w @ m)
@@ -91,6 +95,8 @@ def optimizar_portafolio(
         raise ValueError("El peso máximo es incompatible con invertir el 100%.")
     if not np.allclose(c, c.T, atol=1e-8):
         raise ValueError("La covarianza debe ser simétrica.")
+    if float(np.linalg.eigvalsh((c + c.T) / 2.0).min()) < -1e-8:
+        raise ValueError("La covarianza no es semidefinida positiva.")
     bounds = [(0.0, float(peso_maximo)) for _ in range(n)]
     x0 = np.repeat(1.0 / n, n)
     constraints = [{"type": "eq", "fun": lambda w: float(np.sum(w) - 1.0)}]

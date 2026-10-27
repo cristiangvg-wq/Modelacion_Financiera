@@ -360,6 +360,60 @@ class TestNucleoValoracion(unittest.TestCase):
         row, _, _, _ = L._fila_sectorial_desde_emp("Empresa sin capital invertido", emp)
         self.assertIsNone(row["ROIC (%)"])
 
+    def test_historico_sin_ceros_cola_conserva_ingreso_faltante(self):
+        historico = pd.DataFrame(
+            {"Ingresos": [100.0, None], "EBITDA": [20.0, None]},
+            index=[2023, 2024],
+        )
+        limpio = L._historico_sin_ceros_cola(historico)
+        self.assertEqual(len(limpio), 2)
+        self.assertTrue(pd.isna(limpio.loc[2024, "Ingresos"]))
+
+    def test_historico_proyectable_excluye_anios_con_componentes_incompletos(self):
+        historico = pd.DataFrame({
+            "Ingresos": [100.0, 110.0, 120.0],
+            "EBITDA": [20.0, None, 24.0],
+            "EBIT": [10.0, 11.0, 12.0],
+            "CAPEX": [5.0, 5.5, 6.0],
+            "NWC": [10.0, 11.0, 12.0],
+        }, index=[2022, 2023, 2024])
+        limpio = L._filtrar_historico_proyectable(historico)
+        self.assertEqual(list(limpio.index), [2022, 2024])
+        self.assertTrue(np.isfinite(limpio[["Ingresos", "EBITDA", "EBIT", "CAPEX", "NWC"]].to_numpy()).all())
+
+    def test_obtener_datos_publicos_filtra_historial_runtime_incompleto_sin_fallar(self):
+        nombre = "Runtime con año incompleto"
+        empresa = {
+            "historico": {
+                "Año": [2022, 2023, 2024],
+                "Ingresos": [100.0, 110.0, 120.0],
+                "EBITDA": [20.0, None, 24.0],
+                "EBIT": [10.0, 11.0, 12.0],
+                "Depreciacion": [10.0, 10.0, 12.0],
+                "CAPEX": [5.0, 5.5, 6.0],
+                "NWC": [10.0, 11.0, 12.0],
+                "Delta_NWC": [1.0, 1.0, 1.0],
+                "NOPAT": [None, None, None],
+                "FCFF": [None, None, None],
+            },
+            "ticker_yf": "TEST",
+            "fuente": "Yahoo Finance (TEST)",
+        }
+        with patch.dict(L.EMPRESAS_RUNTIME, {nombre: empresa}):
+            with patch.object(L, "resolver_empresa", return_value=empresa):
+                historico, mensaje, fuente = L.obtener_datos_financieros_publicos(
+                    nombre, preferir_yahoo=False
+                )
+            self.assertEqual(fuente, "PUBLICA_RUNTIME")
+            self.assertEqual(list(historico.index), [2022, 2024])
+            self.assertIn("1 año(s) con componentes financieros incompletos omitidos", mensaje)
+            self.assertIsNone(L.EMPRESAS_RUNTIME[nombre]["historico"]["FCFF"][0])
+        L.EMPRESAS_RUNTIME.pop(nombre, None)
+
+    def test_historico_proyectable_rechaza_columnas_esenciales_ausentes(self):
+        historico = pd.DataFrame({"Ingresos": [100.0, 110.0]}, index=[2023, 2024])
+        self.assertTrue(L._filtrar_historico_proyectable(historico).empty)
+
     def test_recalcular_fcff_rechaza_datos_faltantes(self):
         proyeccion = pd.DataFrame({
             "EBIT": [100.0, np.nan],
