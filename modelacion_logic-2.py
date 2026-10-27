@@ -2795,6 +2795,63 @@ def _cagr_serie(valores, floor_g=0.0, cap_g=0.12):
     return float(np.clip(g, floor_g, cap_g))
 
 
+def capital_invertido_operativo_yahoo(info):
+    """Estima capital invertido contable en miles de millones desde el balance Yahoo.
+
+    Fórmula de aproximación: deuda financiera + patrimonio atribuible a accionistas
+    - efectivo y equivalentes. No sustituye un cálculo detallado de activos operativos
+    netos; devuelve None si faltan partidas esenciales, en vez de inventar una base.
+    """
+    info = info or {}
+    bs = info.get("_balance_sheet")
+    def safe(value):
+        try:
+            value = float(value)
+            return value if np.isfinite(value) else None
+        except (TypeError, ValueError):
+            return None
+    def balance_value(names):
+        if bs is None or not hasattr(bs, "index"):
+            return None
+        index = [(str(row).strip().lower(), row) for row in bs.index]
+        for name in names:
+            needle = name.lower()
+            for normalized, original in index:
+                if normalized == needle:
+                    try:
+                        values = bs.loc[original]
+                        for value in values.values:
+                            number = safe(value)
+                            if number is not None:
+                                return number
+                    except Exception:
+                        continue
+        return None
+
+    debt = safe(info.get("totalDebt"))
+    if debt is None:
+        debt = balance_value(["total debt", "long term debt", "current debt"])
+    equity = safe(info.get("totalStockholderEquity"))
+    if equity is None:
+        equity = balance_value([
+            "stockholders equity", "common stock equity",
+            "total stockholder equity", "total equity gross minority interest",
+        ])
+    cash = safe(info.get("totalCash"))
+    if cash is None:
+        cash = safe(info.get("cash"))
+    if cash is None:
+        cash = balance_value(["cash and cash equivalents", "cash cash equivalents and short term investments"])
+
+    # No calcular una base con partidas incompletas o con magnitudes no positivas.
+    if debt is None or equity is None or cash is None:
+        return None
+    capital = debt + equity - cash
+    if not np.isfinite(capital) or capital <= 0:
+        return None
+    return round(capital / 1e9, 4)
+
+
 def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     """
     Construye TODOS los parámetros de modelación solo a partir de:
@@ -2841,7 +2898,6 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     mcap = _safe_float(info.get("marketCap"))
     beta = _safe_float(info.get("beta"))
     shares = _safe_float(info.get("sharesOutstanding"))
-    total_assets = _safe_float(info.get("totalAssets"))
     book = _safe_float(info.get("bookValue"))  # a veces por acción
     enterprise_to_ebitda = _safe_float(info.get("enterpriseToEbitda"))
 
@@ -2962,16 +3018,16 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         equity_book = book * shares
         p["de_ratio"] = round(max(0.0, total_debt / equity_book), 4)
 
-    # Capital invertido: assets o EV proxy de esta empresa
-    if total_assets is not None and total_assets > 0:
-        p["capital_invertido"] = round(total_assets / 1e9, 4)
-    elif mcap is not None:
-        deuda_mm = p["deuda_neta"] if p["deuda_neta"] else 0.0
-        p["capital_invertido"] = round(mcap / 1e9 + max(deuda_mm, 0), 4)
-    elif df_hist is not None and not df_hist.empty and "Ingresos" in df_hist.columns:
-        # Último recurso: 2× ingresos propios (no un número del catálogo)
-        ing = float(df_hist["Ingresos"].iloc[-1])
-        p["capital_invertido"] = round(abs(ing) * 2.0, 4)
+    # Capital invertido operativo: deuda financiera + patrimonio - efectivo.
+    # No sustituir por activos totales, capitalización bursátil o múltiplos de ingresos:
+    # esas magnitudes no son una base contable equivalente para el ROIC.
+    capital_operativo = capital_invertido_operativo_yahoo(info)
+    if capital_operativo is not None:
+        p["capital_invertido"] = capital_operativo
+        p["capital_invertido_fuente"] = "yahoo_balance_debt_plus_equity_minus_cash"
+    else:
+        p["capital_invertido"] = 0.0
+        p["capital_invertido_fuente"] = "no_disponible_balance_incompleto"
 
     # Inversión inicial del proyecto ≈ CAPEX propio reciente
     if df_hist is not None and not df_hist.empty and "CAPEX" in df_hist.columns:
@@ -3638,24 +3694,29 @@ def recalcular_fcff(df_proj, tax=0.35, capex_extra=0.0):
         raise ValueError("El FCFF recalculado contiene valores no finitos.")
     return d
 
-def capital_base_roic(capital_invertido, nopat_prom, deuda_neta=0.0, equity_val=None):
-    """Base de capital para ROIC: evita ROIC fantasma por capital subestimado.
+def capital_base_roic(capital_invertido, nopat_prom=None, deuda_neta=0.0, equity_val=None):
+    """Devuelve una base contable disponible; nunca fabrica capital a partir del NOPAT.
 
-    Usa el máximo entre capital declarado, proxy (equity+deuda neta) y un piso
-    que limita ROIC implícito a ≤ 50% (señal de revisar inputs, no de rentabilidad real).
+    Si el capital no está disponible, falla explícitamente para que el caller marque
+    ROIC como no calculable en lugar de presentar un proxy como dato contable.
     """
     caps = []
-    c0 = float(capital_invertido or 0)
-    if c0 > 0:
-        caps.append(c0)
-    dn = float(deuda_neta or 0)
-    if equity_val is not None and np.isfinite(float(equity_val)):
-        caps.append(abs(float(equity_val)) + max(dn, 0.0))
-    nopat = float(nopat_prom or 0)
-    if abs(nopat) > 0:
-        # Piso: capital mínimo para que |ROIC| no supere 50%
-        caps.append(abs(nopat) / 0.50)
-    return max(caps) if caps else max(c0, 1.0)
+    try:
+        c0 = float(capital_invertido)
+        if np.isfinite(c0) and c0 > 0:
+            caps.append(c0)
+    except (TypeError, ValueError):
+        pass
+    try:
+        dn = float(deuda_neta or 0.0)
+        ev = float(equity_val)
+        if np.isfinite(dn) and np.isfinite(ev) and ev > 0:
+            caps.append(ev + max(dn, 0.0))
+    except (TypeError, ValueError):
+        pass
+    if not caps:
+        raise ValueError("ROIC no disponible: falta una base de capital invertido válida del balance.")
+    return max(caps)
 
 
 
@@ -7880,10 +7941,12 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             pruebas.append(("OK: g < WACC", f"Crecimiento {g*100:.2f}% menor al costo del dinero {wacc*100:.2f}%."))
         else:
             pruebas.append(("Problema: g >= WACC", "El crecimiento de largo plazo no debería superar el costo del dinero."))
-        if roic > wacc:
+        if np.isfinite(roic) and roic > wacc:
             pruebas.append(("OK: crea valor", f"ROIC {roic*100:.2f}% > WACC {wacc*100:.2f}%."))
-        else:
+        elif np.isfinite(roic):
             pruebas.append(("Alerta: no crea valor", f"ROIC {roic*100:.2f}% <= WACC {wacc*100:.2f}%."))
+        else:
+            pruebas.append(("ROIC no disponible", "Faltan partidas fiables de deuda, patrimonio y efectivo para calcular la base de capital."))
         if de_ratio <= 1.5:
             pruebas.append(("OK: deuda moderada", f"D/E = {de_ratio:.2f}."))
         else:
