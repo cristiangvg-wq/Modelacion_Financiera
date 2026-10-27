@@ -25,4 +25,4 @@ jobs:
         run: python -m compileall -q .
       - name: Run regression tests
         run: |
-          python -m unittest -v test_modelacion_validaciones test_portfolio_engine test_ai_committee_quality test_investment_simulator
+          python -m unittest -v test_modelacion_validaciones test_portfolio_engine test_ai_committee_quality test_investment_simulator test_multiples_valuation test_auditoria_integral

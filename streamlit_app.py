@@ -872,6 +872,33 @@ div[role="radiogroup"] label:has(input:checked) {
   text-align: left !important;
 }
 
+/* --- Auditoría UI/UX: lectura ejecutiva y alineación --- */
+/* Texto largo siempre a la izquierda, con medida de línea legible */
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stCaptionContainer"],
+.section-card, .result-note, .tf-info {
+  text-align: left !important;
+  hyphens: manual;
+}
+.section-card p, .result-note p { max-width: 110ch; }
+/* KPI: igual altura por fila, cifras sin recorte */
+.tf-kpi-grid { align-items: stretch; }
+.tf-kpi { display: flex; flex-direction: column; justify-content: space-between; }
+.tf-kpi .value, [data-testid="stMetricValue"] > div {
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+  font-variant-numeric: tabular-nums;
+}
+[data-testid="stMetricLabel"] p { white-space: normal !important; }
+/* Pestañas: no truncar etiquetas en anchos medios */
+[data-baseweb="tab-list"] { flex-wrap: wrap; row-gap: 4px; }
+[data-baseweb="tab"] p { white-space: nowrap; }
+/* Cifras de tablas con dígitos tabulares para comparar columnas */
+.section-card table td, [data-testid="stDataFrame"] td { font-variant-numeric: tabular-nums; }
+/* Botones de una fila con la misma altura */
+.stButton > button { min-height: 2.6rem; }
+
 </style>
 """
 
@@ -2183,309 +2210,183 @@ def _chart_tip(text: str) -> None:
     )
 
 
+_TAPE_SYMBOLS = [
+    ("COP=X", "USD/COP", "COP"),
+    ("SPY", "S&P 500", "USD"),
+    ("AAPL", "Apple", "USD"),
+    ("MSFT", "Microsoft", "USD"),
+    ("NVDA", "NVIDIA", "USD"),
+    ("GOOGL", "Alphabet", "USD"),
+    ("AMZN", "Amazon", "USD"),
+    ("JPM", "JPMorgan", "USD"),
+    ("ECOPETROL.CL", "Ecopetrol", "COP"),
+    ("ISA.CL", "ISA", "COP"),
+    ("PFBCOLOM.CL", "Bancolombia pref.", "COP"),
+    ("EC", "Ecopetrol ADR", "USD"),
+    ("CIB", "Bancolombia ADR", "USD"),
+]
+
+
+def _cierres_desde_download(df, symbols):
+    """Extrae columnas Close de yf.download para varios tickers (MultiIndex o plano)."""
+    if df is None or getattr(df, "empty", True):
+        return {}
+    out = {}
+    cols = df.columns
+    if isinstance(cols, pd.MultiIndex):
+        lvl0 = set(cols.get_level_values(0))
+        for sym in symbols:
+            try:
+                ser = df["Close"][sym] if "Close" in lvl0 else df[sym]["Close"]
+                out[sym] = pd.to_numeric(ser, errors="coerce").dropna()
+            except Exception:
+                continue
+    elif "Close" in cols and len(symbols) == 1:
+        out[symbols[0]] = pd.to_numeric(df["Close"], errors="coerce").dropna()
+    return out
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _market_tape_quotes():
-    """Cinta de mercado: tickers globales + Colombia.
-
-    `chg` siempre en **puntos porcentuales del día** (ej. -0.31 = −0,31 %).
-    Nunca se devuelve fracción para evitar doble escalado en el render.
-    """
-    symbols = [
-        ("AAPL", "Apple"),
-        ("MSFT", "Microsoft"),
-        ("NVDA", "NVIDIA"),
-        ("GOOGL", "Alphabet"),
-        ("AMZN", "Amazon"),
-        ("META", "Meta"),
-        ("JPM", "JPMorgan"),
-        ("XOM", "Exxon"),
-        ("EC", "Ecopetrol"),
-        ("ISA.CL", "ISA"),
-        ("CIB", "Bancolombia"),
-        ("SPY", "S&P 500"),
-    ]
-    rows = []
+    """Cinta de mercado: UNA descarga en lote (antes 12 llamadas .info secuenciales,
+    principal cuello de botella del primer render). `chg` en puntos porcentuales;
+    cada precio lleva su moneda (COP para BVC, USD para NYSE/NASDAQ)."""
+    symbols = [x[0] for x in _TAPE_SYMBOLS]
+    closes = {}
     try:
         import yfinance as yf
-    except ImportError:
-        return [{"sym": s, "name": n, "px": None, "chg": None} for s, n in symbols]
-
-    def _f(x):
-        try:
-            if x is None:
-                return None
-            v = float(x)
-            if v != v or abs(v) == float("inf"):
-                return None
-            return v
-        except Exception:
-            return None
-
-    blue_chips = {"AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "JPM", "XOM", "SPY"}
-
-    for sym, name in symbols:
-        try:
-            t = yf.Ticker(sym)
-            px = None
-            chg = None
-
-            info = {}
-            try:
-                info = getattr(t, "info", {}) or {}
-            except Exception:
-                info = {}
-
-            try:
-                fi = getattr(t, "fast_info", None)
-                if fi is not None:
-                    px = _f(getattr(fi, "last_price", None) or (fi.get("last_price") if hasattr(fi, "get") else None))
-                    prev_fi = _f(getattr(fi, "previous_close", None) or (fi.get("previous_close") if hasattr(fi, "get") else None))
-                    if px is not None and prev_fi is not None and prev_fi != 0:
-                        chg = 100.0 * (px - prev_fi) / prev_fi
-            except Exception:
-                pass
-
-            if px is None:
-                px = _f(info.get("regularMarketPrice") or info.get("currentPrice"))
-
-            prev = _f(info.get("regularMarketPreviousClose") or info.get("previousClose"))
-            if chg is None and px is not None and prev is not None and prev != 0:
-                chg = 100.0 * (px - prev) / prev
-
-            # yfinance: regularMarketChangePercent ya en puntos % (ej. -0.31)
-            if chg is None:
-                chg = _f(info.get("regularMarketChangePercent"))
-
-            if chg is None:
-                delta = _f(info.get("regularMarketChange"))
-                if delta is not None and prev is not None and prev != 0:
-                    chg = 100.0 * delta / prev
-
-            if px is None or chg is None:
-                try:
-                    hist = t.history(period="10d", auto_adjust=True)
-                    if hist is not None and len(hist) >= 2:
-                        closes = [_f(v) for v in hist["Close"].tolist()]
-                        closes = [c for c in closes if c is not None]
-                        if len(closes) >= 2:
-                            if px is None:
-                                px = closes[-1]
-                            if chg is None and closes[-2] != 0:
-                                chg = 100.0 * (closes[-1] - closes[-2]) / closes[-2]
-                except Exception:
-                    pass
-
-            if chg is not None and abs(chg) > 25.0 and sym.split(".")[0] in blue_chips:
-                try:
-                    hist = t.history(period="5d", auto_adjust=True)
-                    if hist is not None and len(hist) >= 2:
-                        c0 = _f(hist["Close"].iloc[-1])
-                        c1 = _f(hist["Close"].iloc[-2])
-                        if c0 is not None and c1 is not None and c1 != 0:
-                            chg2 = 100.0 * (c0 - c1) / c1
-                            if abs(chg2) <= 25.0:
-                                chg = chg2
-                                if px is None:
-                                    px = c0
-                except Exception:
-                    pass
-
-            rows.append({"sym": sym.split(".")[0], "name": name, "px": px, "chg": chg})
-        except Exception:
-            rows.append({"sym": sym.split(".")[0], "name": name, "px": None, "chg": None})
+        df = yf.download(
+            symbols, period="10d", interval="1d", auto_adjust=True,
+            progress=False, group_by="column", threads=True,
+        )
+        closes = _cierres_desde_download(df, symbols)
+    except Exception:
+        closes = {}
+    rows = []
+    for sym, name, cur in _TAPE_SYMBOLS:
+        ser = closes.get(sym)
+        px = chg = None
+        if ser is not None and len(ser) >= 1:
+            px = float(ser.iloc[-1])
+            if len(ser) >= 2 and float(ser.iloc[-2]) != 0:
+                chg = 100.0 * (float(ser.iloc[-1]) / float(ser.iloc[-2]) - 1.0)
+        rows.append({"sym": sym.replace(".CL", "").replace("=X", ""), "name": name,
+                     "px": px, "chg": chg, "cur": cur})
     return rows
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _serie_cop_por_usd(period="5y"):
+    """Serie diaria COP por 1 USD (Yahoo ``COP=X``). Fuente única de FX del app."""
+    try:
+        import yfinance as yf
+        df = yf.download("COP=X", period=period, interval="1d", auto_adjust=True, progress=False)
+        ser = _cierres_desde_download(df, ["COP=X"]).get("COP=X")
+        if ser is None and df is not None and "Close" in getattr(df, "columns", []):
+            ser = pd.to_numeric(df["Close"].squeeze(), errors="coerce").dropna()
+        if ser is None or ser.empty:
+            return None
+        ser = ser[(ser > 1000) & (ser < 20000)]  # descarta ticks corruptos de Yahoo
+        return ser if not ser.empty else None
+    except Exception:
+        return None
+
+
+def _tasa_cop_usd_spot():
+    """Última tasa COP/USD (misma que muestra la cinta) o None si no hay datos."""
+    ser = _serie_cop_por_usd("1mo")
+    try:
+        return float(ser.iloc[-1]) if ser is not None and len(ser) else None
+    except Exception:
+        return None
+
+
+def _clave_ia_efectiva():
+    """(proveedor, api_key) para el comité: widget pestaña 4 → Consulta IA → secrets/env."""
+    prov_ia = (
+        st.session_state.get("tab4_iaprov")
+        or st.session_state.get("iaprov")
+        or "gemini"
+    )
+    key_ui = (st.session_state.get("tab4_iakey") or "").strip() or (st.session_state.get("iakey") or "").strip()
+    if prov_ia == "gemini":
+        key_eff = _resolve_gemini_key(key_ui or None)
+    else:
+        key_eff = key_ui or None
+    return prov_ia, key_eff
+
+
+def _contexto_comite_ia(empresa, w=None, de_ratio=None, g=None, moneda=None):
+    """Métricas del comité para la empresa seleccionada.
+
+    Fuente única: la corrida de la pestaña 4 (L.metricas_valoracion_sesion). Los
+    faltantes quedan en None (N/D) — nunca 0 —, para que la auditoría previa los
+    detecte como ausentes en lugar de interpretarlos como valores reales.
+    """
+    m = None
+    try:
+        m = L.metricas_valoracion_sesion(empresa) if hasattr(L, "metricas_valoracion_sesion") else None
+    except Exception:
+        m = None
+    if m:
+        m["fuente_precio"] = m.get("fuente_precio") or st.session_state.get("fuente_precio_mercado")
+        m["fecha_precio"] = m.get("fecha_precio") or st.session_state.get("fecha_precio_mercado")
+        return m
+    w = w if isinstance(w, dict) else {}
+    mon = str(moneda or (st.session_state.get("params") or {}).get("moneda") or "").upper() or None
+    mon_px = str(st.session_state.get("moneda_precio_alineada") or mon or "").upper() or None
+    px = st.session_state.get("precio_mercado_alineado")
+    return {
+        "empresa": empresa,
+        "ticker": _inferir_ticker_yf(empresa, {}) or None,
+        "moneda": mon, "moneda_precio": mon_px,
+        "monedas_alineadas": bool(mon and mon_px and mon == mon_px),
+        "precio_mercado": float(px) if px else None,
+        "vps_modelo": None, "upside": None,
+        "wacc_calc": w.get("wacc"), "ke_calc": w.get("ke"), "roic_calc": None,
+        "de_ratio": float(de_ratio) if de_ratio is not None else None,
+        "g": float(g) if g is not None else None,
+        "val_ev": None, "val_equity": None, "decision_modelo": None,
+        "unidad_modelo": f"miles de millones de {mon}" if mon else None,
+        "unidad_precio": "por acción",
+        "fuente_precio": st.session_state.get("fuente_precio_mercado"),
+        "fecha_precio": st.session_state.get("fecha_precio_mercado"),
+        "fuente_valoracion": None,
+    }
+
 
 def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="COP"):
-    """Comité IA (4+). Usado tras tab4 en Generar todo y en Solo pestaña 4. Retorna (ok, msg)."""
+    """Comité IA (4+). Usado tras tab4 en Generar todo, en Solo pestaña 4 y en el botón
+    de la pestaña 4. Retorna (ok, msg). Única implementación del flujo (antes había
+    dos copias divergentes de ~250 líneas)."""
     try:
-        prov_ia = (
-            st.session_state.get("tab4_iaprov")
-            or st.session_state.get("iaprov")
-            or "gemini"
-        )
-        key_ui = (st.session_state.get("tab4_iakey") or "").strip() or (st.session_state.get("iakey") or "")
-        key_eff = (
-            _resolve_gemini_key(key_ui)
-            if (prov_ia or "gemini") == "gemini"
-            else ((key_ui or "").strip() or None)
-        )
-        if prov_ia == "gemini" and not key_eff:
-            key_eff = _resolve_gemini_key(None)
-
-        def _sf(x, default=0.0):
-            try:
-                if x is None:
-                    return default
-                if isinstance(x, str):
-                    s = x.strip().replace("%", "").replace(",", "")
-                    if not s or s in ("—", "-", "N/A", "n/a"):
-                        return default
-                    return float(s)
-                v = float(x)
-                if v != v or abs(v) == float("inf"):
-                    return default
-                return v
-            except Exception:
-                return default
-
-        res = st.session_state.get("resultados") or {}
-        w = w if isinstance(w, dict) else {}
-        wacc_calc = float(w.get("wacc", 0.10) or 0.10)
-        ke_calc = float(w.get("ke", 0.12) or 0.12)
-        roic_calc = None  # Ausencia de ROIC no equivale a rentabilidad nula.
-        val_ev = val_equity = vps_modelo = precio_mercado = upside = 0.0
-        mon_m = str(moneda or "COP").upper()
-        try:
-            _alinear_moneda_y_precio(empresa)
-        except Exception:
-            pass
-        try:
-            if hasattr(L, "resolver_precio_mercado"):
-                precio_mercado = _sf(L.resolver_precio_mercado(empresa), 0.0)
-        except Exception:
-            pass
-        if precio_mercado <= 0:
-            precio_mercado = _sf(st.session_state.get("precio_mercado_alineado"), 0.0)
-        mon_px = str(
-            st.session_state.get("moneda_precio_alineada")
-            or (st.session_state.get("params") or {}).get("precio_moneda")
-            or mon_m
-        ).upper()
-
-        t7 = res.get("tab7")
-        kpi_map = {}
-        if t7 and isinstance(t7, (list, tuple)) and len(t7) > 1:
-            kpi_df = t7[1]
-            if kpi_df is not None and hasattr(kpi_df, "columns"):
-                cols = list(kpi_df.columns)
-                if "Indicador" in cols and "Valor" in cols:
-                    try:
-                        for _, row in kpi_df.iterrows():
-                            kpi_map[str(row["Indicador"])] = row["Valor"]
-                    except Exception:
-                        pass
-
-        def _k(name, *alts):
-            for n in (name,) + alts:
-                if n in kpi_map:
-                    return kpi_map[n]
-            return None
-
-        val_ev = _sf(_k("EV base", "EV"), val_ev)
-        val_equity = _sf(_k("Equity base", "Equity"), val_equity)
-        vps_modelo = _sf(_k("VPS modelo", "VPS", "Precio modelo"), vps_modelo)
-        if precio_mercado <= 0:
-            precio_mercado = _sf(_k("Precio mercado", "Precio actual", "Precio"), 0.0)
-        up_raw = _k("Upside %", "Upside")
-        if up_raw is not None:
-            upside = _sf(up_raw, 0.0)
-        wacc_k = _k("WACC %", "WACC")
-        if wacc_k is not None:
-            ww = _sf(wacc_k, wacc_calc * 100)
-            wacc_calc = ww / 100.0 if ww > 1.0 else ww
-        roic_k = _k("ROIC %", "ROIC")
-        if roic_k is not None:
-            rr = _sf(roic_k, 0.0)
-            roic_calc = rr / 100.0 if rr > 1.0 else rr
-
-        t2 = res.get("tab2")
-        if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
-            df2 = t2[1]
-            try:
-                cols = {str(c).lower(): c for c in df2.columns}
-                esc_c = cols.get("escenario") or cols.get("nombre") or df2.columns[0]
-                for _, row in df2.iterrows():
-                    label = str(row[esc_c]).lower()
-                    if "base" not in label and "central" not in label:
-                        continue
-                    for c in df2.columns:
-                        cl = str(c).lower()
-                        if cl == str(esc_c).lower():
-                            continue
-                        if ("ev" in cl or "empresa" in cl) and "ebitda" not in cl and val_ev == 0:
-                            val_ev = _sf(row[c], val_ev)
-                        if ("equity" in cl or "dueño" in cl or "patrimonio" in cl) and val_equity == 0:
-                            val_equity = _sf(row[c], val_equity)
-            except Exception:
-                pass
-
-        t4 = res.get("tab4")
-        # Prefer tab2 escenarios if tab7 aún no existe (orden 4+ antes de tab7)
-        monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
-        if not monedas_ok:
-            upside = None  # Monedas incompatibles: no presentar 0% como si fuera calculado.
-        # Fuente única de verdad para VPS/upside: misma conversión y guardas que el DCF.
-        acciones_ctx = (st.session_state.get("params") or {}).get("acciones") or acciones
-        if vps_modelo <= 0 and val_equity > 0 and acciones_ctx:
-            vps_info = L.calcular_vps_y_upside(
-                val_equity, acciones_ctx, precio_mercado=None,
-                moneda_modelo=mon_m, moneda_precio=mon_m,
-            )
-            vps_modelo = vps_info.get("value_per_share") or 0.0
-        if precio_mercado > 0 and vps_modelo > 0 and monedas_ok:
-            # No inventar un upside de 0% cuando no había dato previo.
-            upside_info = L.calcular_vps_y_upside(
-                val_equity, acciones_ctx, precio_mercado=precio_mercado,
-                moneda_modelo=mon_m, moneda_precio=mon_px,
-            ) if val_equity > 0 and acciones_ctx else {}
-            if upside_info.get("upside_pct") is not None:
-                upside = upside_info["upside_pct"]
-
-        ticker_ctx = "—"
-        try:
-            ticker_ctx = _inferir_ticker_yf(empresa, {}) or "—"
-        except Exception:
-            pass
-
-        _metricas = {
-            "empresa": empresa, "ticker": ticker_ctx, "moneda": mon_m,
-            "moneda_precio": mon_px, "monedas_alineadas": monedas_ok,
-            "precio_mercado": precio_mercado, "vps_modelo": vps_modelo, "upside": upside,
-            "wacc_calc": wacc_calc, "ke_calc": ke_calc, "roic_calc": roic_calc,
-            "de_ratio": float(de_ratio or 0), "g": float(g or 0),
-            "val_ev": val_ev, "val_equity": val_equity, "decision_modelo": "—",
-            # Declarar la escala estándar del DCF; si el usuario define otra, respetarla.
-            "unidad_modelo": (st.session_state.get("params") or {}).get("unidad_modelo")
-                or f"miles de millones de {mon_m}",
-            "unidad_precio": "por acción",
-            "fuente_precio": st.session_state.get("fuente_precio_mercado"),
-            "fecha_precio": st.session_state.get("fecha_precio_mercado"),
-            "fuente_valoracion": st.session_state.get("version_modelo_valoracion")
-                or "DCF propio · modelacion_logic.py · escenarios base",
-        }
-
         if not hasattr(L, "generar_recomendacion_comite_ia"):
+            return False, "modelacion_logic.py no tiene generar_recomendacion_comite_ia."
+        prov_ia, key_eff = _clave_ia_efectiva()
+        if prov_ia == "gemini" and not key_eff:
             return False, (
-                "modelacion_logic.py no tiene generar_recomendacion_comite_ia. "
-                "Actualiza el archivo y reinicia Streamlit."
+                "Falta la API key de Gemini: pégala en «Proveedor y API key» o define "
+                "GEMINI_API_KEY en st.secrets / variables de entorno."
             )
-
-        _audit_ctx = L.auditar_contexto_comite_ia(_metricas) if hasattr(L, "auditar_contexto_comite_ia") else {"ok": True, "errors": [], "warnings": []}
+        _metricas = _contexto_comite_ia(empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda)
+        if _metricas.get("vps_modelo") is None:
+            return False, "Ejecuta primero la pestaña 4 (o Generar todo): el comité necesita la valoración del modelo."
+        _audit_ctx = L.auditar_contexto_comite_ia(_metricas)
+        st.session_state["tab4_comite_ia_auditoria"] = _audit_ctx
         if _audit_ctx.get("errors"):
             return False, "Comité IA bloqueado por errores: " + "; ".join(_audit_ctx["errors"])
         respuesta = L.generar_recomendacion_comite_ia(
             empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas,
         )
-        _audit_resp = L.auditar_respuesta_comite_ia(respuesta) if hasattr(L, "auditar_respuesta_comite_ia") else {"ok": True, "errors": [], "warnings": []}
+        _audit_resp = L.auditar_respuesta_comite_ia(respuesta, _metricas)
         if _audit_resp.get("errors"):
             return False, "Salida IA inválida: " + "; ".join(_audit_resp["errors"])
-        if hasattr(L, "_sanear_salida_comite_ia"):
-            try:
-                plain = L._html_a_texto(respuesta, 20000) if hasattr(L, "_html_a_texto") else str(respuesta)
-                plain = L._sanear_salida_comite_ia(plain)
-                if plain and not str(plain).strip().startswith("<"):
-                    import html as _html_mod
-                    respuesta = (
-                        '<div class="section-card" style="border-left:4px solid #14B8A6">'
-                        f"<pre style='white-space:pre-wrap;color:#E8EEF7'>"
-                        f"{_html_mod.escape(str(plain))}</pre></div>"
-                    )
-            except Exception:
-                pass
-
+        if "Comité IA bloqueado" in str(respuesta) or "No se pudo generar la deliberación" in str(respuesta) \
+                or "rechazada por controles de calidad" in str(respuesta):
+            st.session_state["tab4_comite_ia_html"] = respuesta
+            return False, L._html_a_texto(respuesta, 400) if hasattr(L, "_html_a_texto") else "Comité IA sin respuesta válida."
         st.session_state["tab4_comite_ia_html"] = respuesta
+        st.session_state["tab4_comite_empresa"] = empresa
         try:
             _struct = L.extraer_resumen_comite_ia(respuesta) if hasattr(L, "extraer_resumen_comite_ia") else {}
             _txt = (_struct or {}).get("texto") or (
@@ -2531,7 +2432,7 @@ def _render_market_tape() -> None:
                 cls, chg_txt = "tf-down", f"{chg:.2f}%"
             else:
                 cls, chg_txt = "tf-flat", f"{chg:.2f}%"
-        px_txt = f"{float(px):,.2f}" if _finite(px) else "—"
+        px_txt = (f"{float(px):,.2f} {d.get('cur', '')}".strip()) if _finite(px) else "—"
         parts.append(
             f'<span class="tf-tick"><b>{d["sym"]}</b> {d["name"]} '
             f'{px_txt} <span class="{cls}">{chg_txt}</span></span>'
@@ -2847,36 +2748,22 @@ def _alinear_moneda_y_precio(nombre):
         else:
             mm, mp = "USD", "USD"
 
-    # Precio fresco SOLO del ticker de esta empresa
+    # Precio SOLO desde la instantánea cacheada de la capa lógica: es la misma
+    # que leen las pestañas 2/4/7, el comité IA, el simulador y el portafolio.
+    # (Antes había aquí un segundo fetch directo a yfinance: la cabecera podía
+    # mostrar un precio que las pestañas no veían → cifras contradictorias.)
     precio = None
+    _snap = {}
     try:
-        if hasattr(L, "resolver_precio_mercado"):
+        if hasattr(L, "instantanea_precio_mercado"):
+            _snap = L.instantanea_precio_mercado(nombre) or {}
+            precio = _snap.get("precio")
+        elif hasattr(L, "resolver_precio_mercado"):
             precio = L.resolver_precio_mercado(nombre)
-        if (precio is None or float(precio) <= 0) and ticker:
-            import yfinance as yf
-            t = yf.Ticker(str(ticker))
-            info = {}
-            try:
-                info = getattr(t, "info", None) or {}
-            except Exception:
-                info = {}
-            for key in ("regularMarketPrice", "currentPrice", "previousClose"):
-                try:
-                    v = info.get(key)
-                    if v is not None and float(v) == float(v) and float(v) > 0:
-                        precio = float(v)
-                        break
-                except Exception:
-                    continue
-            if precio is None:
-                try:
-                    hist = t.history(period="5d", auto_adjust=True)
-                    if hist is not None and len(hist) > 0:
-                        precio = float(hist["Close"].iloc[-1])
-                except Exception:
-                    pass
     except Exception:
-        pass
+        precio = None
+    st.session_state["fuente_precio_mercado"] = _snap.get("fuente")
+    st.session_state["fecha_precio_mercado"] = _snap.get("fecha")
     try:
         precio = float(precio) if precio is not None else None
         if precio is not None and precio <= 0:
@@ -3012,13 +2899,32 @@ def _cargar_params_empresa(nombre):
     _alinear_moneda_y_precio(nombre)
 
 
+def _archivo_hash():
+    data = st.session_state.get("archivo_bytes")
+    return hashlib.sha256(data).hexdigest() if data else None
+
+
 def _archivo_para_logic():
+    """Ruta temporal del Excel/CSV cargado; se reutiliza mientras el contenido no cambie.
+
+    Antes se creaba un archivo temporal nuevo en CADA rerun (fuga de disco) y la
+    huella del modelo nunca detectaba cambios de contenido.
+    """
     data = st.session_state.get("archivo_bytes")
     name = st.session_state.get("archivo_name") or "upload.xlsx"
     if not data:
         return None
     import tempfile
 
+    h = _archivo_hash()
+    prev = st.session_state.get("_archivo_tmp")
+    if isinstance(prev, (list, tuple)) and len(prev) == 2 and prev[0] == h and os.path.isfile(prev[1]):
+        return prev[1]
+    if isinstance(prev, (list, tuple)) and len(prev) == 2:
+        try:
+            os.unlink(prev[1])
+        except OSError:
+            pass
     suffix = ".xlsx"
     low = name.lower()
     if low.endswith(".csv"):
@@ -3028,6 +2934,7 @@ def _archivo_para_logic():
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(data)
     tmp.close()
+    st.session_state["_archivo_tmp"] = (h, tmp.name)
     return tmp.name
 
 
@@ -3056,6 +2963,48 @@ def _wacc_quick(de_ratio, kd, tax, beta_u, rf, erp, crp):
 # =============================================================================
 # MAIN
 # =============================================================================
+# Claves de st.session_state que pertenecen a UNA empresa y deben purgarse al
+# cambiar de activo. Las preferencias del usuario (tour, proveedor/clave IA,
+# tema, modo de ejecución) se conservan a propósito.
+_CLAVES_ESTADO_EMPRESA = (
+    "params", "resultados", "ficha_html", "hero_html", "n_hist",
+    "precio_mercado_alineado", "moneda_precio_alineada", "fx_mismatch",
+    "fuente_precio_mercado", "fecha_precio_mercado",
+    "archivo_bytes", "archivo_name", "_archivo_tmp",
+    "_model_fingerprint", "modelo_dirty",
+    "tab4_comite_ia_html", "tab4_comite_ia_texto", "tab4_comite_ia_struct", "tab4_comite_empresa",
+    "tab4_comite_ia_auditoria",
+    "contraste_mercado_actual", "tab6_empresa",
+    "portfolio_result", "investment_sim_result", "multiples_valuation_result",
+    "sens_wacc", "sens_g",
+)
+_PREFIJOS_ESTADO_EMPRESA = ("investment_sim_ticker_", "multiples_")
+
+
+def _purgar_estado_empresa(nueva_empresa):
+    """Purga TODO el estado derivado de la empresa anterior.
+
+    Se invoca desde un único punto (centinela `_empresa_estado`), de modo que
+    cualquier vía de cambio (selector, búsqueda Yahoo, selector móvil) limpia
+    igual: resultados de pestañas, comité IA, contraste de mercado, portafolio,
+    simulador, múltiplos, sensibilidad, Excel cargado y caché de huella.
+    """
+    for k in _CLAVES_ESTADO_EMPRESA:
+        st.session_state.pop(k, None)
+    for k in [k for k in list(st.session_state.keys()) if str(k).startswith(_PREFIJOS_ESTADO_EMPRESA)]:
+        st.session_state.pop(k, None)
+    # Nuevo key para el file_uploader: sin esto el widget re-inyecta el Excel de
+    # la empresa anterior en el siguiente rerun.
+    st.session_state["_uploader_nonce"] = int(st.session_state.get("_uploader_nonce", 0)) + 1
+    st.session_state["resultados"] = {}
+    st.session_state["params"] = None
+    try:
+        L.reset_resultados_sesion(nueva_empresa)
+    except Exception:
+        pass
+    st.session_state["_empresa_estado"] = nueva_empresa
+
+
 def _aplicar_empresa_pendiente():
     """Aplica cambio de empresa ANTES de crear widgets (evita StreamlitWidgetAlreadyInstantiatedError)."""
     pend = st.session_state.pop("_pending_empresa", None)
@@ -3071,13 +3020,8 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
     """Programa cambio de empresa para el próximo run (no mutar keys de widgets ya creados)."""
     st.session_state["_pending_empresa"] = display_name
     st.session_state["empresa_sel"] = display_name
-    # Limpiar datos de la empresa anterior (evita precio/ticker AAPL en ficha ISA)
-    for _k in (
-        "precio_mercado_alineado", "moneda_precio_alineada", "fx_mismatch",
-        "tab4_comite_ia_html", "tab4_comite_empresa", "resultados",
-    ):
-        st.session_state.pop(_k, None)
-    st.session_state["resultados"] = {}
+    # Limpiar TODO el estado de la empresa anterior (evita precio/ticker AAPL en ficha ISA)
+    _purgar_estado_empresa(display_name)
     st.session_state["params"] = {}
     if params_tuple is not None and len(params_tuple) >= 14:
         keys = [
@@ -3093,14 +3037,14 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
         except Exception:
             pass
     st.session_state["resultados"] = {}
-    try:
-        L.reset_resultados_sesion(display_name)
-    except Exception:
-        pass
     st.rerun()
 
 
 def main():
+    # Registros de la capa lógica (empresas descargadas, resultados de pestañas,
+    # credenciales del conector) ligados a ESTA sesión: sin esto eran globales del
+    # proceso y un usuario veía/heredaba los datos de otro.
+    L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
     _init_state()
     _aplicar_empresa_pendiente()
 
@@ -3172,13 +3116,12 @@ def main():
         if empresa != st.session_state.get("empresa_sel"):
             # No asignar select_empresa aquí (el widget ya existe). Solo sincronizar estado y recargar.
             st.session_state["empresa_sel"] = empresa
+            _purgar_estado_empresa(empresa)
             _cargar_params_empresa(empresa)
-            st.session_state["resultados"] = {}
-            try:
-                L.reset_resultados_sesion(empresa)
-            except Exception:
-                pass
             st.rerun()
+        # Centinela: cualquier otra vía de cambio que no haya purgado lo hace aquí.
+        if st.session_state.get("_empresa_estado") != empresa:
+            _purgar_estado_empresa(empresa)
 
         if st.session_state.get("params") is None:
             _cargar_params_empresa(empresa)
@@ -3197,7 +3140,10 @@ def main():
                     st.caption(f"No se pudo generar la ficha: {_e_ficha}")
 
         st.markdown('<p class="tf-sidebar-label">Estados financieros</p>', unsafe_allow_html=True)
-        up = st.file_uploader("Excel / CSV", type=["xlsx", "xls", "csv"], label_visibility="collapsed")
+        up = st.file_uploader(
+            "Excel / CSV", type=["xlsx", "xls", "csv"], label_visibility="collapsed",
+            key=f"uploader_{st.session_state.get('_uploader_nonce', 0)}",
+        )
         if up is not None:
             st.session_state["archivo_bytes"] = up.read()
             st.session_state["archivo_name"] = up.name
@@ -3425,8 +3371,8 @@ def main():
             ),
             (
                 "Emisor",
-                empresa.split("—")[0].strip()[:18],
-                str(sector)[:22],
+                empresa.split("—")[0].strip(),
+                str(sector).split("/")[0].strip(),
                 False,
                 f"Empresa que estás analizando: {empresa}. "
                 "El sector sirve para compararla con empresas parecidas (peers).",
@@ -3595,21 +3541,23 @@ def main():
     )
 
     # Huella de todos los supuestos materiales, incluido el contenido del archivo.
-    try:
-        _archivo_hash = hashlib.sha256(archivo.getvalue()).hexdigest() if archivo is not None else None
-    except Exception:
-        _archivo_hash = (getattr(archivo, "name", None), getattr(archivo, "size", None))
+    _hash_archivo = _archivo_hash()
     _model_fingerprint = tuple(repr(x) for x in (
         empresa, horizonte, metodo, tax, de_ratio, kd, g, capex_extra, beta_u,
         deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
         exit_multiple, mid_year, g_max_macro, usar_publicos,
-        capital_invertido, inversion_inicial, _archivo_hash, moneda,
+        capital_invertido, inversion_inicial, _hash_archivo, moneda,
     ))
     _prev_fingerprint = st.session_state.get("_model_fingerprint")
     if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
         st.session_state["resultados"] = {}
-        st.session_state.pop("tab4_comite_ia_html", None)
-        st.session_state.pop("contraste_mercado_actual", None)
+        for _k in ("tab4_comite_ia_html", "tab4_comite_ia_texto", "tab4_comite_ia_struct",
+                   "contraste_mercado_actual", "hero_html", "investment_sim_result"):
+            st.session_state.pop(_k, None)
+        try:
+            L.reset_resultados_sesion(empresa)
+        except Exception:
+            pass
         st.session_state["modelo_dirty"] = True
     st.session_state["_model_fingerprint"] = _model_fingerprint
     if st.session_state.get("modelo_dirty"):
@@ -3681,12 +3629,17 @@ def main():
 
             # 4+ Comité IA inmediatamente después de la pestaña 4
             progress.progress(pasos[4][1], text=pasos[4][0])
+            avisos = []
             try:
-                ok_c, msg_c = _ejecutar_comite_ia_sesion(
-                    empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
-                )
-                if not ok_c:
-                    errores.append(f"Comité IA (4+): {msg_c}")
+                if _clave_ia_efectiva()[1]:
+                    ok_c, msg_c = _ejecutar_comite_ia_sesion(
+                        empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
+                    )
+                    if not ok_c:
+                        errores.append(f"Comité IA (4+): {msg_c}")
+                else:
+                    # Sin clave el pipeline cuantitativo sigue siendo válido: aviso, no error.
+                    avisos.append("Comité IA omitido: no hay API key configurada (GEMINI_API_KEY).")
             except Exception as e:
                 errores.append(f"Comité IA (4+): {e}")
 
@@ -3718,6 +3671,8 @@ def main():
                 errores.append(f"Pestaña 7: {e}")
 
             progress.progress(1.0, text="Listo")
+            for _a in avisos:
+                st.info(_a)
             if errores:
                 st.warning("Algunas pestañas fallaron:\n- " + "\n- ".join(errores))
             else:
@@ -4016,408 +3971,93 @@ def main():
             "Deliberación CFO + Analista de Mercado + CRO con los números del modelo (moneda alineada)."
         )
 
-        def _safe_float(x, default=0.0):
+        def _fmt_or_nd(v, fmt="{:,.2f}", suf=""):
             try:
-                if x is None:
-                    return default
-                if isinstance(x, str):
-                    s = x.strip().replace("%", "").replace(",", "").replace("×", "").replace("x", "")
-                    if not s or s in ("—", "-", "N/A", "n/a"):
-                        return default
-                    return float(s)
-                v = float(x)
-                if v != v or abs(v) == float("inf"):
-                    return default
-                return v
-            except Exception:
-                return default
-
-        def _extraer_kpis_comite():
-            """KPIs y precio de la empresa actualmente seleccionada (sidebar), no de otra."""
-            res = st.session_state.get("resultados") or {}
-            wacc_calc = float(w.get("wacc", 0.10) if isinstance(w, dict) else 0.10)
-            ke_calc = float(w.get("ke", 0.12) if isinstance(w, dict) else 0.12)
-            roic_calc = None
-            val_ev = 0.0
-            val_equity = 0.0
-            vps_modelo = 0.0
-            # Precio y ticker de ESTA empresa (nunca session de AAPL si estamos en ISA)
-            try:
-                _alinear_moneda_y_precio(empresa)
-            except Exception:
-                pass
-            precio_mercado = 0.0
-            try:
-                if hasattr(L, "resolver_precio_mercado"):
-                    precio_mercado = _safe_float(L.resolver_precio_mercado(empresa), 0.0)
-            except Exception:
-                precio_mercado = 0.0
-            if precio_mercado <= 0:
-                precio_mercado = _safe_float(st.session_state.get("precio_mercado_alineado"), 0.0)
-            upside = 0.0
-            mon_m = str((st.session_state.get("params") or {}).get("moneda") or moneda or "COP").upper()
-
-            t7 = res.get("tab7")
-            kpi_map = {}
-            if t7 and isinstance(t7, (list, tuple)) and len(t7) > 1:
-                kpi_df = t7[1]
-                if kpi_df is not None and hasattr(kpi_df, "columns"):
-                    cols = list(kpi_df.columns)
-                    if "Indicador" in cols and "Valor" in cols:
-                        try:
-                            for _, row in kpi_df.iterrows():
-                                kpi_map[str(row["Indicador"])] = row["Valor"]
-                        except Exception:
-                            pass
-
-            def _k(name, *alts):
-                for n in (name,) + alts:
-                    if n in kpi_map:
-                        return kpi_map[n]
-                return None
-
-            val_ev = _safe_float(_k("EV base", "EV"), val_ev)
-            val_equity = _safe_float(_k("Equity base", "Equity"), val_equity)
-            vps_modelo = _safe_float(_k("VPS modelo", "VPS", "Precio modelo"), vps_modelo)
-            if precio_mercado <= 0:
-                precio_mercado = _safe_float(_k("Precio mercado", "Precio actual", "Precio"), 0.0)
-            upside_raw = _k("Upside %", "Upside")
-            if upside_raw is not None:
-                upside = _safe_float(upside_raw, 0.0)
-            wacc_k = _k("WACC %", "WACC")
-            if wacc_k is not None:
-                ww = _safe_float(wacc_k, wacc_calc * 100)
-                wacc_calc = ww / 100.0 if ww > 1.0 else ww
-            roic_k = _k("ROIC %", "ROIC")
-            if roic_k is not None:
-                rr = _safe_float(roic_k, None)
-                if rr is not None:
-                    roic_calc = rr / 100.0 if rr > 1.0 else rr
-
-            t2 = res.get("tab2")
-            if t2 and isinstance(t2, (list, tuple)) and len(t2) > 1 and hasattr(t2[1], "columns"):
-                df2 = t2[1]
-                try:
-                    cols = {str(c).lower(): c for c in df2.columns}
-                    esc_c = cols.get("escenario") or cols.get("nombre") or df2.columns[0]
-                    for _, row in df2.iterrows():
-                        label = str(row[esc_c]).lower()
-                        if "base" not in label and "central" not in label:
-                            continue
-                        for c in df2.columns:
-                            cl = str(c).lower()
-                            if cl == str(esc_c).lower():
-                                continue
-                            if ("ev" in cl or "empresa" in cl) and "ebitda" not in cl and val_ev == 0:
-                                val_ev = _safe_float(row[c], val_ev)
-                            if ("equity" in cl or "dueño" in cl or "patrimonio" in cl) and val_equity == 0:
-                                val_equity = _safe_float(row[c], val_equity)
-                except Exception:
-                    pass
-
-            if precio_mercado <= 0:
-                try:
-                    if hasattr(L, "precio_mercado_actual"):
-                        precio_mercado = _safe_float(L.precio_mercado_actual(empresa), 0.0)
-                except Exception:
-                    pass
-
-            if vps_modelo <= 0 and val_equity > 0:
-                try:
-                    acc = (st.session_state.get("params") or {}).get("acciones") or acciones
-                    if acc and float(acc) > 0:
-                        vps_info = L.calcular_vps_y_upside(
-                            val_equity, float(acc), precio_mercado=None,
-                            moneda_modelo=mon_m, moneda_precio=mon_m,
-                        )
-                        vps_modelo = vps_info.get("value_per_share") or 0.0
-                except (TypeError, ValueError, AttributeError):
-                    vps_modelo = 0.0
-
-            mon_px = str(
-                st.session_state.get("moneda_precio_alineada")
-                or (st.session_state.get("params") or {}).get("precio_moneda")
-                or mon_m
-            ).upper()
-            monedas_ok = mon_m.replace("$", "") == mon_px.replace("$", "")
-            acciones_ctx = (st.session_state.get("params") or {}).get("acciones") or acciones
-            if precio_mercado > 0 and vps_modelo > 0 and monedas_ok and val_equity > 0 and acciones_ctx:
-                vps_info = L.calcular_vps_y_upside(
-                    val_equity, acciones_ctx, precio_mercado=precio_mercado,
-                    moneda_modelo=mon_m, moneda_precio=mon_px,
-                )
-                if vps_info.get("upside_pct") is not None:
-                    upside = vps_info["upside_pct"]
-                elif upside == 0.0:
-                    upside = None
-            if not monedas_ok:
-                upside = None  # no comparable sin FX
-            decision_modelo = "—"
-            t4 = res.get("tab4")
-            if t4 and isinstance(t4, (list, tuple)) and len(t4) > 0 and t4[0]:
-                # Extraer etiqueta cualitativa del HTML de tab4 si existe
-                decision_modelo = "Ver salida cuantitativa tab4"
-            t7 = res.get("tab7")
-            if t7 and isinstance(t7, (list, tuple)) and len(t7) > 1:
-                try:
-                    kdf = t7[1]
-                    if kdf is not None and hasattr(kdf, "columns") and "Indicador" in list(kdf.columns):
-                        for _, row in kdf.iterrows():
-                            if str(row.get("Indicador", "")).lower() in ("decisión", "decision"):
-                                decision_modelo = str(row.get("Valor", "—"))
-                                break
-                except Exception:
-                    pass
-            ticker_ctx = _inferir_ticker_yf(empresa, {}) or "—"
-            return {
-                "empresa": empresa,
-                "ticker": ticker_ctx,
-                "moneda": mon_m,
-                "moneda_precio": mon_px,
-                "monedas_alineadas": monedas_ok,
-                "precio_mercado": precio_mercado,
-                "vps_modelo": vps_modelo,
-                "upside": upside,
-                "wacc_calc": wacc_calc,
-                "ke_calc": ke_calc,
-                "roic_calc": roic_calc,
-                "de_ratio": float(de_ratio),
-                "g": float(g),
-                "val_ev": val_ev,
-                "val_equity": val_equity,
-                "decision_modelo": decision_modelo,
-            }
-
-        def _prompt_comite_ia(ctx: dict) -> str:
-            roic_text = f"{ctx['roic_calc']*100:.2f}%" if ctx.get("roic_calc") is not None else "N/D (sin datos suficientes)"
-            upside_text = f"{ctx['upside']:+.2f}%" if ctx.get("upside") is not None else "N/D (monedas distintas o datos faltantes)"
-            return (
-                "Actúa como un Comité Interdisciplinario de Inversión de alto nivel compuesto por tres expertos senior:\n"
-                "1. **Director Financiero (CFO / Experto en Valuation):** Especialista en valoración intrínseca (DCF/FCFF), "
-                "costo de capital (WACC, Ke, CAPM), estructura de deuda y sostenibilidad de flujos.\n"
-                "2. **Analista de Mercado y Estratega Competitivo:** Especialista en dinámicas sectoriales, lectura de "
-                "múltiplos comparables (EV/EBITDA, P/E), posición competitiva (ROIC vs WACC) y contexto macroeconómico.\n"
-                "3. **Chief Risk Officer (CRO / Gestor de Riesgos):** Especialista en auditoría de supuestos (g vs WACC, "
-                "apalancamiento D/E), análisis de sensibilidad, valoración de escenarios y detección de eventos atípicos.\n"
-                "---\n"
-                "### CONTEXTO DE ENTRADA (Calculado por el Modelo Cuantitativo)\n"
-                f"- **Empresa Objetivo:** {ctx['empresa']} · **Ticker:** {ctx.get('ticker', '—')}\n"
-                f"- **Moneda del modelo (EEFF):** {ctx.get('moneda', 'USD')} | "
-                f"**Moneda de cotización:** {ctx.get('moneda_precio', ctx.get('moneda', 'USD'))} | "
-                f"**Alineadas:** {'SÍ' if ctx.get('monedas_alineadas', True) else 'NO — no uses upside sin FX'}\n"
-                f"- **Decisión cuantitativa del modelo (tab4/tab7):** {ctx.get('decision_modelo', '—')}\n"
-                f"- **Precio Actual de Mercado:** {ctx['precio_mercado']:,.2f}\n"
-                f"- **Valor por Acción Según el Modelo (VPS):** {ctx['vps_modelo']:,.2f} "
-                f"(Upside calculado: {upside_text} — válido solo si monedas alineadas)\n"
-                f"- **WACC Calculado:** {ctx['wacc_calc']*100:.2f}% | **Ke (CAPM):** {ctx['ke_calc']*100:.2f}% | "
-                f"**ROIC:** {roic_text}\n"
-                f"- **Estructura D/E:** {ctx['de_ratio']:.2f} | **Crecimiento Terminal (g):** {ctx['g']*100:.2f}%\n"
-                f"- **Valor del Negocio (EV Base):** {ctx['val_ev']:,.2f}\n"
-                f"- **Valor del Equity Base:** {ctx['val_equity']:,.2f}\n"
-                "---\n"
-                "### INSTRUCCIONES Y FORMATO DE SALIDA\n"
-                "Simula una deliberación crítica entre los tres miembros del comité contrastando estos números con la "
-                "realidad del mercado. Entrega el resultado estrictamente bajo este formato:\n\n"
-                "## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO\n"
-                "- **Aportes del CFO (Estructura y DCF):** [...]\n"
-                "- **Aportes del Analista de Mercado (Sector y Competencia):** [...]\n"
-                "- **Aportes del CRO (Riesgos y Sensibilidad):** [...]\n\n"
-                "## 2. ANÁLISIS DE BRECHA (MODELO VS. MERCADO ACTUAL)\n"
-                "- **Brecha Detectada:** [...]\n"
-                "- **Factores de Mercado no Contemplados:** [...]\n\n"
-                "## 3. DECISIÓN FINAL DE INVERSIÓN\n"
-                "- **RECOMENDACIÓN FINAL:** [INVERTIR / NO INVERTIR / INVERTIR CONDICIONALMENTE]\n"
-                "- **PUNTAJE DE VIABILIDAD:** [Escala 1 a 10]\n"
-                "- **PRECIO OBJETIVO DE CONSENSO (Rango Ajustado):** [...]\n"
-                "- **TESIS Y JUSTIFICACIÓN ESTRATÉGICA:** [...]\n\n"
-                "## 4. FACTORES CRÍTICOS Y PUNTOS DE MONITOREO\n"
-                "1. [...]\n"
-                "2. [...]\n"
-            )
+                return (fmt.format(float(v)) + suf) if v is not None else "N/D"
+            except (TypeError, ValueError):
+                return "N/D"
 
         with st.expander("Generar deliberación del comité con IA", expanded=True):
-            ctx_preview = _extraer_kpis_comite()
+            ctx_preview = _contexto_comite_ia(empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda)
+            _mon_px = ctx_preview.get("moneda_precio") or ""
+            _mon_md = ctx_preview.get("moneda") or ""
             _metrics_tip_row([
                 (
                     "Precio mercado",
-                    f"{ctx_preview['precio_mercado']:,.2f} {ctx_preview.get('moneda', '')}",
-                    "Último precio al que se negoció la acción en el mercado (fuente pública). "
-                    "Es lo que pagan/compran los inversionistas hoy, no el valor del modelo.",
+                    f"{_fmt_or_nd(ctx_preview.get('precio_mercado'))} {_mon_px}".strip(),
+                    "Último precio negociado (misma instantánea que la cabecera y las pestañas 2, 4 y 7). "
+                    "Es lo que paga el mercado hoy, no el valor del modelo.",
                 ),
                 (
                     "VPS modelo",
-                    f"{ctx_preview['vps_modelo']:,.2f}",
-                    "Valor por acción según el DCF de esta herramienta. "
-                    "Si está muy por encima del precio de mercado, el modelo ve la acción 'barata' (y al revés).",
+                    f"{_fmt_or_nd(ctx_preview.get('vps_modelo'))} {_mon_md}".strip(),
+                    "Valor por acción según el DCF de la pestaña 4 con tus supuestos actuales.",
                 ),
                 (
                     "Upside",
-                    f"{ctx_preview['upside']:+.1f}%" if ctx_preview.get("upside") is not None else "N/D",
-                    "Porcentaje de diferencia entre VPS del modelo y precio de mercado. "
-                    "Solo es comparable si ambas cifras están en la misma moneda. No garantiza que el precio se mueva.",
+                    _fmt_or_nd(ctx_preview.get("upside"), "{:+.1f}", "%"),
+                    "Diferencia porcentual VPS vs. precio. Solo se calcula con monedas idénticas y "
+                    "ratio VPS/precio dentro de 1/100–100×.",
                 ),
                 (
                     "EV / Equity",
-                    f"{ctx_preview['val_ev']:,.0f} / {ctx_preview['val_equity']:,.0f}",
-                    "EV = valor del negocio completo. Equity = lo de los dueños tras deudas. "
-                    "Unidades del modelo (p. ej. miles de millones de la moneda del emisor).",
+                    f"{_fmt_or_nd(ctx_preview.get('val_ev'), '{:,.0f}')} / {_fmt_or_nd(ctx_preview.get('val_equity'), '{:,.0f}')}",
+                    f"EV = valor del negocio; Equity = valor para el accionista tras el puente de deuda. "
+                    f"Unidad: {ctx_preview.get('unidad_modelo') or 'N/D'}.",
                 ),
             ], cols=4)
 
-            # Leer config de Consulta IA sin mutar keys de widgets ya creados (iaprov/iakey).
-            # Streamlit prohíbe asignar session_state[key] de un widget tras instanciarlo.
             _opts = ["gemini", "xai", "openai"]
             _prov_consulta = st.session_state.get("iaprov") or "gemini"
             if _prov_consulta not in _opts:
                 _prov_consulta = "gemini"
-            # Inicializar tab4 solo si aún no existe (antes del widget)
             if "tab4_iaprov" not in st.session_state:
                 st.session_state["tab4_iaprov"] = _prov_consulta
 
             with st.expander("Proveedor y API key (compartido con Consulta IA)", expanded=False):
-                prov_ia = st.selectbox(
-                    "Proveedor",
-                    _opts,
-                    key="tab4_iaprov",
+                st.selectbox(
+                    "Proveedor", _opts, key="tab4_iaprov",
                     help="Por defecto toma el proveedor de Consulta IA; no sobrescribe ese widget.",
                 )
-                key_ui = st.text_input(
-                    "API key (opcional — vacío = Gemini por defecto / clave de Consulta IA)",
-                    type="password",
-                    key="tab4_iakey",
-                    placeholder="Vacío = Gemini por defecto",
+                st.text_input(
+                    "API key (opcional — vacío = clave de Consulta IA o GEMINI_API_KEY)",
+                    type="password", key="tab4_iakey", placeholder="Vacío = Gemini por defecto",
                 )
+                _prov_now, _key_now = _clave_ia_efectiva()
                 st.caption(
-                    "Si dejas la API key vacía se usa la de **Consulta IA** (si la escribiste arriba) "
-                    "o st.secrets / variable de entorno GEMINI_API_KEY."
+                    f"Proveedor activo: **{_prov_now}** · clave "
+                    + ("**detectada**" if _key_now else "**no configurada** — define GEMINI_API_KEY en st.secrets")
+                    + ". La clave viaja en cabecera HTTP, nunca en la URL."
                 )
 
-            # Proveedor efectivo: tab4 si el usuario lo cambió; si no, el de Consulta IA
-            prov_ia = st.session_state.get("tab4_iaprov") or st.session_state.get("iaprov") or "gemini"
-            key_ui = (st.session_state.get("tab4_iakey") or "").strip() or (st.session_state.get("iakey") or "")
-
-            _res_ok = st.session_state.get("resultados") or {}
-            _tiene_base = bool(_res_ok.get("tab2") or _res_ok.get("tab7") or _res_ok.get("tab4"))
+            _tiene_base = ctx_preview.get("vps_modelo") is not None
             if not _tiene_base:
                 st.warning(
-                    "Ejecuta **Generar todo** (o al menos pestañas 2 / 4 / 7) antes del comité IA. "
-                    "Sin números del modelo la deliberación no está anclada."
+                    "Ejecuta **Generar todo** o la pestaña 4 antes del comité IA: "
+                    "sin la valoración del modelo la deliberación no está anclada."
+                )
+            elif not ctx_preview.get("monedas_alineadas", False):
+                st.warning(
+                    f"Moneda del modelo ({_mon_md or 'N/D'}) ≠ cotización ({_mon_px or 'N/D'}): "
+                    "el comité tratará el upside como no comparable."
                 )
             if st.button(
-                "▶ Deliberar en el comité (IA)",
-                type="primary",
-                key="btn_tab4_comite_ia",
-                use_container_width=True,
-                disabled=not _tiene_base,
+                "▶ Deliberar en el comité (IA)", type="primary", key="btn_tab4_comite_ia",
+                use_container_width=True, disabled=not _tiene_base,
             ):
-                ctx = _extraer_kpis_comite()
-                if not ctx.get("monedas_alineadas", True):
-                    st.warning(
-                        f"Moneda del modelo ({ctx.get('moneda')}) ≠ cotización ({ctx.get('moneda_precio')}). "
-                        "El comité tratará el upside como no comparable hasta alinear FX."
-                    )
-                    st.info("Comité bloqueado parcialmente: puedes continuar, pero el upside se fuerza a 0 en el prompt.")
                 with st.spinner("El comité interdisciplinario está deliberando…"):
-                    try:
-                        key_eff = (
-                            _resolve_gemini_key(key_ui)
-                            if (prov_ia or "gemini") == "gemini"
-                            else ((key_ui or "").strip() or None)
-                        )
-                        if prov_ia == "gemini" and not key_eff:
-                            key_eff = _resolve_gemini_key(None)
-                        # Usar el endpoint dedicado del comité (no asistente_consulta_financiera):
-                        # ese último imprime «Consulta: …» + el prompt completo en el HTML.
-                        _metricas = {
-                            "empresa": ctx.get("empresa") or empresa,
-                            "ticker": ctx.get("ticker"),
-                            "moneda": ctx.get("moneda"),
-                            "precio_mercado": ctx.get("precio_mercado"),
-                            "vps_modelo": ctx.get("vps_modelo"),
-                            "upside": ctx.get("upside"),
-                            "wacc_calc": ctx.get("wacc_calc"),
-                            "ke_calc": ctx.get("ke_calc"),
-                            "roic_calc": ctx.get("roic_calc"),
-                            "de_ratio": ctx.get("de_ratio"),
-                            "g": ctx.get("g"),
-                            "val_ev": ctx.get("val_ev"),
-                            "val_equity": ctx.get("val_equity"),
-                            # Trazabilidad explícita: el UI no presume unidad ni fuente si no están documentadas.
-                            "unidad_modelo": (st.session_state.get("params") or {}).get("unidad_modelo")
-                                or f"miles de millones de {str(ctx.get('moneda') or 'COP').upper()}",
-                            "unidad_precio": "por acción",
-                            "fuente_precio": st.session_state.get("fuente_precio_mercado"),
-                            "fecha_precio": st.session_state.get("fecha_precio_mercado"),
-                            "fuente_valoracion": st.session_state.get("version_modelo_valoracion")
-                                or "DCF propio · modelacion_logic.py · escenarios base",
-                        }
-                        _audit_ia = L.auditar_contexto_comite_ia(_metricas) if hasattr(L, "auditar_contexto_comite_ia") else {"ok": True, "errors": [], "warnings": []}
-                        if _audit_ia.get("errors"):
-                            st.error("Comité IA bloqueado por errores matemáticos: " + "; ".join(_audit_ia["errors"]))
-                            st.session_state["tab4_comite_ia_html"] = None
-                            st.stop()
-                        if _audit_ia.get("warnings"):
-                            st.warning("Auditoría previa del comité: " + "; ".join(_audit_ia["warnings"]))
-                        if hasattr(L, "generar_recomendacion_comite_ia"):
-                            respuesta = L.generar_recomendacion_comite_ia(
-                                empresa,
-                                api_key=key_eff,
-                                proveedor=prov_ia or "gemini",
-                                metricas=_metricas,
-                            )
-                        else:
-                            # Fallback: no pasar el prompt como «pregunta» al asistente genérico
-                            respuesta = L.asistente_consulta_financiera(
-                                "Resume la tesis de inversión de esta empresa en 4 apartados "
-                                "(CFO, mercado, riesgos, decisión) sin repetir el prompt.",
-                                empresa,
-                                api_key=key_eff,
-                                proveedor=prov_ia or "gemini",
-                            )
-                        _audit_resp = L.auditar_respuesta_comite_ia(respuesta) if hasattr(L, "auditar_respuesta_comite_ia") else {"ok": True, "errors": [], "warnings": []}
-                        if _audit_resp.get("errors"):
-                            st.error("Salida IA no válida: " + "; ".join(_audit_resp["errors"]))
-                            st.session_state["tab4_comite_ia_html"] = None
-                            st.stop()
-                        if _audit_resp.get("warnings"):
-                            st.warning("Auditoría de salida IA: " + "; ".join(_audit_resp["warnings"]))
-                        st.session_state["tab4_comite_ia_html"] = respuesta
-                        try:
-                            _struct = (
-                                L.extraer_resumen_comite_ia(respuesta)
-                                if hasattr(L, "extraer_resumen_comite_ia")
-                                else {}
-                            )
-                            _txt = (_struct or {}).get("texto") or (
-                                L._html_a_texto(respuesta, 800) if hasattr(L, "_html_a_texto") else str(respuesta)[:800]
-                            )
-                            # Evitar guardar el prompt si por algún motivo llegó al HTML
-                            _up = (_txt or "").upper()
-                            if "ACTÚA COMO UN COMITÉ" in _up or "ACTUA COMO UN COMITE" in _up or "CONTEXTO DE ENTRADA" in _up:
-                                _txt = (_struct or {}).get("texto") or ""
-                                if not _txt and _struct:
-                                    partes = []
-                                    if _struct.get("recomendacion"):
-                                        partes.append(f"Recomendación final: {_struct['recomendacion']}")
-                                    if _struct.get("puntaje"):
-                                        partes.append(f"Puntaje: {_struct['puntaje']}")
-                                    for i, p in enumerate((_struct.get("monitoreo") or [])[:3], 1):
-                                        partes.append(f"{i}. {p}")
-                                    _txt = "\n".join(partes)
-                            L.guardar_resultado_tab("comite_ia", empresa, {
-                                "texto": _txt,
-                                "struct": _struct,
-                                "proveedor": prov_ia or "gemini",
-                            })
-                            st.session_state["tab4_comite_ia_texto"] = _txt
-                            st.session_state["tab4_comite_ia_struct"] = _struct
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        st.error(str(e))
-                        st.session_state["tab4_comite_ia_html"] = None
+                    _ok_c, _msg_c = _ejecutar_comite_ia_sesion(
+                        empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
+                    )
+                if not _ok_c:
+                    st.error(_msg_c)
+            _aud = st.session_state.get("tab4_comite_ia_auditoria") or {}
+            if _aud.get("warnings") and st.session_state.get("tab4_comite_ia_html"):
+                with st.expander("Advertencias de la auditoría previa", expanded=False):
+                    for _wmsg in _aud["warnings"]:
+                        st.markdown(f"- {_wmsg}")
 
-            if st.session_state.get("tab4_comite_ia_html"):
+            if st.session_state.get("tab4_comite_ia_html") and st.session_state.get("tab4_comite_empresa") == empresa:
                 st.markdown("###### Salida del comité")
                 _html(st.session_state["tab4_comite_ia_html"])
                 _explain(
@@ -4753,9 +4393,10 @@ def main():
             "MVP cuantitativo: usa rendimientos históricos ajustados para estimar riesgo y retorno. "
             "No convierte automáticamente el upside del DCF en rendimiento esperado."
         )
-        st.warning(
-            "Verifica que todos los activos estén expresados en una moneda común. "
-            "Esta versión bloquea universos con monedas distintas y no aplica conversión FX."
+        st.caption(
+            "Universos con activos en COP (BVC) y USD se convierten a la moneda de análisis "
+            "con la serie diaria COP/USD (Yahoo COP=X), fecha a fecha: el riesgo cambiario "
+            "queda incluido en los retornos. Otras monedas se bloquean."
         )
         # Vincula el portafolio a la empresa seleccionada en el modelo, sin convertir
         # el upside del DCF en retorno esperado estadístico.
@@ -4814,8 +4455,21 @@ def main():
             key="portfolio_objective",
         )
         _pperiod = st.selectbox("Ventana histórica", ["2y", "5y", "10y"], index=1, key="portfolio_period")
+        _pbase = st.selectbox(
+            "Moneda de análisis", ["USD", "COP"], key="portfolio_base_currency",
+            help="Todas las series se expresan en esta moneda antes de calcular retornos y covarianzas.",
+        )
+
+        def _norm_tk_portafolio(x):
+            # .CL solo para nemotécnicos BVC del catálogo (NUTRESA → NUTRESA.CL; AAPL intacto).
+            x = x.strip().upper()
+            try:
+                return L.asegurar_sufijo_cl_bvc(x) or x
+            except Exception:
+                return x
+
         _portfolio_tickers_manual = tuple(dict.fromkeys(
-            x.strip().upper() for x in _ptickers_text.split(",") if x.strip()
+            _norm_tk_portafolio(x) for x in _ptickers_text.split(",") if x.strip()
         ))
         _portfolio_tickers_final = list(_portfolio_tickers_manual)
         if _portfolio_incluir_empresa and _portfolio_ticker_actual:
@@ -4823,7 +4477,7 @@ def main():
                 _portfolio_tickers_final.insert(0, _portfolio_ticker_actual)
         _portfolio_request = (
             tuple(_portfolio_tickers_final), float(_prf), float(_pmax),
-            _pobjective, _pperiod, bool(_portfolio_incluir_empresa),
+            _pobjective, _pperiod, _pbase, bool(_portfolio_incluir_empresa),
             _portfolio_empresa_actual, _portfolio_ticker_actual,
         )
         if st.button("Optimizar portafolio", key="portfolio_run", type="primary"):
@@ -4833,6 +4487,7 @@ def main():
                     preparar_estadisticas as _prep_portfolio,
                     optimizar_portafolio as _opt_portfolio,
                     construir_frontera as _frontier_portfolio,
+                    convertir_a_moneda_comun as _fx_portfolio,
                 )
                 _ptickers = list(_portfolio_tickers_final)
                 if len(_ptickers) < 2:
@@ -4845,12 +4500,6 @@ def main():
                     except Exception:
                         _meta[_ticker] = None
                 _currencies = {str(v).upper() for v in _meta.values() if v}
-                if len(_currencies) > 1:
-                    raise ValueError(
-                        "Hay activos con monedas diferentes: "
-                        + ", ".join(f"{k}={v or 'N/D'}" for k, v in _meta.items())
-                        + ". Convierte precios a una moneda común antes de optimizar."
-                    )
                 if any(not v for v in _meta.values()):
                     raise ValueError("No se pudo confirmar la moneda de todos los activos; optimización bloqueada.")
                 _download = _yf.download(
@@ -4876,6 +4525,10 @@ def main():
                 _missing_tickers = sorted(set(_ptickers) - set(map(str, _prices.columns)))
                 if _missing_tickers:
                     raise ValueError("No hay precios descargables para: " + ", ".join(_missing_tickers))
+                _fx_series = None
+                if any(str(v).upper() != _pbase for v in _meta.values()):
+                    _fx_series = _serie_cop_por_usd("10y" if _pperiod == "10y" else "5y")
+                _prices = _fx_portfolio(_prices, _meta, _fx_series, moneda_base=_pbase)
                 _mu, _cov = _prep_portfolio(_prices)
                 # Recuperar señal DCF de la empresa focal solo como contexto de valoración.
                 # No se mezcla con la media histórica de retornos del optimizador.
@@ -4898,7 +4551,8 @@ def main():
                     "return": _res["retorno_esperado"],
                     "volatility": _res["volatilidad"],
                     "sharpe": _res["sharpe"],
-                    "currency": next(iter(_currencies), None),
+                    "currency": _pbase,
+                    "monedas_origen": dict(_meta),
                     "period": _pperiod,
                     "frontier": _frontier.to_dict(orient="records"),
                     "prices_last_date": str(_prices.dropna().index[-1]),
@@ -4917,7 +4571,8 @@ def main():
             st.info("Los parámetros de cartera cambiaron. Pulsa **Optimizar portafolio** para actualizar los resultados.")
         if _portfolio_saved:
             st.caption(
-                f"Moneda detectada: {_portfolio_saved['currency']} · "
+                f"Moneda de análisis: {_portfolio_saved['currency']} "
+                f"(origen: {', '.join(f'{k} {v}' for k, v in (_portfolio_saved.get('monedas_origen') or {}).items())}) · "
                 f"Ventana: {_portfolio_saved['period']} · "
                 f"Última fecha de datos: {_portfolio_saved['prices_last_date']}"
             )
@@ -5037,6 +4692,11 @@ def main():
             key=_sim_ticker_key,
             help="Se propone el ticker de la empresa valorada. Puedes corregirlo; cada empresa conserva su propio ticker.",
         ).strip().upper()
+        try:
+            # .CL solo para nemotécnicos BVC (NUTRESA → NUTRESA.CL; TSLA intacto).
+            _sim_ticker = L.asegurar_sufijo_cl_bvc(_sim_ticker) or _sim_ticker
+        except Exception:
+            pass
         _sim_c1, _sim_c2, _sim_c3 = st.columns(3)
         with _sim_c1:
             _sim_capital = st.number_input(
@@ -5086,9 +4746,10 @@ def main():
                 "Optimista (%)", min_value=-90.0, max_value=100.0, value=18.0,
                 step=1.0, key="investment_sim_bull",
             )
+        _fx_spot = _tasa_cop_usd_spot()
         _sim_fx = st.number_input(
             "Tasa de cambio COP por USD (solo si las monedas difieren)",
-            min_value=0.0001, value=4000.0, step=50.0, format="%.4f",
+            min_value=0.0001, value=float(round(_fx_spot, 2)) if _fx_spot else 4000.0, step=50.0, format="%.4f",
             key="investment_sim_fx",
             help="Se usa para convertir el capital y el resultado a la moneda original. Se supone constante durante el horizonte; no modela riesgo cambiario.",
         )
@@ -5113,6 +4774,18 @@ def main():
                 if _sim_market_price is None or not np.isfinite(float(_sim_market_price)) or float(_sim_market_price) <= 0:
                     raise ValueError("No se pudo obtener un precio de mercado válido para el ticker.")
                 _sim_market_price = float(_sim_market_price)
+                # Consistencia cruzada: si el ticker es el de la empresa valorada, usar
+                # la MISMA instantánea de precio que la cabecera y las pestañas 2/4/7.
+                try:
+                    _snap_sim = L.instantanea_precio_mercado(_sim_empresa) if _sim_empresa else {}
+                    if (
+                        _snap_sim.get("precio")
+                        and str(_snap_sim.get("ticker") or "").upper() == _sim_ticker
+                        and str(_snap_sim.get("moneda") or _sim_currency).upper() == _sim_currency
+                    ):
+                        _sim_market_price = float(_snap_sim["precio"])
+                except Exception:
+                    pass
                 _sim_dcf = {}
                 if _sim_empresa:
                     try:
