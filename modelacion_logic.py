@@ -1023,19 +1023,23 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
         fin_cur = "USD"
     if isinstance(px_cur, str) and px_cur.upper() in ("US$", "U$S"):
         px_cur = "USD"
-    # Propagar moneda también dentro de params (UI / CAPM / VPS)
-    # Alinear monedas por ticker (BVC .CL → COP/COP; US → USD/USD)
+    # Propagar por separado la moneda contable y la moneda de cotización.
+    # No sobrescribir una moneda declarada por Yahoo sin convertir los importes.
     used_ticker = asegurar_sufijo_cl_bvc(used_ticker) or used_ticker
-    if str(used_ticker).upper().endswith(".CL") or es_ticker_bvc(used_ticker):
-        fin_cur, px_cur = "COP", "COP"
-    elif str(used_ticker).split(".")[0].upper() in _TICKERS_NUNCA_CL:
-        fin_cur, px_cur = "USD", "USD"
+    ticker_local_bvc = str(used_ticker).upper().endswith(".CL") or es_ticker_bvc(used_ticker)
+    fin_cur = str(info.get("financialCurrency") or fin_cur or "").upper().replace("US$", "USD").replace("COL", "COP")
+    px_cur = str(info.get("currency") or px_cur or "").upper().replace("US$", "USD").replace("COL", "COP")
+    if ticker_local_bvc:
+        # El downloader ya bloquea EEFF explícitamente no-COP. Si Yahoo no informa
+        # moneda contable/cotización, COP se usa como inferencia por el mercado local.
+        fin_cur = fin_cur or "COP"
+        px_cur = px_cur or "COP"
     else:
-        # respetar Yahoo si no es BVC/US conocido
-        fin_cur = fin_cur if fin_cur else "USD"
-        px_cur = px_cur if px_cur else fin_cur
-        # No cambiar la etiqueta de moneda sin convertir los estados financieros.
-        # Si difieren, las funciones de valoración deben bloquear el upside hasta convertir por FX.
+        # Para acciones US inferir USD solo cuando Yahoo no trae moneda; no reetiquetar
+        # EEFF que declaren otra divisa (p. ej. ADRs con EEFF COP y precio USD).
+        es_ticker_us = str(used_ticker).split(".")[0].upper() in _TICKERS_NUNCA_CL
+        fin_cur = fin_cur or ("USD" if es_ticker_us else "USD")
+        px_cur = px_cur or ("USD" if es_ticker_us else fin_cur)
     # No se permite que la regla BVC reetiquete EEFF en USD como COP sin FX.
     # El downloader ya bloquea ese caso para .CL; para tickers ADR se preservan
     # monedas distintas y el upside queda no comparable hasta convertir con FX.
