@@ -24,6 +24,14 @@ class MultiplesValuationTests(unittest.TestCase):
         self.assertEqual(result["q1"], 8)
         self.assertEqual(result["q3"], 10)
 
+    def test_rejects_overflow_in_enterprise_value(self):
+        with self.assertRaisesRegex(ValueError, "resultados no finitos"):
+            valoracion_por_multiplos(1e308, [2.0])
+
+    def test_rejects_overflow_in_value_per_share(self):
+        with self.assertRaisesRegex(ValueError, "resultados no finitos"):
+            valoracion_por_multiplos(1e300, [1.0], acciones_millones=1e-10)
+
     def test_negative_net_debt_means_net_cash(self):
         result = valoracion_por_multiplos(10, [5], deuda_neta=-20)
         self.assertEqual(result["enterprise_value"], 50)
