@@ -375,12 +375,32 @@ def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
         tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
     if tk:
         tk = asegurar_sufijo_cl_bvc(tk)
-    # Catálogo BVC estático
+    # Catálogo BVC estático (no runtime): la unidad contable y la cotización son COP.
     if nombre_empresa and (nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE or nombre_empresa in EMPRESAS):
         return "COP", "COP"
+    # Runtime Yahoo: respetar por separado la moneda real de los EEFF y la de
+    # cotización (p. ej. ADR EC: EEFF COP y precio USD). Incluso para .CL, si
+    # Yahoo etiqueta la cotización en otra divisa, no ocultar la discrepancia.
+    fuente_emp = str(emp.get("fuente") or "")
+    params_emp = emp.get("params") or {}
+    if fuente_emp.lower().startswith("yahoo"):
+        mm_runtime = str(
+            params_emp.get("moneda") or emp.get("moneda") or
+            params_emp.get("financialCurrency") or ""
+        ).upper().replace("US$", "USD").replace("COL", "COP")
+        mp_runtime = str(
+            params_emp.get("moneda_precio") or params_emp.get("precio_moneda") or
+            emp.get("moneda_precio") or params_emp.get("currency") or ""
+        ).upper().replace("US$", "USD").replace("COL", "COP")
+        if str(tk or "").upper().endswith(".CL") or emp.get("ticker_bvc"):
+            return mm_runtime or "COP", mp_runtime or "COP"
+        if mm_runtime and mp_runtime:
+            return mm_runtime, mp_runtime
     if emp and (emp.get("ticker_bvc") or str(tk or "").endswith(".CL") or es_ticker_bvc(tk)):
         if str(tk or "").endswith(".CL") or emp.get("ticker_bvc") or es_ticker_bvc(tk):
-            # Si es claramente BVC
+            # Ticker local BVC: precio y modelo se expresan en COP. Los EEFF Yahoo
+            # en otra moneda se bloquean en descargar_financieros_yfinance; nunca se
+            # corrige la etiqueta sin convertir los importes.
             if str(tk or "").endswith(".CL") or (emp.get("ticker_bvc") and es_ticker_bvc(emp.get("ticker_bvc"))):
                 return "COP", "COP"
     if tk and str(tk).upper().endswith(".CL"):
@@ -997,25 +1017,32 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
 
     # financialCurrency = moneda de los EEFF (modelo); currency = moneda del precio de cotización.
     # En ADRs (ej. EC) pueden diferir: EEFF en COP, precio en USD → upside no comparable sin FX.
-    fin_cur = (info.get("financialCurrency") or info.get("currency") or "USD")
-    px_cur = (info.get("currency") or fin_cur)
+    fin_cur = (info.get("financialCurrency") or info.get("currency") or "")
+    px_cur = (info.get("currency") or fin_cur or "")
     if isinstance(fin_cur, str) and fin_cur.upper() in ("US$", "U$S"):
         fin_cur = "USD"
     if isinstance(px_cur, str) and px_cur.upper() in ("US$", "U$S"):
         px_cur = "USD"
-    # Propagar moneda también dentro de params (UI / CAPM / VPS)
-    # Alinear monedas por ticker (BVC .CL → COP/COP; US → USD/USD)
+    # Propagar por separado la moneda contable y la moneda de cotización.
+    # No sobrescribir una moneda declarada por Yahoo sin convertir los importes.
     used_ticker = asegurar_sufijo_cl_bvc(used_ticker) or used_ticker
-    if str(used_ticker).upper().endswith(".CL") or es_ticker_bvc(used_ticker):
-        fin_cur, px_cur = "COP", "COP"
-    elif str(used_ticker).split(".")[0].upper() in _TICKERS_NUNCA_CL:
-        fin_cur, px_cur = "USD", "USD"
+    ticker_local_bvc = str(used_ticker).upper().endswith(".CL")
+    fin_cur = str(info.get("financialCurrency") or fin_cur or "").upper().replace("US$", "USD").replace("COL", "COP")
+    px_cur = str(info.get("currency") or px_cur or "").upper().replace("US$", "USD").replace("COL", "COP")
+    if ticker_local_bvc:
+        # El downloader ya bloquea EEFF explícitamente no-COP. Si Yahoo no informa
+        # moneda contable/cotización, COP se usa como inferencia por el mercado local.
+        fin_cur = fin_cur or "COP"
+        px_cur = px_cur or "COP"
     else:
-        # respetar Yahoo si no es BVC/US conocido
-        fin_cur = fin_cur if fin_cur else "USD"
-        px_cur = px_cur if px_cur else fin_cur
-        # No cambiar la etiqueta de moneda sin convertir los estados financieros.
-        # Si difieren, las funciones de valoración deben bloquear el upside hasta convertir por FX.
+        # Para acciones US inferir USD solo cuando Yahoo no trae moneda; no reetiquetar
+        # EEFF que declaren otra divisa (p. ej. ADRs con EEFF COP y precio USD).
+        es_ticker_us = str(used_ticker).split(".")[0].upper() in _TICKERS_NUNCA_CL
+        fin_cur = fin_cur or ("USD" if es_ticker_us else "USD")
+        px_cur = px_cur or ("USD" if es_ticker_us else fin_cur)
+    # No se permite que la regla BVC reetiquete EEFF en USD como COP sin FX.
+    # El downloader ya bloquea ese caso para .CL; para tickers ADR se preservan
+    # monedas distintas y el upside queda no comparable hasta convertir con FX.
     params["moneda"] = fin_cur
     params["moneda_precio"] = px_cur
     params["precio_moneda"] = px_cur
@@ -1785,6 +1812,22 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         if fin is None or fin.empty:
             return None, f"Sin estado de resultados en Yahoo para {ticker_yf}"
 
+        # Moneda contable real de los EEFF, separada de la moneda de cotización.
+        # En un ticker BVC (.CL) se espera COP: si Yahoo declara otra divisa,
+        # no etiquetar cifras como COP ni convertirlas con FX spot; detener y pedir
+        # una fuente local/EEFF consolidados. Para ADRs no BVC sí se permite COP/USD
+        # distinto y el comparador de upside debe bloquearse si no hay conversión.
+        fin_currency_raw = info.get("financialCurrency") or info.get("currency")
+        fin_currency = str(fin_currency_raw or "").upper().replace("US$", "USD").replace("COL", "COP")
+        es_bvc_local = str(ticker_yf).upper().endswith(".CL")
+        if es_bvc_local and fin_currency and fin_currency not in ("COP", "COL"):
+            return None, (
+                f"Moneda incompatible en Yahoo para ticker BVC {ticker_yf}: "
+                f"financialCurrency/currency={fin_currency}. No se etiquetarán EEFF "
+                "como COP ni se aplicará una conversión FX spot a históricos. "
+                "Usa EEFF consolidados en COP o valida una serie con FX histórico."
+            )
+
         # --- Tasa impositiva efectiva (crítica para NOPAT/FCFF) ---
         if tax_efectiva is None:
             etr = _safe_float(info.get("effectiveTaxRate"))
@@ -1881,6 +1924,12 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
                 f"Años omitidos por datos vacíos/cero: {omitidos or 'N/D'}."
             )
         df = pd.DataFrame(rows).sort_values("Año").set_index("Año")
+        # Metadata no cambia magnitudes: importes en miles de millones de la
+        # moneda de los EEFF. Mantenerla permite auditar COP vs USD aguas abajo.
+        df.attrs["moneda"] = fin_currency or ("COP" if es_bvc_local else "USD")
+        df.attrs["moneda_fuente"] = "Yahoo financialCurrency" if fin_currency else "inferida_por_ticker"
+        df.attrs["unidad"] = "miles de millones"
+        df.attrs["ticker_yf"] = ticker_yf
         while len(df) > 3 and abs(float(df["Ingresos"].iloc[-1])) < 1e-9:
             df = df.iloc[:-1]
         extra = f" Omitidos {omitidos}." if omitidos else ""
