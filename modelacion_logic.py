@@ -1685,11 +1685,11 @@ DATOS_PUBLICOS_CURADOS = {
         "fuente": "EEFF consolidados oficiales Grupo Nutresa 2025/2024 (ingresos, EBIT, CAPEX y balance); D&A redondeada de MarketScreener; NWC derivado del balance",
         "años": [2024, 2025],
         "Ingresos": [18589.956, 20578.988],
-        "EBITDA": [2325.0, 2866.0],
+        "EBITDA": [2324.996, 2866.358],
         "EBIT": [1840.996, 2403.358],
         "Depreciacion": [484.0, 463.0],
         "CAPEX": [591.091, 422.916],
-        "NWC": [2345.536, 2100.025],
+        "NWC": [2361.536, 2100.025],
     },
 }
 
