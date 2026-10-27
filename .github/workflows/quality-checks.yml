@@ -33,3 +33,37 @@ jobs:
 
       - name: Ejecutar pruebas automatizadas
         run: pytest -q
+
+      - name: Smoke test de las aplicaciones Streamlit
+        shell: bash
+        run: |
+          set -euo pipefail
+          for entry in "streamlit_app.py:8501" "streamlit_app-2.py:8502"; do
+            app="${entry%%:*}"
+            port="${entry##*:}"
+            log_file="$(mktemp)"
+            streamlit run "$app" --server.headless true --server.address 127.0.0.1 \
+              --server.port "$port" --browser.gatherUsageStats false >"$log_file" 2>&1 &
+            app_pid=$!
+            ready=0
+            for _ in $(seq 1 60); do
+              if curl --fail --silent "http://127.0.0.1:$port/_stcore/health" >/dev/null; then
+                ready=1
+                break
+              fi
+              if ! kill -0 "$app_pid" 2>/dev/null; then
+                break
+              fi
+              sleep 1
+            done
+            kill "$app_pid" 2>/dev/null || true
+            wait "$app_pid" 2>/dev/null || true
+            if [ "$ready" -ne 1 ]; then
+              echo "La aplicación $app no inició correctamente."
+              cat "$log_file"
+              rm -f "$log_file"
+              exit 1
+            fi
+            rm -f "$log_file"
+            echo "Smoke test correcto: $app"
+          done
