@@ -1026,7 +1026,7 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
     # Propagar por separado la moneda contable y la moneda de cotización.
     # No sobrescribir una moneda declarada por Yahoo sin convertir los importes.
     used_ticker = asegurar_sufijo_cl_bvc(used_ticker) or used_ticker
-    ticker_local_bvc = str(used_ticker).upper().endswith(".CL") or es_ticker_bvc(used_ticker)
+    ticker_local_bvc = str(used_ticker).upper().endswith(".CL")
     fin_cur = str(info.get("financialCurrency") or fin_cur or "").upper().replace("US$", "USD").replace("COL", "COP")
     px_cur = str(info.get("currency") or px_cur or "").upper().replace("US$", "USD").replace("COL", "COP")
     if ticker_local_bvc:
@@ -1819,7 +1819,7 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         # distinto y el comparador de upside debe bloquearse si no hay conversión.
         fin_currency_raw = info.get("financialCurrency") or info.get("currency")
         fin_currency = str(fin_currency_raw or "").upper().replace("US$", "USD").replace("COL", "COP")
-        es_bvc_local = str(ticker_yf).upper().endswith(".CL") or es_ticker_bvc(ticker_yf)
+        es_bvc_local = str(ticker_yf).upper().endswith(".CL")
         if es_bvc_local and fin_currency and fin_currency not in ("COP", "COL"):
             return None, (
                 f"Moneda incompatible en Yahoo para ticker BVC {ticker_yf}: "
