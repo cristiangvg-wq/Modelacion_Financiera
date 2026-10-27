@@ -3990,9 +3990,10 @@ def motor_decision_institucional(
             )
     if equity_base is not None and equity_base <= 0:
         vetos.append(
-            "Equity value base ≤ 0 tras el bridge (EV − deuda neta + caja − NCI − otros + asociados). "
-            "Revisa: (1) FCFF del horizonte y TV Gordon, (2) deuda neta y NCI en la misma unidad, "
-            "(3) que el último año histórico no tenga FCFF atípico negativo contaminando la proyección."
+            "Equity value base ≤ 0 tras el bridge. Con deuda neta: Equity = EV − deuda neta − NCI − otros claims + asociados; "
+            "con deuda bruta: Equity = EV − deuda bruta + caja − NCI − otros claims + asociados. "
+            "Compara en el detalle del puente el EV mínimo para Equity = 0 y verifica que EV, deuda, caja, NCI y asociados "
+            "estén en la misma moneda/unidad; revisa también FCFF proyectado y valor terminal."
         )
     elif equity_base is not None and ev_base is not None and float(ev_base) > 0 and float(equity_base) < 0.1 * float(ev_base):
         alertas.append(
@@ -4695,6 +4696,12 @@ def valoracion_dcf(
         "(-) Otros claims": -otros_claims,
         "(+) Asociados / JV": asociados,
         "Equity atribuible": equity,
+        # Diagnósticos del bridge para detectar desajustes de escala y deuda.
+        # Se expresan en la misma unidad monetaria que FCFF/EV (normalmente miles de millones).
+        "Claims netos descontados del EV": deuda_neta + nci + otros_claims - asociados,
+        "EV mínimo para Equity = 0": deuda_neta + nci + otros_claims - asociados,
+        "Equity / EV (%)": (equity / ev * 100 if ev else None),
+        "Deuda neta / EV (%)": (deuda_neta / ev * 100 if ev else None),
         "FCFF usado en TV" + (" (normalizado N+1)" if reinv_term is not None else " (último año)"): (
             float(nopat_final) * (1 + g_use) * (1 - reinv_term) if reinv_term is not None else fcff_tv),
         "Reinversión terminal (% NOPAT)": (reinv_term * 100 if reinv_term is not None else 0.0),
