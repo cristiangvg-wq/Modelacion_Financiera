@@ -360,6 +360,30 @@ class TestNucleoValoracion(unittest.TestCase):
         row, _, _, _ = L._fila_sectorial_desde_emp("Empresa sin capital invertido", emp)
         self.assertIsNone(row["ROIC (%)"])
 
+    def test_recalcular_fcff_rechaza_datos_faltantes(self):
+        proyeccion = pd.DataFrame({
+            "EBIT": [100.0, np.nan],
+            "Depreciacion": [10.0, 10.0],
+            "CAPEX": [5.0, 5.0],
+            "Delta_NWC": [1.0, 1.0],
+        })
+        with self.assertRaisesRegex(ValueError, "ausentes o no finitos"):
+            L.recalcular_fcff(proyeccion, tax=0.30)
+
+    def test_recalcular_fcff_rechaza_tasa_fiscal_invalida(self):
+        proyeccion = pd.DataFrame({
+            "EBIT": [100.0], "Depreciacion": [10.0],
+            "CAPEX": [5.0], "Delta_NWC": [1.0],
+        })
+        with self.assertRaisesRegex(ValueError, "tasa fiscal"):
+            L.recalcular_fcff(proyeccion, tax=1.2)
+
+    def test_normalizador_sectorial_maneja_acentos_y_guiones_unicode(self):
+        self.assertEqual(
+            L._normalizar_texto_sector("  UTILITÉS—RÉGULÉES   ÉLECTRIQUES "),
+            "utilites-regulees electriques",
+        )
+
     def test_empresa_personalizada_csv(self):
         frame = pd.DataFrame({
             "Año": [2021, 2022, 2023, 2024],
