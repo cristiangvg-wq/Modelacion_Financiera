@@ -136,6 +136,11 @@ class TestNucleoValoracion(unittest.TestCase):
         self.assertEqual(len(L.EMPRESAS), 7)
         for name, company in L.EMPRESAS.items():
             with self.subTest(company=name):
+                if not company.get("historico"):
+                    # Sin serie curada verificada (EPM, Enel): exige EEFF del usuario.
+                    with self.assertRaises(ValueError):
+                        L.cargar_y_limpiar_excel(None, name, usar_datos_publicos=False)
+                    continue
                 hist, _ = L.cargar_y_limpiar_excel(None, name, usar_datos_publicos=False)
                 projection, _meta = L.proyectar_por_drivers(
                     hist, horizonte=5, tax=company["params"]["tax"]
@@ -152,6 +157,9 @@ class TestNucleoValoracion(unittest.TestCase):
 
     def test_auditoria_historica_no_modifica_datos_y_detecta_diferencias(self):
         hist, _ = L.cargar_y_limpiar_excel(None, "GEB — Grupo Energía Bogotá", usar_datos_publicos=False)
+        # La serie curada ya cumple las identidades; se introduce una diferencia
+        # deliberada para comprobar que la auditoría la detecta sin corregirla.
+        hist.loc[hist.index[-1], "FCFF"] = float(hist["FCFF"].iloc[-1]) + 500.0
         original = hist.copy(deep=True)
         findings = L.auditar_consistencia_historica(hist)
         self.assertTrue(findings)
@@ -160,6 +168,8 @@ class TestNucleoValoracion(unittest.TestCase):
 
     def test_pestana_auditoria_funciona_para_catalogo(self):
         for name, company in L.EMPRESAS.items():
+            if not company.get("historico"):
+                continue  # sin serie curada: requiere EEFF del usuario
             with self.subTest(company=name):
                 p = company["params"]
                 html, checks = L.tab3_auditoria_teorica(

@@ -175,6 +175,20 @@ class TestValoracion(BaseFake):
         self.assertAlmostEqual(r["precio"], 31850.1, places=4)
         self.assertIsNone(L.convertir_precio_a_moneda_modelo(10.0, "EUR", "COP")["precio"])
 
+    def test_crecimiento_de_convergencia_coherente_con_la_moneda(self):
+        # COP converge a la inflación de largo plazo (~6 %), no al 3 % genérico.
+        self.assertEqual(L.g_convergencia_empresa("ISA — Interconexión Eléctrica"), 0.06)
+        df, _ = L.cargar_y_limpiar_excel(None, "ISA — Interconexión Eléctrica", True)
+        self.assertEqual(df.attrs.get("g_convergencia"), 0.06)
+        proj, meta = L.proyectar_variables_con_meta(df, 5)
+        crec = proj["Ingresos"].pct_change().iloc[-1]
+        self.assertAlmostEqual(crec, 0.06, places=6)
+
+    def test_kd_catalogo_coherente_con_rf(self):
+        rf = L.CAPM_POR_MERCADO["CO"]["rf"]
+        for nombre, emp in L._EMPRESAS_CATALOGO_INMUTABLE.items():
+            self.assertGreaterEqual(emp["params"]["kd"], rf, nombre)
+
     def test_isa_deuda_neta_reportada(self):
         p = L._EMPRESAS_CATALOGO_INMUTABLE["ISA — Interconexión Eléctrica"]["params"]
         self.assertEqual(p["deuda_neta"], 30430)

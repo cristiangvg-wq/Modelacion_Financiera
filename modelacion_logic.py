@@ -170,148 +170,73 @@ COLOR_WARNING = "#F59E0B"
 COLOR_DANGER = "#EF4444"
 
 # =============================================================================
-# CATÁLOGO DE EMPRESAS (BVC + sector)
-# Valores financieros en miles de millones COP (reportes públicos) para catálogo BVC
-# Precio de mercado: Yahoo Finance (tickers BVC .CL)
+# CATÁLOGO DE EMPRESAS PRECARGADAS (respaldo curado, no fuente principal)
+# Orden de fuentes de una empresa: (1) estados financieros cargados por el usuario,
+# (2) descarga de Yahoo Finance, (3) esta serie curada, con aviso visible de fuente.
+# Los datos viven en datos_curados.json con fuente y estado de verificación por
+# empresa. Los años 2016-2021 del catálogo anterior (valores redondos y crecimientos
+# constantes) se eliminaron; EPM y Enel Colombia quedan sin serie: requieren EEFF.
+# Montos en miles de millones de COP.
 # =============================================================================
-EMPRESAS = {
-    "ISA — Interconexión Eléctrica": {
-        "ticker_bvc": "ISA", "ticker_yf": "ISA.CL",
-        "sector": "Transmisión de energía / Infraestructura",
-        "descripcion": "Transporta electricidad a alta tensión en Colombia y Latinoamérica. También opera carreteras y telecomunicaciones.",
-        "params": {"de_ratio": 1.20, "kd": 0.08, "tax": 0.22, "g": 0.03, "beta_u": 0.42,
-                   # Puente actualizado a jun-2026 (informe 2T26 ISA, miles de millones COP):
-                   # deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539.
-                   # Antes: deuda_neta 40.350 (≈10 billones por encima del reportado → VPS ~9.000 COP menor).
-                   "capital_invertido": 45000, "deuda_neta": 30430, "inversion_inicial": 5000, "caja": 3725, "nci": 10539, "otros_claims": 0, "asociados": 4500, "acciones": 1108, "exit_multiple": 8.4, "moneda": "COP"},
-                        "historico": {
-            "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-            "Ingresos": [7200, 7800, 8400, 9045, 10180, 11117, 13356, 14171, 14935, 15918],
-            "EBITDA": [4100, 4500, 4850, 5200, 5850, 6884, 7772.6, 8866.0, 9506.8, 8495.2],
-            "EBIT": [3200, 3550, 3800, 4100, 4650, 6072, 6766.3, 7598.0, 8479.5, 7415.0],
-            "Depreciacion": [700, 750, 800, 850, 900, 812, 1006.3, 1268.0, 1027.2, 1080.2],
-            "CAPEX": [1800, 1950, 2050, 2100, 2311, 761, 1832.9, 4632.0, 1578.1, 1706.3],
-            "NWC": [950, 1050, 1120, 1200, 1350, 1450, 1068.5, 1130.7, 1194.8, 1273.4],
-            "Delta_NWC": [0.0, 100.0, 70.0, 80.0, 150.0, 100.0, 0.0, 62.2, 64.1, 78.7],
-            "NOPAT": [2080.0, 2307.5, 2470.0, 2665.0, 3022.5, 3946.8, 4398.1, 4938.7, 5511.7, 4819.8],
-            "FCFF": [980.0, 1007.5, 1150.0, 1335.0, 1461.5, 3897.8, 3571.5, 1512.5, 4896.7, 4115.0],
-        },
-    },
-    "GEB — Grupo Energía Bogotá": {
-        "ticker_bvc": "GEB", "ticker_yf": "GEB.CL",
-        "sector": "Transmisión y distribución de energía / Gas",
-        "descripcion": "Grupo energético de Bogotá: transmisión eléctrica, gas natural y distribución.",
-        "params": {"de_ratio": 0.95, "kd": 0.075, "tax": 0.35, "g": 0.032, "beta_u": 0.40,
-                   "capital_invertido": 38000, "deuda_neta": 17170, "inversion_inicial": 3500, "caja": 2430, "nci": 1500, "otros_claims": 0, "asociados": 800, "acciones": 9181, "exit_multiple": 13.6, "moneda": "COP"},
-                        "historico": {
-            "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-            "Ingresos": [4800, 5200, 5700, 6200, 6500, 6700, 6874.6, 7953.7, 7971.6, 8015.6],
-            "EBITDA": [2400, 2600, 2850, 3100, 3300, 3500, 5400.0, 5737.8, 5394.8, 6153.3],
-            "EBIT": [1850, 2000, 2200, 2400, 2600, 2800, 4563.8, 4758.9, 4425.7, 5118.5],
-            "Depreciacion": [380, 420, 460, 500, 550, 600, 836.2, 979.0, 969.1, 1034.8],
-            "CAPEX": [900, 1000, 1100, 1200, 1100, 1300, 1906.7, 1351.5, 1896.3, 1973.3],
-            "NWC": [650, 700, 750, 800, 850, 900, 550.0, 636.3, 637.7, 641.3],
-            "Delta_NWC": [0.0, 50.0, 50.0, 50.0, 50.0, 50.0, 0.0, 86.3, 1.4, 3.5],
-            "NOPAT": [1202.5, 1300.0, 1430.0, 1560.0, 1690.0, 1820.0, 2966.5, 3093.3, 2876.7, 3327.1],
-            "FCFF": [682.5, 670.0, 740.0, 810.0, 990.0, 1120.0, 1896.0, 2634.4, 1948.1, 2385.0],
-        },
-    },
-    "CELSIA — Celsia S.A. E.S.P.": {
-        "ticker_bvc": "CELSIA", "ticker_yf": "CELSIA.CL",
-        "sector": "Generación renovable y distribución",
-        "descripcion": "Genera y vende electricidad con énfasis en renovables (solar, eólica, hídrica). Parte del Grupo Argos.",
-        "params": {"de_ratio": 1.10, "kd": 0.085, "tax": 0.35, "g": 0.028, "beta_u": 0.45,
-                   "capital_invertido": 18000, "deuda_neta": 5030, "inversion_inicial": 2000, "caja": 300, "nci": 200, "otros_claims": 0, "asociados": 100, "acciones": 1033, "exit_multiple": 7.9, "moneda": "COP"},
-                        "historico": {
-            "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-            "Ingresos": [3000, 3200, 3500, 3800, 4100, 4500, 5584.5, 6229.9, 6806.7, 5395.1],
-            "EBITDA": [900, 1000, 1100, 1200, 1300, 1500, 1710.1, 1751.7, 1481.5, 1580.1],
-            "EBIT": [650, 750, 820, 900, 1000, 1150, 1281.7, 1370.3, 1075.4, 1140.7],
-            "Depreciacion": [220, 240, 260, 280, 300, 320, 428.5, 381.4, 406.1, 439.4],
-            "CAPEX": [600, 650, 720, 800, 900, 1000, 2083.8, 1219.4, 1751.1, 1331.8],
-            "NWC": [320, 350, 380, 400, 420, 450, 446.8, 498.4, 544.5, 431.6],
-            "Delta_NWC": [0.0, 30.0, 30.0, 20.0, 20.0, 30.0, 0.0, 51.6, 46.1, -112.9],
-            "NOPAT": [422.5, 487.5, 533.0, 585.0, 650.0, 747.5, 833.1, 890.7, 699.0, 741.5],
-            "FCFF": [42.5, 47.5, 43.0, 45.0, 30.0, 37.5, -822.3, 1.1, -692.1, -38.0],
-        },
-    },
-    "EPM — Empresas Públicas de Medellín": {
-        "ticker_bvc": "EPM", "ticker_yf": None,
-        "sector": "Generación, distribución, agua y gas",
-        "descripcion": "Empresa pública de Medellín. Genera y distribuye energía, agua y gas.",
-        "params": {"de_ratio": 1.45, "kd": 0.09, "tax": 0.35, "g": 0.025, "beta_u": 0.45,
-                   "capital_invertido": 70000, "deuda_neta": 42000, "inversion_inicial": 8000, "caja": 4000, "nci": 0, "otros_claims": 0, "asociados": 0, "acciones": None, "exit_multiple": 8.0, "moneda": "COP"},
-                        "historico": {
-            "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-            "Ingresos": [14000, 15200, 16500, 18000, 19500, 21000, 24000, 25500, 27000, 28500],
-            "EBITDA": [4800, 5200, 5700, 6200, 6800, 7400, 8500, 9000, 9400, 9800],
-            "EBIT": [3700, 4000, 4400, 4800, 5300, 5800, 6800, 7200, 7500, 7800],
-            "Depreciacion": [900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800],
-            "CAPEX": [2800, 3000, 3200, 3500, 3800, 4000, 4200, 4500, 4800, 5000],
-            "NWC": [1900, 2100, 2300, 2500, 2700, 2900, 3100, 3300, 3500, 3700],
-            "Delta_NWC": [0.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-            "NOPAT": [2405.0, 2600.0, 2860.0, 3120.0, 3445.0, 3770.0, 4420.0, 4680.0, 4875.0, 5070.0],
-            "FCFF": [505.0, 400.0, 560.0, 620.0, 745.0, 970.0, 1520.0, 1580.0, 1575.0, 1670.0],
-        },
-    },
-    "ENEL Colombia": {
-        "ticker_bvc": "ENELAM", "ticker_yf": None,  # ENELAM.CL no cotiza en Yahoo (404)
-        "sector": "Generación y distribución eléctrica",
-        "descripcion": "Operación colombiana del grupo Enel. Genera y distribuye electricidad.",
-        "params": {"de_ratio": 1.30, "kd": 0.082, "tax": 0.35, "g": 0.027, "beta_u": 0.58,
-                   "capital_invertido": 28000, "deuda_neta": 15000, "inversion_inicial": 3000, "caja": 1500, "nci": 500, "otros_claims": 0, "asociados": 0, "acciones": None, "exit_multiple": 8.0, "moneda": "COP"},
-                        "historico": {
-            "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-            "Ingresos": [7200, 7800, 8500, 9200, 9800, 10500, 11800, 12500, 13200, 14000],
-            "EBITDA": [2800, 3000, 3300, 3600, 3900, 4200, 4800, 5100, 5400, 5700],
-            "EBIT": [2100, 2300, 2500, 2800, 3000, 3300, 3800, 4000, 4300, 4500],
-            "Depreciacion": [550, 600, 650, 700, 750, 800, 900, 950, 1000, 1050],
-            "CAPEX": [1400, 1500, 1600, 1800, 1900, 2000, 2200, 2400, 2500, 2600],
-            "NWC": [900, 980, 1050, 1100, 1200, 1300, 1400, 1500, 1600, 1700],
-            "Delta_NWC": [0.0, 80.0, 70.0, 50.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-            "NOPAT": [1365.0, 1495.0, 1625.0, 1820.0, 1950.0, 2145.0, 2470.0, 2600.0, 2795.0, 2925.0],
-            "FCFF": [515.0, 515.0, 605.0, 670.0, 700.0, 845.0, 1070.0, 1050.0, 1195.0, 1275.0],
-        },
-    },
-    "BVC — Bolsa de Valores de Colombia": {
-        "ticker_bvc": "BVC", "ticker_yf": "BVC.CL",
-        "sector": "Servicios financieros / Bolsa de valores",
-        "descripcion": "Opera la Bolsa de Valores de Colombia: compra-venta de acciones, bonos y otros títulos.",
-        "params": {"de_ratio": 0.35, "kd": 0.07, "tax": 0.35, "g": 0.04, "beta_u": 0.35,
-                   "capital_invertido": 800, "deuda_neta": 61, "inversion_inicial": 100, "caja": 148, "nci": 0, "otros_claims": 0, "asociados": 0, "acciones": 60.5, "exit_multiple": 5.5, "moneda": "COP"},
-                        "historico": {
-            "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-            "Ingresos": [180, 190, 200, 210, 195, 199.8, 239.0, 287.4, 320.0, 359.8],
-            "EBITDA": [70, 75, 80, 85, 70, 76.0, 86.1, 129.6, 160.0, 210.5],
-            "EBIT": [55, 58, 62, 65, 52, 59.5, 65.9, 108.9, 140.0, 186.0],
-            "Depreciacion": [15, 16, 17, 18, 16, 16.5, 20.2, 20.7, 22.0, 24.4],
-            "CAPEX": [20, 22, 24, 25, 22, 22.0, 17.4, 17.0, 15.0, 12.7],
-            "NWC": [14, 15, 15.5, 16, 15.5, 16.0, 19.1, 23.0, 26.0, 28.8],
-            "Delta_NWC": [0.0, 1.0, 0.5, 0.5, -0.5, 0.5, 3.1, 3.9, 3.0, 2.8],
-            "NOPAT": [35.8, 37.7, 40.3, 42.2, 33.8, 38.7, 42.8, 70.8, 91.0, 120.9],
-            "FCFF": [30.8, 31.7, 33.3, 34.7, 28.3, 33.2, 42.6, 70.7, 95.0, 126.9],
-        },
-    },
-    "ECOPETROL": {
-        "ticker_bvc": "ECOPETROL", "ticker_yf": "ECOPETROL.CL",
-        "sector": "Petróleo, gas y energía",
-        "descripcion": "La petrolera más grande de Colombia. Explora, produce y refina petróleo y gas. Controla ISA.",
-        "params": {"de_ratio": 1.00, "kd": 0.09, "tax": 0.35, "g": 0.02, "beta_u": 0.75,
-                   "capital_invertido": 150000, "deuda_neta": 93726, "inversion_inicial": 15000, "caja": 11192, "nci": 3000, "otros_claims": 0, "asociados": 2000, "acciones": 41117, "exit_multiple": 4.8, "moneda": "COP"},
-                        "historico": {
-            "Año": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-            "Ingresos": [48000, 55000, 68000, 71000, 50000, 92000, 159611.1, 143189.0, 133330.0, 119694.0],
-            "EBITDA": [14000, 18000, 25000, 28000, 12000, 38000, 73813.5, 59832.0, 55747.0, 45128.0],
-            "EBIT": [9000, 12000, 18000, 20000, 5000, 28000, 61684.5, 46020.0, 40550.0, 29021.0],
-            "Depreciacion": [5000, 5500, 6000, 6500, 7000, 8000, 12129.0, 13812.0, 15197.0, 16107.0],
-            "CAPEX": [8000, 9000, 10000, 14000, 9000, 13000, 21877.8, 24090.0, 20928.0, 20827.0],
-            "NWC": [6000, 6500, 7000, 7500, 8000, 9000, 12768.9, 11455.1, 10666.4, 9575.5],
-            "Delta_NWC": [0.0, 500.0, 500.0, 500.0, 500.0, 1000.0, 0.0, -1313.8, -788.7, -1090.9],
-            "NOPAT": [5850.0, 7800.0, 11700.0, 13000.0, 3250.0, 18200.0, 40094.9, 29913.0, 26357.5, 18863.6],
-            "FCFF": [2850.0, 3800.0, 7200.0, 5000.0, 750.0, 12200.0, 30346.2, 20948.8, 21415.2, 15234.5],
-        },
-    },
-}
+_RUTA_DATOS_CURADOS = Path(__file__).with_name("datos_curados.json")
+
+
+def _leer_datos_curados(ruta=None):
+    try:
+        return json.loads(Path(ruta or _RUTA_DATOS_CURADOS).read_text(encoding="utf-8"))
+    except Exception as exc:  # el app debe arrancar aunque falte el archivo
+        warnings.warn(f"No se pudo leer datos_curados.json: {exc}")
+        return {"empresas": {}, "series": {}, "reglas": {}}
+
+
+_DATOS_CURADOS = _leer_datos_curados()
+_COLS_HIST = ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC")
+
+
+def _historico_desde_curado(h, tax):
+    """Serie curada → histórico completo (ΔNWC, NOPAT y FCFF con la tasa de la empresa)."""
+    años = [int(a) for a in h["Año"]]
+    out = {"Año": años}
+    for c in _COLS_HIST:
+        out[c] = [float(v) for v in h[c]]
+    dnwc, nopat, fcff = [], [], []
+    for i in range(len(años)):
+        d = 0.0 if i == 0 else out["NWC"][i] - out["NWC"][i - 1]
+        n = out["EBIT"][i] * (1.0 - float(tax))
+        dnwc.append(round(d, 4))
+        nopat.append(round(n, 4))
+        fcff.append(round(n + out["Depreciacion"][i] - out["CAPEX"][i] - d, 4))
+    out.update({"Delta_NWC": dnwc, "NOPAT": nopat, "FCFF": fcff})
+    return out
+
+
+def _construir_catalogo(datos):
+    emps = {}
+    for nombre, c in (datos.get("empresas") or {}).items():
+        sup, pu = c.get("supuestos") or {}, c.get("puente") or {}
+        params = {
+            "de_ratio": sup.get("de_ratio"), "kd": None,  # Kd por regla: _aplicar_reglas_catalogo()
+            "tax": sup.get("tax"), "g": sup.get("g"), "beta_u": sup.get("beta_u"),
+            "capital_invertido": sup.get("capital_invertido"), "inversion_inicial": sup.get("inversion_inicial"),
+            "exit_multiple": sup.get("exit_multiple"),
+            "deuda_neta": pu.get("deuda_neta"), "caja": pu.get("caja"), "nci": pu.get("nci"),
+            "otros_claims": pu.get("otros_claims"), "asociados": pu.get("asociados"),
+            "acciones": pu.get("acciones"), "moneda": datos.get("moneda", "COP"),
+        }
+        emp = {
+            "ticker_bvc": c.get("ticker_bvc"), "ticker_yf": c.get("ticker_yf"),
+            "sector": c.get("sector"), "descripcion": c.get("descripcion"),
+            "calificacion": c.get("calificacion"), "verificacion": c.get("verificacion"),
+            "fuente_curada": c.get("fuente_historico"), "fuente_puente": pu.get("fuente"),
+            "params": params,
+        }
+        if c.get("historico"):
+            emp["historico"] = _historico_desde_curado(c["historico"], sup.get("tax") or 0.35)
+        emps[nombre] = emp
+    return emps
+
+
+EMPRESAS = _construir_catalogo(_DATOS_CURADOS)
 
 # ---------------------------------------------------------------------------
 # Registro en tiempo de ejecución: empresas descargadas vía Yahoo Finance
@@ -1041,7 +966,7 @@ def _scale_yf_to_miles_millones(value, currency="USD"):
     return v / 1e9
 
 
-def buscar_y_descargar_empresa(query, peers_tickers=""):
+def buscar_y_descargar_empresa(query, peers_tickers="", nombre_display=None):
     """
     Busca una empresa por ticker Yahoo Finance (ej. AAPL, MSFT, EC, ISA.CL, PFE)
     o por nombre parcial, descarga financieros + parámetros de mercado y los
@@ -1151,6 +1076,9 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
     display_name = f"{name} — {ticker_sym}"
     if display_name in EMPRESAS or display_name in EMPRESAS_RUNTIME:
         display_name = f"{name} — {used_ticker}"
+    if nombre_display:
+        # Empresa precargada: los datos descargados se registran bajo su nombre de catálogo.
+        display_name = nombre_display
 
     # financialCurrency = moneda de los EEFF (modelo); currency = moneda del precio de cotización.
     # En ADRs (ej. EC) pueden diferir: EEFF en COP, precio en USD → upside no comparable sin FX.
@@ -1227,13 +1155,14 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
 
 
 def resolver_empresa(nombre_empresa):
-    """Busca primero en catálogo estático, luego en runtime descargado."""
+    """Datos descargados en la sesión primero (también para empresas precargadas que
+    se descargaron de Yahoo con preparar_empresa); el catálogo curado es respaldo."""
+    if nombre_empresa in EMPRESAS_RUNTIME:
+        return EMPRESAS_RUNTIME[nombre_empresa]
     if nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
         _restaurar_entrada_catalogo(nombre_empresa)
     if nombre_empresa in EMPRESAS:
         return EMPRESAS[nombre_empresa]
-    if nombre_empresa in EMPRESAS_RUNTIME:
-        return EMPRESAS_RUNTIME[nombre_empresa]
     # match parcial runtime
     if nombre_empresa and len(str(nombre_empresa).strip()) >= 4:
         q = str(nombre_empresa).strip().lower()
@@ -1241,6 +1170,73 @@ def resolver_empresa(nombre_empresa):
         if len(hits) == 1:  # solo si es inequívoco: evita mezclar datos de otra empresa
             return hits[0]
     return None
+
+
+_PARAMS_PUENTE_CURADO = ("nci", "asociados", "otros_claims")
+
+
+def preparar_empresa(nombre_empresa, forzar=False):
+    """Obtiene los datos de una empresa precargada: Yahoo primero, curado como respaldo.
+
+    Devuelve {"fuente": "yahoo"|"curado"|"sin_datos"|"no_catalogo", "detalle": str}.
+    El resultado se guarda por sesión (estado_fuente_empresa) para mostrarlo en la UI.
+    Si Yahoo trae la serie, también se usan sus parámetros (deuda, caja, acciones, β,
+    tasa efectiva); el catálogo solo completa partidas que Yahoo no reporta (NCI,
+    asociadas) o un β que Yahoo no trae.
+    """
+    estados = _almacen_estado().setdefault("fuente_empresa", {})
+    if nombre_empresa not in EMPRESAS:
+        return {"fuente": "no_catalogo", "detalle": ""}
+    if not forzar and nombre_empresa in estados:
+        return estados[nombre_empresa]
+    cat = EMPRESAS[nombre_empresa]
+    tk = cat.get("ticker_yf")
+    estado = None
+    if tk and HAS_YF:
+        try:
+            ok, html, _disp, _pt = buscar_y_descargar_empresa(tk, nombre_display=nombre_empresa)
+        except Exception as exc:
+            ok, html = False, str(exc)
+        if ok and nombre_empresa in EMPRESAS_RUNTIME:
+            rt = EMPRESAS_RUNTIME[nombre_empresa]
+            p, pc = rt.setdefault("params", {}), cat.get("params") or {}
+            completados = []
+            for k in _PARAMS_PUENTE_CURADO:
+                if not float(p.get(k) or 0) and float(pc.get(k) or 0):
+                    p[k] = pc[k]
+                    completados.append(k)
+            if str(p.get("beta_fuente", "")).startswith("proxy") and pc.get("beta_u"):
+                p["beta_u"] = pc["beta_u"]
+                p["beta_fuente"] = "catálogo (Yahoo sin β)"
+                completados.append("beta_u")
+            rt["sector"] = cat.get("sector") or rt.get("sector")
+            rt["descripcion"] = cat.get("descripcion") or rt.get("descripcion")
+            rt["calificacion"] = cat.get("calificacion")
+            detalle = "Estados financieros y mercado descargados de Yahoo Finance."
+            if completados:
+                detalle += f" Completado con catálogo curado: {', '.join(completados)}."
+            estado = {"fuente": "yahoo", "detalle": detalle}
+        else:
+            motivo = _html_a_texto(html, 200) if html else "sin respuesta"
+            estado = {"fuente": "curado", "detalle": f"Yahoo no disponible ({motivo})."}
+    if estado is None or estado["fuente"] != "yahoo":
+        base = (estado or {}).get("detalle", "Sin ticker en Yahoo.")
+        if cat.get("historico"):
+            estado = {"fuente": "curado", "detalle": (
+                f"{base} Respaldo curado ({_DATOS_CURADOS.get('as_of', 's/f')}): "
+                f"{cat.get('fuente_curada') or 'serie curada'} Verificación: {cat.get('verificacion') or 'N/D'}."
+            )}
+        else:
+            estado = {"fuente": "sin_datos", "detalle": (
+                f"{base} Sin serie curada verificada: carga los estados financieros de la empresa."
+            )}
+    estados[nombre_empresa] = estado
+    return estado
+
+
+def estado_fuente_empresa(nombre_empresa):
+    """Fuente de datos vigente de la empresa en esta sesión (para mostrar en la UI)."""
+    return (_almacen_estado().get("fuente_empresa") or {}).get(nombre_empresa)
 
 
 def listar_empresas_disponibles():
@@ -1856,58 +1852,21 @@ def aplicar_config_mercado_ui(proveedor, api_key, api_base_url):
 # Módulo: descarga de cifras financieras públicas (sin Excel obligatorio)
 # ---------------------------------------------------------------------------
 
-# Series curadas a partir de EEFF / informes públicos (miles de millones (moneda del emisor)).
-# Se usan si yfinance no devuelve suficientes líneas.
-DATOS_PUBLICOS_CURADOS = {
-    "ISA — Interconexión Eléctrica": {
-        "fuente": "EEFF e informes ISA (isa.co) + cruce público; 2016-2018 backcast; NWC/FCFF en parte estimados",
-        "años": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "Ingresos": [7200, 7800, 8400, 9045, 10180, 11117, 13356, 14171, 14935, 15918],
-        "EBITDA": [4100, 4500, 4850, 5200, 5850, 6884, 7821, 9114, 9747, 8680],
-        "EBIT": [3200, 3550, 3800, 4100, 4650, 6072, 6869, 7598, 8409, 7336],
-        "Depreciacion": [700, 750, 800, 850, 900, 812, 952, 1516, 1338, 1344],
-        "CAPEX": [1800, 1950, 2050, 2100, 2311, 761, 953, 4600, 4785, 6278],
-        "NWC": [950, 1050, 1120, 1200, 1350, 1450, 1600, 1750, 1850, 1950],
-    },
-    "GEB — Grupo Energía Bogotá": {
-        "fuente": "Serie ilustrativa ampliada 10 años (respaldo pedagógico; validar con EEFF)",
-        "años": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "Ingresos": [4800, 5200, 5700, 6200, 6800, 7500, 8200, 8900, 9400, 9800],
-        "EBITDA": [2400, 2600, 2850, 3100, 3400, 3800, 4200, 4600, 4900, 5100],
-        "EBIT": [1850, 2000, 2200, 2400, 2700, 3000, 3400, 3700, 4000, 4200],
-        "Depreciacion": [380, 420, 460, 500, 550, 600, 650, 700, 750, 800],
-        "CAPEX": [900, 1000, 1100, 1200, 1100, 1300, 1400, 1500, 1600, 1700],
-        "NWC": [650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100],
-    },
-    "CELSIA — Celsia S.A. E.S.P.": {
-        "fuente": "Serie ilustrativa ampliada 10 años (respaldo pedagógico; validar con EEFF)",
-        "años": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "Ingresos": [3000, 3200, 3500, 3800, 4100, 4500, 5000, 5500, 5800, 6200],
-        "EBITDA": [900, 1000, 1100, 1200, 1300, 1500, 1700, 1900, 2000, 2100],
-        "EBIT": [650, 750, 820, 900, 1000, 1150, 1300, 1450, 1550, 1600],
-        "Depreciacion": [220, 240, 260, 280, 300, 320, 350, 380, 400, 420],
-        "CAPEX": [600, 650, 720, 800, 900, 1000, 1100, 1200, 1300, 1400],
-        "NWC": [320, 350, 380, 400, 420, 450, 480, 500, 520, 550],
-    },
-    "NUTRESA — Grupo Nutresa S.A.": {
-        # Importes en miles de millones COP. Ingresos, EBIT y CAPEX proceden de EEFF
-        # consolidados 2025/2024; D&A se aproxima a partir de la serie pública de cash flow
-        # (MarketScreener, cifras redondeadas) y se etiqueta como estimación de fuente secundaria.
-        # NWC calculado como activos operativos corrientes (CxC + inventarios + biológicos
-        # + otros activos corrientes) menos pasivos operativos corrientes (proveedores,
-        # beneficios a empleados, impuestos, provisiones y otros pasivos), excluyendo caja,
-        # activos financieros, deuda y arrendamientos.
-        "fuente": "EEFF consolidados oficiales Grupo Nutresa 2025/2024 (ingresos, EBIT, CAPEX y balance); D&A redondeada de MarketScreener; NWC derivado del balance",
-        "años": [2024, 2025],
-        "Ingresos": [18589.956, 20578.988],
-        "EBITDA": [2324.996, 2866.358],
-        "EBIT": [1840.996, 2403.358],
-        "Depreciacion": [484.0, 463.0],
-        "CAPEX": [591.091, 422.916],
-        "NWC": [2361.536, 2100.025],
-    },
-}
+# Series curadas (miles de millones de la moneda del emisor), leídas de datos_curados.json.
+# Solo respaldo: se usan si no hay archivo del usuario ni descarga de Yahoo.
+def _series_curadas(datos):
+    out = {}
+    for nombre, c in (datos.get("empresas") or {}).items():
+        h = c.get("historico")
+        if h:
+            out[nombre] = {"fuente": c.get("fuente_historico") or "serie curada", "años": list(h["Año"]),
+                           **{k: list(h[k]) for k in _COLS_HIST}}
+    for nombre, blk in (datos.get("series") or {}).items():
+        out[nombre] = dict(blk)
+    return out
 
+
+DATOS_PUBLICOS_CURADOS = _series_curadas(_DATOS_CURADOS)
 
 
 def _yf_pick_row(df, candidates):
@@ -2775,17 +2734,36 @@ def df_historico_empresa(nombre_empresa):
 #     → CRP=0 si rf es TES (evitar doble conteo). ERP sobre bono local ~5–6%.
 #     g_max: PIB real ~2,2% (FMI) + inflación de largo plazo moderada → techo nominal ~4%.
 # US: T-bond + mature ERP (Damodaran ~4,2–5%).
+# g_lp = crecimiento NOMINAL de largo plazo en la moneda del mercado (inflación esperada
+# + crecimiento real bajo). Es el punto al que converge el crecimiento explícito de los
+# ingresos. Antes era un 3 % fijo para todas las monedas: en COP, con inflación implícita
+# de ~6 %, eso equivalía a suponer una contracción real perpetua del 3 % anual.
 CAPM_POR_MERCADO = {
-    "US": {"rf": 0.045, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015},
+    "US": {"rf": 0.045, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015, "g_lp": 0.03},
     # CO: TES 10 años en COP por encima de 13 % (La República, 21-oct-2026). Antes 12 %.
-    "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.025},
-    "BR": {"rf": 0.12,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.025},
-    "MX": {"rf": 0.09,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02},
-    "CL": {"rf": 0.055, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015},
-    "GB": {"rf": 0.04,  "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015},
-    "DEFAULT": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02},
+    # Inflación implícita (breakeven TES COP vs UVR) a 10 años: 6,15 % (BanRep, 21-ago-2026).
+    "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.06, "kd_spread": 0.01, "g_lp": 0.06},
+    "BR": {"rf": 0.12,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.05, "kd_spread": 0.025, "g_lp": 0.05},
+    "MX": {"rf": 0.09,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.045, "kd_spread": 0.02, "g_lp": 0.045},
+    "CL": {"rf": 0.055, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015, "g_lp": 0.035},
+    "GB": {"rf": 0.04,  "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015, "g_lp": 0.03},
+    "DEFAULT": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02, "g_lp": 0.03},
 }
 CAPM_AS_OF = "2026-10"  # US rf~4.5% / ERP~5%; CO rf~13% (TES 10a >13% al 21-oct-2026). Revisar en cada ciclo de FOMC/BanRep.
+
+
+def _aplicar_reglas_catalogo():
+    """Kd del catálogo = rf del mercado CO + spread según calificación (datos_curados.json)."""
+    rf = CAPM_POR_MERCADO["CO"]["rf"]
+    spreads = ((_DATOS_CURADOS.get("reglas") or {}).get("spread_kd_por_calificacion") or {})
+    for catalogo in (EMPRESAS, _EMPRESAS_CATALOGO_INMUTABLE):
+        for emp in catalogo.values():
+            sp = float(spreads.get(emp.get("calificacion"), CAPM_POR_MERCADO["CO"]["kd_spread"]))
+            emp["params"]["kd"] = round(rf + sp, 4)
+            emp["params"]["kd_fuente"] = f"rf CO {rf:.1%} + spread {sp:.1%} ({emp.get('calificacion') or 'sin calificación'})"
+
+
+_aplicar_reglas_catalogo()
 
 
 
@@ -3666,7 +3644,42 @@ def _parse_columna_numerica(serie):
     return s.map(conv)
 
 
+def mercado_empresa(nombre_empresa):
+    """Código de mercado CAPM (CO/US/…) de la empresa, coherente con su moneda de modelo."""
+    try:
+        p = params_empresa(nombre_empresa) or {}
+        merc = p.get("mercado_capm")
+        if merc in CAPM_POR_MERCADO:
+            return merc
+    except Exception:
+        pass
+    mon = str(moneda_empresa(nombre_empresa) or "").upper()
+    return {"COP": "CO", "USD": "US", "BRL": "BR", "MXN": "MX", "CLP": "CL", "GBP": "GB"}.get(mon, "DEFAULT")
+
+
+def g_convergencia_empresa(nombre_empresa):
+    """Crecimiento nominal de largo plazo hacia el que converge la proyección explícita."""
+    m = CAPM_POR_MERCADO.get(mercado_empresa(nombre_empresa), CAPM_POR_MERCADO["DEFAULT"])
+    return float(m.get("g_lp", G_CONVERGENCIA))
+
+
 def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
+    """Carga el histórico (Excel/CSV o datos públicos) y anota la moneda/mercado.
+
+    Envoltorio de _cargar_y_limpiar_excel_impl: adjunta en df.attrs el crecimiento
+    nominal de convergencia del mercado de la empresa, que leen todas las proyecciones
+    (pestañas 1–7), de modo que la moneda del modelo y su inflación sean coherentes.
+    """
+    df, msg = _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=usar_datos_publicos)
+    if df is not None and hasattr(df, "attrs"):
+        try:
+            df.attrs["g_convergencia"] = g_convergencia_empresa(nombre_empresa)
+        except Exception:
+            pass
+    return df, msg
+
+
+def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=True):
     """Carga financiera con trazabilidad. No mezcla filas ni completa con otra empresa.
 
     Excel/CSV esperado: Año (opcional), Ingresos, EBITDA, EBIT, CAPEX y NWC.
@@ -3706,6 +3719,12 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
             if "Ingresos" in df_b.columns:
                 df_b = df_b[df_b["Ingresos"].apply(lambda x: pd.notna(x) and abs(float(x)) > 1e-6)]
             return df_b, f"Histórico disponible ({fuente}) para {nombre_empresa}; verificar antes de usar en decisiones."
+        _emp_sd = resolver_empresa(nombre_empresa) or {}
+        if nombre_empresa in EMPRESAS and not _emp_sd.get("historico"):
+            raise ValueError(
+                f"{nombre_empresa}: no hay estados financieros verificados ni descarga disponible "
+                "(no cotiza en Yahoo). Carga sus estados financieros con el módulo de carga (Excel/CSV)."
+            )
         raise ValueError("Empresa personalizada: usa el buscador de ticker Yahoo o carga un Excel/CSV propio. No hay histórico de respaldo para este nombre.")
 
     path = archivo.name if hasattr(archivo, "name") else str(archivo)
@@ -4043,6 +4062,8 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     - Sin pisos/techos de margen específicos de un sector.
     """
     H = int(horizonte)
+    if g_convergencia is None:
+        g_convergencia = getattr(df_hist, "attrs", {}).get("g_convergencia")
     g_conv = G_CONVERGENCIA if g_convergencia is None else float(g_convergencia)
     años_fut = list(range(int(df_hist.index[-1]) + 1, int(df_hist.index[-1]) + 1 + H))
     ing = df_hist["Ingresos"].astype(float)
@@ -4391,7 +4412,7 @@ def procedencia_datos(mensaje_carga, ticker_yf=None, mkt=None):
         else:
             nivel, etiqueta = "MEDIA", "Descarga pública Yahoo Finance (agregada; no es el PDF auditado)"
     elif "curada" in msg or "curado" in msg or "pública curada" in msg or "publica_curada" in msg or "catálogo" in msg or "catalogo" in msg:
-        nivel, etiqueta = "MEDIA", "Serie de catálogo/curada (ilustrativa; NWC/FCFF pueden ser estimados — validar vs EEFF)"
+        nivel, etiqueta = "MEDIA-BAJA", "Respaldo curado del catálogo (solo años verificables; NWC puede ser estimado — preferir Yahoo o EEFF del usuario)"
     elif "respaldo" in msg or "backup" in msg:
         nivel, etiqueta = "MEDIA-BAJA", "Serie histórica de respaldo (ilustrativa)"
     else:
@@ -9570,6 +9591,8 @@ def _capm_para_ui(p):
 
 
 def al_cambiar_empresa(nombre_empresa):
+    if nombre_empresa in EMPRESAS:
+        preparar_empresa(nombre_empresa)  # Yahoo primero; catálogo curado como respaldo
     if nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE:
         _restaurar_entrada_catalogo(nombre_empresa)
     emp = resolver_empresa(nombre_empresa)
