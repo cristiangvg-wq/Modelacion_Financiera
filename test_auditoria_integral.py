@@ -341,6 +341,30 @@ class TestEstresEstado(BaseOffline):
         sys.modules.pop("streamlit_app", None)
 
 
+class TestRecargaEnRedespliegue(unittest.TestCase):
+    """Streamlit Cloud reejecuta el script sin reiniciar el proceso: si la lógica en
+    memoria es la versión anterior, la app debe recargarla en vez de fallar."""
+
+    def test_logica_obsoleta_se_recarga(self):
+        st_fake = types.ModuleType("streamlit")
+        st_fake.session_state = {}
+        st_fake.set_page_config = lambda *a, **k: None
+        st_fake.markdown = lambda *a, **k: None
+        st_fake.cache_data = lambda *a, **k: (lambda f: f)
+        import modelacion_logic as logic
+        original = logic.vincular_estado_sesion
+        del logic.vincular_estado_sesion  # simula el módulo viejo en caché
+        try:
+            with mock.patch.dict(sys.modules, {"streamlit": st_fake}):
+                sys.modules.pop("streamlit_app", None)
+                import streamlit_app as app
+                self.assertTrue(hasattr(app.L, "vincular_estado_sesion"))
+        finally:
+            if not hasattr(logic, "vincular_estado_sesion"):
+                logic.vincular_estado_sesion = original
+            sys.modules.pop("streamlit_app", None)
+
+
 # ---------------------------------------------------------------------------
 # 5. Gemini: clave en cabecera, fallback de modelos, métricas del modelo en el prompt
 # ---------------------------------------------------------------------------

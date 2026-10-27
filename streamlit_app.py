@@ -14,7 +14,24 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
+import importlib
+
 import modelacion_logic as L
+import portfolio_engine as _portfolio_engine_mod
+
+# Streamlit (y Streamlit Cloud tras un `git pull`) vuelve a ejecutar este script
+# SIN reiniciar el proceso: los módulos importados quedan en caché con su versión
+# anterior. Si la capa lógica en memoria no tiene la API que este archivo espera,
+# se recarga desde disco; así un despliegue nuevo nunca mezcla UI nueva con
+# lógica vieja (AttributeError: 'vincular_estado_sesion').
+_API_LOGICA_REQUERIDA = (
+    "vincular_estado_sesion", "instantanea_precio_mercado",
+    "metricas_valoracion_sesion", "limpiar_cache_mercado",
+)
+if not all(hasattr(L, n) for n in _API_LOGICA_REQUERIDA):
+    L = importlib.reload(L)
+if not hasattr(_portfolio_engine_mod, "convertir_a_moneda_comun"):
+    importlib.reload(_portfolio_engine_mod)
 
 try:
     import matplotlib
@@ -2592,7 +2609,7 @@ def _init_state():
     defaults = {
         "empresa_sel": None,
         "params": None,
-        "rf": 0.12,
+        "rf": float(L.CAPM_POR_MERCADO.get("CO", {}).get("rf", 0.13)),
         "erp": 0.055,
         "crp": 0.0,
         "g_max_macro": 0.04,
@@ -2895,7 +2912,7 @@ def _cargar_params_empresa(nombre):
         st.session_state["erp"] = min(float(st.session_state.get("erp", 0.05)), 0.05)
         st.session_state["crp"] = 0.0
     else:
-        st.session_state["rf"] = 0.12 if mon in ("COP", "") else 0.04
+        st.session_state["rf"] = float(L.CAPM_POR_MERCADO["CO"]["rf"]) if mon in ("COP", "") else 0.04
     _alinear_moneda_y_precio(nombre)
 
 
@@ -3044,7 +3061,8 @@ def main():
     # Registros de la capa lógica (empresas descargadas, resultados de pestañas,
     # credenciales del conector) ligados a ESTA sesión: sin esto eran globales del
     # proceso y un usuario veía/heredaba los datos de otro.
-    L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
+    if hasattr(L, "vincular_estado_sesion"):
+        L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
     _init_state()
     _aplicar_empresa_pendiente()
 
@@ -3565,7 +3583,7 @@ def main():
     # Validación de robustez pre-corrida (WACC vs g, finitud)
     try:
         if hasattr(L, "validar_inputs_valoracion"):
-            _warns = L.validar_inputs_valoracion(w["wacc"], g, g_max_macro=g_max_macro, acciones=acciones)
+            _warns = L.validar_inputs_valoracion(w["wacc"], g, g_max_macro=g_max_macro, acciones=acciones, kd=kd, rf=rf)
             for _m in (_warns or []):
                 st.warning(_m)
     except Exception:
