@@ -1674,6 +1674,23 @@ DATOS_PUBLICOS_CURADOS = {
         "CAPEX": [600, 650, 720, 800, 900, 1000, 1100, 1200, 1300, 1400],
         "NWC": [320, 350, 380, 400, 420, 450, 480, 500, 520, 550],
     },
+    "NUTRESA — Grupo Nutresa S.A.": {
+        # Importes en miles de millones COP. Ingresos, EBIT y CAPEX proceden de EEFF
+        # consolidados 2025/2024; D&A se aproxima a partir de la serie pública de cash flow
+        # (MarketScreener, cifras redondeadas) y se etiqueta como estimación de fuente secundaria.
+        # NWC calculado como activos operativos corrientes (CxC + inventarios + biológicos
+        # + otros activos corrientes) menos pasivos operativos corrientes (proveedores,
+        # beneficios a empleados, impuestos, provisiones y otros pasivos), excluyendo caja,
+        # activos financieros, deuda y arrendamientos.
+        "fuente": "EEFF consolidados oficiales Grupo Nutresa 2025/2024 (ingresos, EBIT, CAPEX y balance); D&A redondeada de MarketScreener; NWC derivado del balance",
+        "años": [2024, 2025],
+        "Ingresos": [18589.956, 20578.988],
+        "EBITDA": [2324.996, 2866.358],
+        "EBIT": [1840.996, 2403.358],
+        "Depreciacion": [484.0, 463.0],
+        "CAPEX": [591.091, 422.916],
+        "NWC": [2361.536, 2100.025],
+    },
 }
 
 
@@ -1976,6 +1993,13 @@ def obtener_datos_financieros_publicos(nombre_empresa, preferir_yahoo=True):
     """
     emp = resolver_empresa(nombre_empresa) or {}
     mensajes = []
+    nombre_norm = str(nombre_empresa or "").upper()
+    # Nutresa usa siempre la serie consolidada explícita de 2024-2025. No permitir que
+    # Yahoo o un histórico genérico del catálogo la suplanten; solo hay dos años reconciliados.
+    if "NUTRESA" in nombre_norm:
+        df_n, msg_n = descargar_financieros_curados("NUTRESA — Grupo Nutresa S.A.")
+        if df_n is not None and len(df_n) == 2:
+            return df_n, msg_n + " Serie corta: solo 2024-2025; D&A redondeada y NWC derivado.", "PUBLICA_CURADA_NUTRESA"
 
     # 1) Runtime
     if nombre_empresa in EMPRESAS_RUNTIME or (emp and str(emp.get("fuente", "")).startswith("Yahoo")):
@@ -3227,6 +3251,20 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
     emp_catalogo = emp_resuelta is not None
     df_backup = df_historico_empresa(nombre_empresa)
     if archivo is None:
+        nombre_norm = str(nombre_empresa or "").upper()
+        if "NUTRESA" in nombre_norm and usar_datos_publicos:
+            df_pub, msg_pub, tipo_pub = obtener_datos_financieros_publicos(
+                nombre_empresa, preferir_yahoo=False
+            )
+            if df_pub is not None and len(df_pub) == 2 and tipo_pub == "PUBLICA_CURADA_NUTRESA":
+                return df_pub, (
+                    msg_pub + " Advertencia: histórico 2024-2025 solamente; "
+                    "D&A redondeada y NWC derivado, por lo que el FCFF es preliminar."
+                )
+            raise ValueError(
+                "NUTRESA: no se pudo cargar la serie consolidada 2024-2025. "
+                "No se recurrirá a Yahoo ni a proxies genéricos."
+            )
         if usar_datos_publicos and emp_catalogo:
             df_pub, msg_pub, _tipo = obtener_datos_financieros_publicos(nombre_empresa)
             if df_pub is not None and len(df_pub) >= 3:
