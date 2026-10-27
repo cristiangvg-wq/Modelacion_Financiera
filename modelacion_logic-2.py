@@ -4,6 +4,7 @@ Extraída del notebook/Gradio original (todas las funciones de negocio).
 No contiene la UI de Gradio; pensado para Streamlit u otro frontend.
 """
 from pathlib import Path
+import unicodedata
 # =============================================================================
 # PLATAFORMA MULTISECTORIAL DE MODELACIÓN FINANCIERA Y RIESGO
 # Empresas cotizadas o privadas: Excel/CSV propio, datos públicos cuando estén disponibles
@@ -725,12 +726,16 @@ PEERS_POR_SECTOR = {
 
 
 def _normalizar_texto_sector(texto):
-    if not texto:
+    """Normaliza acentos, espacios y variantes Unicode de guiones para comparar sectores."""
+    if texto is None:
         return ""
-    t = str(texto).lower().strip()
-    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"), ("ñ", "n")):
-        t = t.replace(a, b)
-    return t
+    t = unicodedata.normalize("NFKD", str(texto))
+    t = "".join(ch for ch in t if not unicodedata.combining(ch)).lower()
+    # Guiones Unicode se tratan como separadores.
+    for dash in ("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212"):
+        t = t.replace(dash, " ")
+    t = t.replace("-", " ")
+    return " ".join(t.split())
 
 
 def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_peers=6):
@@ -780,7 +785,8 @@ def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_p
         "computer hardware": "technology",
     }
     for alias, key in _ALIAS.items():
-        if alias in blob and key not in blob:
+        alias_norm = _normalizar_texto_sector(alias)
+        if alias_norm and alias_norm in blob and key not in blob:
             blob = f"{blob} {key}"
 
     exclude = set()
@@ -791,14 +797,15 @@ def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_p
 
     found = []
     seen = set()
-    claves = sorted(PEERS_POR_SECTOR.keys(), key=len, reverse=True)
+    claves = sorted(PEERS_POR_SECTOR.keys(), key=lambda k: len(_normalizar_texto_sector(k)), reverse=True)
     matched_keys = []
     for k in claves:
-        if k in blob:
+        key_norm = _normalizar_texto_sector(k)
+        if key_norm and key_norm in blob:
             matched_keys.append(k)
     if not matched_keys:
         for k in claves:
-            for token in k.split():
+            for token in _normalizar_texto_sector(k).split():
                 if len(token) >= 4 and token in blob:
                     matched_keys.append(k)
                     break
@@ -946,10 +953,16 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
             pass
         params = derivar_params_desde_cero(df_mm, info=info, ticker_yf=used_ticker)
     except Exception as e:
-        params = params_en_blanco()
-        params["origen_params"] = f"blanco_error:{e}"
+        return (
+            False,
+            f"<div class='result-note'><b>No se pudo derivar la valoración de {escape(used_ticker)}.</b> "
+            f"Se bloqueó el cálculo para evitar parámetros financieros vacíos o engañosos. "
+            f"Detalle técnico: {escape(str(e))}</div>",
+            None,
+            None,
+        )
 
-        # Histórico en formato catálogo
+    # Histórico en formato catálogo
     hist = {"Año": list(df_mm.index.astype(int))}
     for col in ["Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC", "Delta_NWC", "NOPAT", "FCFF"]:
         if col in df_mm.columns:
@@ -3202,23 +3215,35 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
         avisos += diagnosticar_atipicos_historico(clean)
     except Exception:
         pass
+    # Derivar y completar campos contables opcionales fila a fila. Se conservan los
+    # valores reportados válidos; los vacíos se calculan con identidades contables.
+    dep_calc = (clean["EBITDA"] - clean["EBIT"]).clip(lower=0)
     if "Depreciacion" not in clean.columns:
-        clean["Depreciacion"] = (clean["EBITDA"] - clean["EBIT"]).clip(lower=0)
+        clean["Depreciacion"] = np.nan
+    dep_num = pd.to_numeric(clean["Depreciacion"], errors="coerce")
+    clean["Depreciacion"] = dep_num.where(dep_num.notna(), dep_calc)
+    delta_calc = clean["NWC"].diff().fillna(0.0)
     if "Delta_NWC" not in clean.columns:
-        clean["Delta_NWC"] = clean["NWC"].diff().fillna(0)
+        clean["Delta_NWC"] = np.nan
+    delta_num = pd.to_numeric(clean["Delta_NWC"], errors="coerce")
+    clean["Delta_NWC"] = delta_num.where(delta_num.notna(), delta_calc)
     if "NOPAT" not in clean.columns:
         clean["NOPAT"] = np.nan
     if "FCFF" not in clean.columns:
         clean["FCFF"] = np.nan
-    # Los valores faltantes se calculan contablemente; no se imputan con datos de otra empresa.
+    # No se reconoce escudo fiscal por pérdidas: NOPAT = EBIT - tax*max(EBIT, 0).
     tax_proxy = float(params_empresa(nombre_empresa).get("tax", 0.30))
-    clean["NOPAT"] = clean["NOPAT"].where(clean["NOPAT"].notna(), clean["EBIT"] * (1 - tax_proxy))
+    nopat_num = pd.to_numeric(clean["NOPAT"], errors="coerce")
+    nopat_calc = calcular_nopat(clean["EBIT"], tax_proxy)
+    clean["NOPAT"] = nopat_num.where(nopat_num.notna(), nopat_calc)
+    fcff_num = pd.to_numeric(clean["FCFF"], errors="coerce")
     fcff_calc = clean["NOPAT"] + clean["Depreciacion"] - clean["CAPEX"] - clean["Delta_NWC"]
-    clean["FCFF"] = clean["FCFF"].where(clean["FCFF"].notna(), fcff_calc)
+    clean["FCFF"] = fcff_num.where(fcff_num.notna(), fcff_calc)
     clean["EBITDA"] = clean["EBITDA"].astype(float)
     clean = clean.apply(pd.to_numeric, errors="coerce")
-    if not np.isfinite(clean[required].to_numpy(dtype=float)).all():
-        raise ValueError("Hay valores no numéricos o infinitos en columnas financieras obligatorias.")
+    columnas_financieras = required + ["Depreciacion", "Delta_NWC", "NOPAT", "FCFF"]
+    if not np.isfinite(clean[columnas_financieras].to_numpy(dtype=float)).all():
+        raise ValueError("Hay valores faltantes, no numéricos o infinitos en columnas financieras tras derivar los campos contables.")
     # Empresa no catalogada: registrar histórico y params derivados desde este archivo (sin catálogo)
     if nombre_empresa not in EMPRESAS:
         params_xlsx = derivar_params_desde_cero(clean, info=None, ticker_yf=None)
@@ -3573,12 +3598,26 @@ def recalcular_fcff(df_proj, tax=0.35, capex_extra=0.0):
     FCFF  = NOPAT + D&A − CAPEX − ΔNWC
     """
     d = df_proj.copy()
-    tax = float(tax)
-    ebit = pd.to_numeric(d["EBIT"], errors="coerce").fillna(0.0).astype(float)
-    dep = pd.to_numeric(d["Depreciacion"], errors="coerce").fillna(0.0).astype(float)
-    capex = pd.to_numeric(d["CAPEX"], errors="coerce").fillna(0.0).astype(float) + float(capex_extra or 0)
-    dnwc = pd.to_numeric(d["Delta_NWC"], errors="coerce").fillna(0.0).astype(float)
-    nopat = ebit - tax * np.maximum(ebit.values, 0.0)
+    required_cols = ("EBIT", "Depreciacion", "CAPEX", "Delta_NWC")
+    missing_cols = [col for col in required_cols if col not in d.columns]
+    if missing_cols:
+        raise ValueError("No se puede recalcular FCFF; faltan columnas: " + ", ".join(missing_cols))
+    values = {}
+    for col in required_cols:
+        values[col] = pd.to_numeric(d[col], errors="coerce").astype(float)
+        if not np.isfinite(values[col].to_numpy(dtype=float)).all():
+            raise ValueError(f"No se puede recalcular FCFF: {col} contiene valores faltantes o no finitos.")
+    try:
+        extra = float(capex_extra or 0.0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("CAPEX adicional debe ser numérico y finito.") from exc
+    if not np.isfinite(extra):
+        raise ValueError("CAPEX adicional debe ser numérico y finito.")
+    ebit = values["EBIT"]
+    dep = values["Depreciacion"]
+    capex = values["CAPEX"] + extra
+    dnwc = values["Delta_NWC"]
+    nopat = calcular_nopat(ebit, tax)
     d["CAPEX"] = capex
     d["NOPAT"] = nopat
     d["FCFF"] = nopat + dep - capex - dnwc
