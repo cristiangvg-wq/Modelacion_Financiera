@@ -1201,7 +1201,14 @@ def _banner_calidad_datos(empresa, archivo=None, usar_publicos=True):
                 if emp.get("fuente"):
                     msg = str(emp.get("fuente"))
                 elif empresa in getattr(L, "EMPRESAS", {}):
-                    msg = "Serie de catálogo/curada (ilustrativa)"
+                    msg = "Respaldo curado del catálogo (Yahoo no disponible)"
+        except Exception:
+            pass
+        detalle_fuente = ""
+        try:
+            est = L.estado_fuente_empresa(empresa) if hasattr(L, "estado_fuente_empresa") else None
+            if est and archivo is None:
+                detalle_fuente = f" {est.get('detalle', '')}"
         except Exception:
             pass
         if archivo is not None:
@@ -1217,7 +1224,7 @@ def _banner_calidad_datos(empresa, archivo=None, usar_publicos=True):
         color = {"ALTA": "#34D399", "MEDIA": "#FBBF24", "MEDIA-BAJA": "#F59E0B", "BAJA": "#F87171"}.get(nivel, "#94A3B8")
         st.markdown(
             f'<div class="tf-info" style="border-color:{color}">'
-            f'<b>Calidad de datos · {nivel}</b> — {fuente}. '
+            f'<b>Calidad de datos · {nivel}</b> — {fuente}.{detalle_fuente} '
             f'El acabado profesional no implica EEFF auditados. Valida supuestos antes de decidir.'
             f'</div>',
             unsafe_allow_html=True,
@@ -2848,7 +2855,10 @@ def _alinear_moneda_y_precio(nombre):
 
 def _cargar_params_empresa(nombre):
     try:
-        out = L.al_cambiar_empresa(nombre)
+        # Empresas precargadas: se intenta primero la descarga de Yahoo (puede tardar
+        # unos segundos); el catálogo curado solo se usa si la descarga falla.
+        with st.spinner(f"Obteniendo datos de {str(nombre).split('—')[0].strip()}…"):
+            out = L.al_cambiar_empresa(nombre)
         if isinstance(out, (list, tuple)) and len(out) >= 15:
             st.session_state["ficha_html"] = out[0]  # se regenera en cada run en el panel
             st.session_state["params"] = {
