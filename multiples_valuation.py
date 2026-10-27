@@ -30,8 +30,18 @@ def valoracion_por_multiplos(
     if not math.isfinite(deuda):
         raise ValueError("La deuda neta debe ser finita.")
 
+    if multiples_comparables is None:
+        valores_entrada = []
+    elif isinstance(multiples_comparables, (str, bytes)):
+        raise ValueError("Los múltiplos comparables deben suministrarse como una colección numérica, no como texto.")
+    else:
+        try:
+            valores_entrada = list(multiples_comparables)
+        except TypeError as exc:
+            raise ValueError("Los múltiplos comparables deben ser una colección numérica.") from exc
+
     valid = []
-    for value in multiples_comparables or []:
+    for value in valores_entrada:
         try:
             m = float(value)
         except (TypeError, ValueError):
