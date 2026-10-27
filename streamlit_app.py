@@ -14,7 +14,24 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
+import importlib
+
 import modelacion_logic as L
+import portfolio_engine as _portfolio_engine_mod
+
+# Streamlit (y Streamlit Cloud tras un `git pull`) vuelve a ejecutar este script
+# SIN reiniciar el proceso: los módulos importados quedan en caché con su versión
+# anterior. Si la capa lógica en memoria no tiene la API que este archivo espera,
+# se recarga desde disco; así un despliegue nuevo nunca mezcla UI nueva con
+# lógica vieja (AttributeError: 'vincular_estado_sesion').
+_API_LOGICA_REQUERIDA = (
+    "vincular_estado_sesion", "instantanea_precio_mercado",
+    "metricas_valoracion_sesion", "limpiar_cache_mercado",
+)
+if not all(hasattr(L, n) for n in _API_LOGICA_REQUERIDA):
+    L = importlib.reload(L)
+if not hasattr(_portfolio_engine_mod, "convertir_a_moneda_comun"):
+    importlib.reload(_portfolio_engine_mod)
 
 try:
     import matplotlib
@@ -3044,7 +3061,8 @@ def main():
     # Registros de la capa lógica (empresas descargadas, resultados de pestañas,
     # credenciales del conector) ligados a ESTA sesión: sin esto eran globales del
     # proceso y un usuario veía/heredaba los datos de otro.
-    L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
+    if hasattr(L, "vincular_estado_sesion"):
+        L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
     _init_state()
     _aplicar_empresa_pendiente()
 
