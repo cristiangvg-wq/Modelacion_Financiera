@@ -1017,8 +1017,8 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
 
     # financialCurrency = moneda de los EEFF (modelo); currency = moneda del precio de cotización.
     # En ADRs (ej. EC) pueden diferir: EEFF en COP, precio en USD → upside no comparable sin FX.
-    fin_cur = (info.get("financialCurrency") or info.get("currency") or "USD")
-    px_cur = (info.get("currency") or fin_cur)
+    fin_cur = (info.get("financialCurrency") or info.get("currency") or "")
+    px_cur = (info.get("currency") or fin_cur or "")
     if isinstance(fin_cur, str) and fin_cur.upper() in ("US$", "U$S"):
         fin_cur = "USD"
     if isinstance(px_cur, str) and px_cur.upper() in ("US$", "U$S"):
