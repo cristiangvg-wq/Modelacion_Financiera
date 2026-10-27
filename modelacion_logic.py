@@ -1940,6 +1940,10 @@ def descargar_financieros_curados(nombre_empresa):
         })
         prev_nwc = nwc
     df = pd.DataFrame(rows).set_index("Año")
+    # Nutresa solo tiene dos ejercicios consolidados incorporados (2024-2025).
+    # Marcar explícitamente la excepción; no rebajar el mínimo para Excel/Yahoo u otras empresas.
+    if "NUTRESA" in str(nombre_empresa or "").upper():
+        df.attrs["serie_curada_corta"] = "NUTRESA_2024_2025"
     msg = (
         f"Serie pública curada para {nombre_empresa} ({len(df)} años). "
         f"Fuente: {block['fuente']}. NWC/FCFF con componentes estimados."
@@ -5365,6 +5369,10 @@ def _sanear_historico_tab1(df_hist):
     """
     if df_hist is None or df_hist.empty:
         return df_hist, "Histórico vacío."
+    # La excepción de dos años aplica únicamente a la serie curada de Nutresa;
+    # no modifica el control de integridad para archivos propios ni otras fuentes.
+    serie_curada_corta = getattr(df_hist, "attrs", {}).get("serie_curada_corta") == "NUTRESA_2024_2025"
+    minimo_observaciones = 2 if serie_curada_corta else 3
     df = df_hist.copy()
     df.index = df.index.map(lambda x: int(float(x)))
     df = df.sort_index()
@@ -5432,9 +5440,9 @@ def _sanear_historico_tab1(df_hist):
                 )
         except Exception:
             pass
-    if len(df) < 3:
+    if len(df) < minimo_observaciones:
         raise ValueError(
-            f"Tras limpiar años en cero quedan {len(df)} observaciones (mínimo 3). "
+            f"Tras limpiar años en cero quedan {len(df)} observaciones (mínimo {minimo_observaciones}). "
             f"Omitidos: {omitidos}. Carga un Excel/CSV o elige otra empresa del catálogo."
         )
     nota = (" " + " ".join(notas)) if notas else ""
