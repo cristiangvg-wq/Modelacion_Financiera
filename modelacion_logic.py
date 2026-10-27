@@ -43,6 +43,7 @@ from datetime import datetime
 import tempfile
 import os
 import re
+import unicodedata
 
 try:
     import numpy_financial as npf
@@ -732,12 +733,12 @@ PEERS_POR_SECTOR = {
 
 
 def _normalizar_texto_sector(texto):
-    if not texto:
+    """Normaliza acentos, guiones Unicode y espacios para comparar sectores."""
+    if texto is None:
         return ""
-    t = str(texto).lower().strip()
-    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"), ("ñ", "n")):
-        t = t.replace(a, b)
-    return t
+    raw = str(texto).replace("—", "-").replace("–", "-").replace("−", "-").replace("‑", "-")
+    t = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def obtener_tickers_peers_sector(sector, industry="", exclude_ticker=None, max_peers=6):
@@ -964,16 +965,20 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
             pass
         params = derivar_params_desde_cero(df_mm, info=info, ticker_yf=used_ticker)
     except Exception as e:
-        params = params_en_blanco()
-        params["origen_params"] = f"blanco_error:{e}"
+        # No registrar una empresa con parámetros vacíos: podría producir una valoración aparentemente válida.
+        return False, (
+            f"<div class='result-note'><b>No fue posible derivar parámetros financieros para "
+            f"{escape(used_ticker)}.</b> {escape(str(e))}. Verifica los datos de Yahoo o carga un archivo propio.</div>"
+        ), None, None
 
-        # Histórico en formato catálogo
+    # Histórico en formato catálogo
     hist = {"Año": list(df_mm.index.astype(int))}
     for col in ["Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC", "Delta_NWC", "NOPAT", "FCFF"]:
         if col in df_mm.columns:
-            hist[col] = [float(x) if pd.notna(x) else 0.0 for x in df_mm[col].values]
+            # Los faltantes permanecen explícitos; cero es un dato económico, no un valor por defecto.
+            hist[col] = [float(x) if pd.notna(x) else None for x in df_mm[col].values]
         else:
-            hist[col] = [0.0] * len(hist["Año"])
+            hist[col] = [None] * len(hist["Año"])
 
     # Peers: manuales del usuario, o automáticos del mismo sector/industry
     peers = []
@@ -1009,9 +1014,8 @@ def buscar_y_descargar_empresa(query, peers_tickers=""):
         # respetar Yahoo si no es BVC/US conocido
         fin_cur = fin_cur if fin_cur else "USD"
         px_cur = px_cur if px_cur else fin_cur
-        # si diferían, unificar a la de cotización
-        if fin_cur != px_cur:
-            fin_cur = px_cur
+        # No cambiar la etiqueta de moneda sin convertir los estados financieros.
+        # Si difieren, las funciones de valoración deben bloquear el upside hasta convertir por FX.
     params["moneda"] = fin_cur
     params["moneda_precio"] = px_cur
     params["precio_moneda"] = px_cur
@@ -3601,23 +3605,38 @@ def proyectar_variables_con_meta(df_hist, horizonte=5, metodo="drivers", tax=0.3
 
 
 def recalcular_fcff(df_proj, tax=0.35, capex_extra=0.0):
-    """Recalcula NOPAT y FCFF de forma coherente con la proyección por drivers.
-
-    NOPAT = EBIT − tax·max(EBIT, 0)  (sin escudo fiscal artificial por pérdidas)
-    FCFF  = NOPAT + D&A − CAPEX − ΔNWC
-    """
+    """Recalcula FCFF; rechaza datos faltantes o inválidos en vez de convertirlos en cero."""
+    if not isinstance(df_proj, pd.DataFrame) or df_proj.empty:
+        raise ValueError("La proyección FCFF debe ser un DataFrame no vacío.")
+    try:
+        tax = float(tax)
+        capex_extra = float(capex_extra)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("La tasa fiscal y el CAPEX adicional deben ser numéricos.") from exc
+    if not np.isfinite(tax) or not 0.0 <= tax <= 1.0:
+        raise ValueError("La tasa fiscal debe ser finita y estar entre 0 y 1.")
+    if not np.isfinite(capex_extra):
+        raise ValueError("El CAPEX adicional debe ser finito.")
+    required = ["EBIT", "Depreciacion", "CAPEX", "Delta_NWC"]
+    missing = [col for col in required if col not in df_proj.columns]
+    if missing:
+        raise ValueError(f"Faltan columnas para recalcular FCFF: {', '.join(missing)}.")
     d = df_proj.copy()
-    tax = float(tax)
-    ebit = pd.to_numeric(d["EBIT"], errors="coerce").fillna(0.0).astype(float)
-    dep = pd.to_numeric(d["Depreciacion"], errors="coerce").fillna(0.0).astype(float)
-    capex = pd.to_numeric(d["CAPEX"], errors="coerce").fillna(0.0).astype(float) + float(capex_extra or 0)
-    dnwc = pd.to_numeric(d["Delta_NWC"], errors="coerce").fillna(0.0).astype(float)
+    for col in required:
+        d[col] = pd.to_numeric(d[col], errors="coerce").astype(float)
+        if not np.isfinite(d[col].to_numpy(dtype=float)).all():
+            raise ValueError(f"La columna {col} contiene valores ausentes o no finitos; no se reemplazan por cero.")
+    ebit = d["EBIT"].to_numpy(dtype=float)
+    dep = d["Depreciacion"].to_numpy(dtype=float)
+    capex = d["CAPEX"].to_numpy(dtype=float) + capex_extra
+    dnwc = d["Delta_NWC"].to_numpy(dtype=float)
     nopat = calcular_nopat(ebit, tax)
     d["CAPEX"] = capex
     d["NOPAT"] = nopat
     d["FCFF"] = nopat + dep - capex - dnwc
+    if not np.isfinite(d["FCFF"].to_numpy(dtype=float)).all():
+        raise ValueError("El FCFF recalculado contiene valores no finitos.")
     return d
-
 
 def capital_base_roic(capital_invertido, nopat_prom, deuda_neta=0.0, equity_val=None):
     """Base de capital para ROIC: evita ROIC fantasma por capital subestimado.
