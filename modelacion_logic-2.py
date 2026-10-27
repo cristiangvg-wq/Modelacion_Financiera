@@ -1926,7 +1926,10 @@ def _filtrar_historico_proyectable(df):
     numeric = df[required].apply(pd.to_numeric, errors="coerce")
     mask = np.isfinite(numeric.to_numpy(dtype=float)).all(axis=1)
     out = df.loc[mask].copy()
-    out.loc[:, required] = numeric.loc[mask, required].astype(float)
+    # Sustituir columna por columna evita que pandas intente asignar una serie
+    # float a una columna int64 preexistente mediante .loc (Pandas 3.x lo rechaza).
+    for col in required:
+        out[col] = numeric.loc[mask, col].astype(float).to_numpy()
     return out
 
 
