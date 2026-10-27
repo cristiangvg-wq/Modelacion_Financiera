@@ -2739,7 +2739,8 @@ def df_historico_empresa(nombre_empresa):
 # ingresos. Antes era un 3 % fijo para todas las monedas: en COP, con inflación implícita
 # de ~6 %, eso equivalía a suponer una contracción real perpetua del 3 % anual.
 CAPM_POR_MERCADO = {
-    "US": {"rf": 0.045, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015, "g_lp": 0.03},
+    # US: Treasury 10 años 4,99 % al 27-oct-2026 (Forbes Advisor / Treasury). Antes 4,5 %.
+    "US": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015, "g_lp": 0.03},
     # CO: TES 10 años en COP por encima de 13 % (La República, 21-oct-2026). Antes 12 %.
     # Inflación implícita (breakeven TES COP vs UVR) a 10 años: 6,15 % (BanRep, 21-ago-2026).
     "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.06, "kd_spread": 0.01, "g_lp": 0.06},
@@ -2749,7 +2750,7 @@ CAPM_POR_MERCADO = {
     "GB": {"rf": 0.04,  "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015, "g_lp": 0.03},
     "DEFAULT": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.02, "g_lp": 0.03},
 }
-CAPM_AS_OF = "2026-10"  # US rf~4.5% / ERP~5%; CO rf~13% (TES 10a >13% al 21-oct-2026). Revisar en cada ciclo de FOMC/BanRep.
+CAPM_AS_OF = "2026-10"  # US rf~5.0% (UST10 4,99 % 27-oct-2026) / ERP~5%; CO rf~13% (TES 10a >13% al 21-oct-2026). Revisar en cada ciclo de FOMC/BanRep.
 
 
 def _aplicar_reglas_catalogo():
@@ -3360,40 +3361,38 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["deuda_neta"] = round((total_debt - (cash or 0)) / 1e9, 4)
         p["deuda_es_bruta"] = False
         p["deuda_bruta"] = round(total_debt / 1e9, 4)
+    # Moneda de los EEFF (deuda, caja, flujos) vs moneda de cotización (precio,
+    # marketCap). En ADRs difieren (EC: EEFF COP, precio USD por ADS de 20 acciones).
+    fin_cur_p = str(info.get("financialCurrency") or info.get("currency") or "").upper()
+    px_cur_p = str(info.get("currency") or fin_cur_p or "").upper()
+    px_chk = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
     if shares is not None and shares > 0:
-        # Yahoo sharesOutstanding casi siempre en unidades (AAPL ~1.5e10).
-        # Convertir siempre a **millones de acciones** para VPS = equity_mm * 1000 / acc_m.
+        # Yahoo sharesOutstanding viene en unidades; el modelo usa millones.
         sh = float(shares)
-        if sh >= 1e6:
-            p["acciones"] = round(sh / 1e6, 4)  # unidades → millones
-        elif sh >= 100:  # ya parece millones (p.ej. 15100) o miles grandes
-            # Si marketCap/precio implica otro orden, confiar en mcap
-            px_tmp = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
-            if mcap is not None and px_tmp and px_tmp > 0:
-                implied_m = (mcap / px_tmp) / 1e6
-                # Si sh está cerca de implied en millones, usar sh; si no, implied
-                if implied_m > 0 and (sh / implied_m < 0.1 or sh / implied_m > 10):
-                    p["acciones"] = round(implied_m, 4)
-                else:
-                    p["acciones"] = round(sh, 4)
-            else:
-                p["acciones"] = round(sh, 4)
-        else:
-            p["acciones"] = round(sh, 4)
-        # Cross-check con marketCap / precio (más fiable en mega-caps)
-        px_chk = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
-        if mcap is not None and px_chk and px_chk > 0:
-            implied = (mcap / px_chk) / 1e6  # millones
-            if implied > 0 and p.get("acciones"):
-                ratio = p["acciones"] / implied
-                if ratio < 0.05 or ratio > 20:
-                    p["acciones"] = round(implied, 4)
-                    p["acciones_fuente"] = "marketCap/precio"
-                else:
-                    p["acciones_fuente"] = "sharesOutstanding"
-        # Guardrail absurdo
-        if p.get("acciones") and p["acciones"] > 500_000:
-            p["acciones"] = round(p["acciones"] / 1000.0, 4)
+        p["acciones"] = round(sh / 1e6, 4) if sh >= 1e6 else round(sh, 4)
+        p["acciones_fuente"] = "sharesOutstanding"
+    # marketCap / precio da el número de unidades COTIZADAS (ADS en un ADR, o todas
+    # las clases en emisores multiclase). El VPS se compara con el precio de esa
+    # unidad, así que esta es la base correcta cuando difiere de sharesOutstanding.
+    # Antes solo se corregía con una desviación >20x: el ADR de Ecopetrol (ratio
+    # exacto 20x) quedaba con acciones ordinarias y el upside salía ~-95 %.
+    if mcap is not None and mcap > 0 and px_chk and px_chk > 0:
+        implied = (mcap / px_chk) / 1e6
+        acc_actual = p.get("acciones")
+        if implied > 0 and (not acc_actual or not (0.8 <= acc_actual / implied <= 1.25)):
+            p["acciones"] = round(implied, 4)
+            p["acciones_fuente"] = "marketCap/precio (unidades cotizadas)"
+
+    if p.get("acciones") and p["acciones"] > 500_000:  # >500 mil millones de acciones: escala errónea
+        p["acciones"] = round(p["acciones"] / 1000.0, 4)
+
+    # marketCap en la moneda de los EEFF para que D/E compare magnitudes homogéneas
+    # (antes: deuda COP / capitalización USD → D/E ~3.000x mayor en ADRs).
+    mcap_fin = mcap
+    if mcap is not None and fin_cur_p and px_cur_p and fin_cur_p != px_cur_p:
+        conv = convertir_precio_a_moneda_modelo(mcap, px_cur_p, fin_cur_p)
+        mcap_fin = conv["precio"] if conv.get("convertido") else None
+        p["mcap_fx"] = conv.get("fx")
 
     # NCI (interés minoritario) y asociados: solo datos de ESTA empresa
     nci_val = _safe_float(
@@ -3410,17 +3409,35 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     bs = info.get("_balance_sheet")
     if bs is not None and hasattr(bs, "index"):
         try:
-            def _bs_first(candidates):
-                idx_map = {str(i).strip().lower(): i for i in bs.index}
+            idx_map = {str(i).strip().lower(): i for i in bs.index}
+
+            def _bs_first(candidates, excluir=()):
+                """Primer valor del renglón: coincidencia EXACTA antes que parcial.
+
+                Antes bastaba una coincidencia parcial: «Minority Interest» casaba con
+                «Total Equity Gross Minority Interest» (renglón presente en TODO balance
+                Yahoo), de modo que el patrimonio total se restaba como NCI (AAPL:
+                −73.700 M USD de Equity; KO: −34.300 M en vez de −2.100 M).
+                """
+                def _valor(original):
+                    for v in bs.loc[original].values:
+                        fv = _safe_float(v)
+                        if fv is not None:
+                            return fv
+                    return None
+                for cand in candidates:
+                    original = idx_map.get(cand.lower())
+                    if original is not None:
+                        val = _valor(original)
+                        if val is not None:
+                            return val
                 for cand in candidates:
                     c = cand.lower()
                     for k, original in idx_map.items():
-                        if c == k or c in k:
-                            series = bs.loc[original]
-                            for v in series.values:
-                                fv = _safe_float(v)
-                                if fv is not None:
-                                    return fv
+                        if c in k and not any(x in k for x in excluir):
+                            val = _valor(original)
+                            if val is not None:
+                                return val
                 return None
             # Minority interest explícito
             mi = _bs_first([
@@ -3428,7 +3445,7 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
                 "Noncontrolling Interest",
                 "Non Controlling Interest",
                 "Minority Interests",
-            ])
+            ], excluir=("gross", "total equity", "net income", "dividends"))
             if mi is not None:
                 nci_val = abs(mi)
             else:
@@ -3464,9 +3481,10 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["asociados"] = round(abs(float(asociados_val)) / 1e9, 4)
 
     # D/E solo con cifras de esta empresa
-    if total_debt is not None and mcap is not None and mcap > 0:
-        p["de_ratio"] = round(max(0.0, total_debt / mcap), 4)
-    elif total_debt is not None and book is not None and shares and book * shares > 0:
+    if total_debt is not None and mcap_fin is not None and mcap_fin > 0:
+        p["de_ratio"] = round(max(0.0, total_debt / mcap_fin), 4)
+    elif (total_debt is not None and book is not None and shares and book * shares > 0
+          and (not fin_cur_p or fin_cur_p == px_cur_p)):
         equity_book = book * shares
         p["de_ratio"] = round(max(0.0, total_debt / equity_book), 4)
 
@@ -3869,6 +3887,34 @@ from scipy import stats as _sps
 
 G_CONVERGENCIA = 0.03   # crecimiento hacia el que converge el crecimiento explícito (≈ inflación + PIB real bajo)
 RONIC_SPREAD = 0.0      # rentabilidad marginal en perpetuidad = WACC + spread (0 = el crecimiento no crea valor extra)
+RONIC_SPREAD_MAX = 0.20
+
+
+def fijar_ronic_spread(valor=None):
+    """Spread RONIC − WACC en perpetuidad para la sesión (None = valor por defecto).
+
+    Con spread 0 (supuesto conservador de McKinsey) el crecimiento terminal no crea
+    valor: TV = NOPAT/WACC. Es razonable para negocios regulados o commodities, pero
+    subvalora franquicias con ventajas competitivas duraderas (marcas, ecosistemas),
+    cuyo precio de mercado incorpora retornos sobre nuevo capital > WACC. El valor se
+    guarda por sesión para que TODAS las pestañas usen el mismo supuesto.
+    """
+    alm = _almacen_estado()
+    if valor is None:
+        alm.pop("_ronic_spread", None)
+        return RONIC_SPREAD
+    v = float(valor)
+    if not (0.0 <= v <= RONIC_SPREAD_MAX):
+        raise ValueError(f"El spread RONIC − WACC debe estar entre 0 y {RONIC_SPREAD_MAX:.0%}.")
+    alm["_ronic_spread"] = v
+    return v
+
+
+def ronic_spread_sesion():
+    try:
+        return float(_almacen_estado().get("_ronic_spread", RONIC_SPREAD))
+    except (TypeError, ValueError):
+        return RONIC_SPREAD
 
 
 def _sigma_mad(x):
@@ -4399,8 +4445,13 @@ def _normalizar_yield(y):
 def procedencia_datos(mensaje_carga, ticker_yf=None, mkt=None):
     """Clasifica la calidad/origen de los datos para gobernanza."""
     msg = (mensaje_carga or "").lower()
+    es_curado = any(k in msg for k in ("curada", "curado", "pública curada", "publica_curada", "catálogo", "catalogo"))
     if "excel" in msg and "error" not in msg and "insuficientes" not in msg and "respaldo" not in msg:
         nivel, etiqueta = "ALTA", "Estados / Excel del usuario"
+    elif es_curado and not msg.startswith("descargado desde yahoo"):
+        # El mensaje del catálogo dice «Yahoo no sustituye el catálogo»: antes caía
+        # en la rama Yahoo y la ficha rotulaba la fuente como descarga Yahoo.
+        nivel, etiqueta = "MEDIA-BAJA", "Respaldo curado del catálogo (solo años verificables; NWC puede ser estimado — preferir Yahoo o EEFF del usuario)"
     elif "yahoo" in msg or "yfinance" in msg:
         # La serie Yahoo puede combinar partidas reportadas con CAPEX/NWC aproximados.
         # No debe etiquetarse como calidad MEDIA si la propia carga declara proxies.
@@ -4411,15 +4462,15 @@ def procedencia_datos(mensaje_carga, ticker_yf=None, mkt=None):
             )
         else:
             nivel, etiqueta = "MEDIA", "Descarga pública Yahoo Finance (agregada; no es el PDF auditado)"
-    elif "curada" in msg or "curado" in msg or "pública curada" in msg or "publica_curada" in msg or "catálogo" in msg or "catalogo" in msg:
-        nivel, etiqueta = "MEDIA-BAJA", "Respaldo curado del catálogo (solo años verificables; NWC puede ser estimado — preferir Yahoo o EEFF del usuario)"
     elif "respaldo" in msg or "backup" in msg:
         nivel, etiqueta = "MEDIA-BAJA", "Serie histórica de respaldo (ilustrativa)"
     else:
         nivel, etiqueta = "MEDIA", "Mixto / revisar fuente"
     mercado = "Sin precio BVC en vivo"
     if mkt and mkt.get("ok") and mkt.get("precio"):
-        mercado = f"Precio BVC/Yahoo disponible ({mkt.get('precio'):,.0f} {mkt.get('moneda', 'COP')})"
+        _mon_px = str(mkt.get("moneda") or "COP").upper()
+        _px_fmt = f"{mkt.get('precio'):,.0f}" if _mon_px == "COP" else f"{mkt.get('precio'):,.2f}"
+        mercado = f"Precio de mercado disponible ({_px_fmt} {_mon_px})"
     elif ticker_yf:
         mercado = f"Ticker {ticker_yf} configurado, sin cotización usable en este momento"
     return {
@@ -4445,6 +4496,10 @@ def matriz_sensibilidad_wacc_g(fcff_series, deuda_neta, wacc_base, g_base, deuda
             row[f"g={g*100:.1f}% EV"] = round(val["EV"], 1)
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+UMBRAL_SOBREVALORACION = 0.30   # downside ≥ 30 % bloquea sesgos positivos
+UMBRAL_MARGEN_SEGURIDAD = 0.20  # upside ≥ 20 % cuenta como soporte
 
 
 def motor_decision_institucional(
@@ -4556,6 +4611,26 @@ def motor_decision_institucional(
     if payback is not None and payback > 8:
         alertas.append("Payback largo (> 8 años): mayor exposición temporal.")
 
+    # Contraste valor del modelo vs precio (antes se recibían pero NO se usaban: una
+    # empresa con −75 % de downside podía salir «PRELIMINAR POSITIVO»).
+    margen_mercado = None
+    try:
+        if precio_mercado is not None and equity_por_accion is not None and float(precio_mercado) > 0:
+            margen_mercado = float(equity_por_accion) / float(precio_mercado) - 1.0
+            if not np.isfinite(margen_mercado):
+                margen_mercado = None
+    except (TypeError, ValueError):
+        margen_mercado = None
+    precio_sobre_valor = margen_mercado is not None and margen_mercado <= -UMBRAL_SOBREVALORACION
+    if precio_sobre_valor:
+        alertas.append(
+            f"El precio de mercado supera en {(-margen_mercado / (1 + margen_mercado)) * 100:.0f}% el valor por acción "
+            f"del modelo (downside {margen_mercado * 100:.0f}%): no hay margen de seguridad en el caso base. "
+            "Revisa el WACC implícito del precio para ver qué crecimiento o riesgo descuenta el mercado."
+        )
+    elif margen_mercado is not None and margen_mercado >= UMBRAL_MARGEN_SEGURIDAD:
+        soportes.append(f"Margen de seguridad: valor del modelo {margen_mercado * 100:.0f}% por encima del precio.")
+
     # Clasificación
     if vetos:
         # El veto es CONTROL DE CALIDAD DEL MODELO, no un rating de la acción:
@@ -4571,6 +4646,13 @@ def motor_decision_institucional(
         decision = "EVITAR / REVISAR"
         color = "#EA580C"
         sesgo = "Demasiadas alertas de riesgo o calidad de datos frente a los soportes."
+    elif precio_sobre_valor:
+        decision = "NEUTRAL / MONITOREAR · PRECIO SOBRE VALOR"
+        color = "#D97706"
+        sesgo = (
+            "El precio de mercado está muy por encima del valor del caso base: aunque los fundamentos "
+            "puedan ser sólidos, no hay margen de seguridad para un sesgo de compra."
+        )
     elif equity_pesimista is not None and equity_pesimista > 0 and roic > wacc and (vpn is None or vpn >= 0):
         solo_dato = (
             len(alertas) == 1
@@ -5166,7 +5248,7 @@ def valoracion_dcf(
     reinv_term = None
     ronic = None
     if nopat_final is not None:
-        spread = RONIC_SPREAD if ronic_spread is None else float(ronic_spread)
+        spread = ronic_spread_sesion() if ronic_spread is None else float(ronic_spread)
         ronic = wacc + spread
         nopat_n1 = float(nopat_final) * (1 + g_use)
         if nopat_n1 > 0 and ronic > 0:
@@ -5187,8 +5269,10 @@ def valoracion_dcf(
     ev_exit = None
     if ebitda_salida is not None and float(exit_multiple) > 0:
         tv_exit = float(ebitda_salida) * float(exit_multiple)
-        # Misma convención temporal que el TV Gordon (mid-year si aplica)
-        pv_tv_exit = tv_exit * df_tv
+        # El múltiplo EV/EBITDA es un precio de mercado observado al CIERRE del año N:
+        # se descuenta N años completos aunque los flujos usen mitad de año
+        # (descontarlo N−0,5 sobrevaloraba el escenario de salida ≈ ½·WACC).
+        pv_tv_exit = tv_exit * (1 + wacc) ** -n
         ev_exit = pv_fcff + pv_tv_exit
 
     # Caso base explícito: Gordon. Exit multiple queda separado para comparación.
@@ -5226,6 +5310,7 @@ def valoracion_dcf(
         "FCFF usado en TV" + (" (normalizado N+1)" if reinv_term is not None else " (último año)"): (
             float(nopat_final) * (1 + g_use) * (1 - reinv_term) if reinv_term is not None else fcff_tv),
         "Reinversión terminal (% NOPAT)": (reinv_term * 100 if reinv_term is not None else 0.0),
+        "RONIC terminal (%)": (ronic * 100 if ronic is not None else None),
         "% del EV en valor terminal": (tv_pct_ev * 100 if tv_pct_ev is not None else 0.0),
         "g_terminal_usada": g_use,
         "WACC": wacc,
@@ -5301,23 +5386,48 @@ def valoracion_dcf(
 def formatear_bridge_html(val, moneda_modelo=None, moneda_precio=None, nombre_empresa=None):
     """HTML del puente EV → Equity y valor por acción (moneda del emisor, no COP fijo)."""
     b = val.get("bridge") or {}
-    def _celda(v):
-        return f"{v:,.1f}" if isinstance(v, (int, float)) else str(v)  # 'Nota TV' es texto
+    # Claves técnicas que ya se muestran en el encabezado (WACC, g) o son banderas internas.
+    _OCULTAS = {"WACC", "g_terminal_usada", "deuda_es_bruta"}
+
+    def _celda(k, v):
+        if isinstance(v, bool):
+            return "Sí" if v else "No"
+        if v is None:
+            return "—"
+        if isinstance(v, (int, float)):
+            return f"{v:,.1f} %" if "%" in str(k) else f"{v:,.1f}"
+        return str(v)  # 'Nota TV' es texto
 
     mon_m = (moneda_modelo or (moneda_empresa(nombre_empresa) if nombre_empresa else None) or "COP").upper()
     mon_p = (moneda_precio or mon_m).upper()
     unidad = etiqueta_unidad(mon_m)
 
+    def _fmt_px(x, mon):
+        return f"{x:,.0f} {mon}" if mon == "COP" else f"{x:,.2f} {mon}"
+
     rows = "".join(
-        f"<tr><td style='padding:6px 10px;color:#E8EEF7;border-bottom:1px solid #E2E8F0'>{k}</td>"
-        f"<td style='padding:6px 10px;text-align:left;color:#E8EEF7;border-bottom:1px solid #E2E8F0'>{_celda(v)}</td></tr>"
-        for k, v in b.items()
+        f"<tr><td style='padding:6px 10px;color:#E8EEF7;border-bottom:1px solid #243044;text-align:left'>{k}</td>"
+        + (f"<td style='padding:6px 10px;text-align:left;color:#CBD5E1;border-bottom:1px solid #243044'>{_celda(k, v)}</td></tr>"
+           if isinstance(v, str) else
+           f"<td style='padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:#E8EEF7;"
+           f"border-bottom:1px solid #243044;white-space:nowrap'>{_celda(k, v)}</td></tr>")
+        for k, v in b.items() if k not in _OCULTAS
     )
     vps = val.get("value_per_share")
     upside = val.get("upside_pct")
     precio = val.get("precio_mercado")
-    vps_txt = f"{vps:,.0f} {mon_m}" if vps is not None else "N/D (faltan acciones)"
-    if upside is not None and precio is not None:
+    vps_txt = _fmt_px(vps, mon_m) if vps is not None else "N/D (faltan acciones)"
+    if upside is not None and precio is not None and mon_m != mon_p and val.get("fx_aplicado"):
+        # ADR / emisor con EEFF en otra moneda: el upside SÍ es comparable porque el
+        # precio se convirtió con la tasa spot (antes se mostraba «N/D» aunque existía).
+        color = "#059669" if upside >= 0 else "#DC2626"
+        px_mod = val.get("precio_moneda_modelo")
+        up_txt = (
+            f"<span style='color:{color};font-weight:700'>{upside:+.1f}%</span> "
+            f"vs precio {_fmt_px(precio, mon_p)} ≈ {_fmt_px(px_mod, mon_m) if px_mod else 'N/D'} "
+            f"(FX {val['fx_aplicado']:,.2f} COP/USD · {val.get('fuente_fx') or 'spot'})"
+        )
+    elif upside is not None and precio is not None:
         if mon_m != mon_p:
             up_txt = (
                 f"<span style='color:#D97706;font-weight:700'>N/D comparable</span> "
@@ -5328,7 +5438,7 @@ def formatear_bridge_html(val, moneda_modelo=None, moneda_precio=None, nombre_em
             color = "#059669" if upside >= 0 else "#DC2626"
             up_txt = (
                 f"<span style='color:{color};font-weight:700'>{upside:+.1f}%</span> "
-                f"vs precio {precio:,.2f} {mon_p}"
+                f"vs precio {_fmt_px(precio, mon_p)}"
             )
     else:
         up_txt = "N/D (sin precio de mercado o sin acciones)"
@@ -5383,6 +5493,49 @@ def valorar_con_bridge(fcff_series, wacc, g, bridge_params, ebitda_salida=None, 
         nopat_final=nopat_final,
         deuda_es_bruta=bool(bp.get("deuda_es_bruta", False)),
     )
+
+
+def wacc_implicito_mercado(fcff_series, g, bridge_params, precio_objetivo, mid_year=True,
+                           g_max_macro=0.05, nopat_final=None, lo=None, hi=0.40):
+    """WACC que iguala el VPS del DCF al precio de mercado (DCF inverso).
+
+    Mantiene FCFF, g, puente y número de acciones del caso base; solo resuelve la
+    tasa. `precio_objetivo` debe estar YA en la moneda del modelo (tras FX). Sirve
+    para contrastar el modelo con el mercado sin forzar el resultado: si el WACC
+    implícito es muy inferior al WACC CAPM, el precio descuenta más crecimiento o
+    menos riesgo que el caso base.
+
+    Devuelve {"wacc": float | None, "motivo": str}. Sin solución en [lo, hi]:
+    «precio_exige_mas_crecimiento» si aun con WACC = g + ~1 pp el VPS queda por
+    debajo del precio, o «precio_bajo_aun_con_wacc_max» en el caso opuesto.
+    """
+    sin = {"wacc": None, "motivo": "sin_datos"}
+    try:
+        px = float(precio_objetivo)
+        acc = float((bridge_params or {}).get("acciones") or 0)
+        g = float(g)
+    except (TypeError, ValueError):
+        return sin
+    if not (np.isfinite(px) and px > 0 and acc > 0 and np.isfinite(g)):
+        return sin
+    lo = max(g + 0.0105, 0.005) if lo is None else lo
+
+    def _gap(w):
+        v = valorar_con_bridge(fcff_series, w, g, bridge_params, mid_year=mid_year,
+                               g_max_macro=g_max_macro, nopat_final=nopat_final)
+        return float(v["Equity_Value"]) * 1000.0 / acc - px
+
+    try:
+        f_lo, f_hi = _gap(lo), _gap(hi)
+        if not (np.isfinite(f_lo) and np.isfinite(f_hi)):
+            return sin
+        if f_lo < 0:
+            return {"wacc": None, "motivo": "precio_exige_mas_crecimiento"}
+        if f_hi > 0:
+            return {"wacc": None, "motivo": "precio_bajo_aun_con_wacc_max"}
+        return {"wacc": float(brentq(_gap, lo, hi, xtol=1e-6)), "motivo": "ok"}
+    except (ValueError, RuntimeError, ZeroDivisionError):
+        return sin
 
 
 def _escalar_fcff(fcff, fac):
@@ -7874,11 +8027,25 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         )
         decision, color, just = motor["decision"], motor["color"], motor["sesgo"]
 
+        _px_modelo = val_base.get("precio_moneda_modelo") if val_base.get("fx_aplicado") else (
+            precio_p if (mon_modelo and mon_modelo == mon_precio) else None)
+        _wi = wacc_implicito_mercado(
+            df_proj["FCFF"].values, g, bp, _px_modelo, mid_year=bool(mid_year),
+            g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj),
+        ) if _px_modelo else {"wacc": None, "motivo": "sin_precio_comparable"}
+        wacc_impl = _wi.get("wacc")
+        _wi_txt = {
+            "precio_exige_mas_crecimiento": "N/D: el precio exige más crecimiento que el caso base (aun con WACC ≈ g + 1 pp)",
+            "precio_bajo_aun_con_wacc_max": "N/D: el precio queda por debajo del valor aun con WACC de 40 %",
+            "sin_precio_comparable": "N/D: sin precio en la moneda del modelo",
+        }.get(_wi.get("motivo"), "N/D")
+
         kpis = pd.DataFrame({
             "Indicador": [
                 "Decisión de comité (modelo)", "Score heurístico", "Calidad de datos",
                 "Fuente financiera", "Fuente mercado", "Ke (CAPM)", "WACC", "ROIC",
-                "ΔEV por CAPEX extra", "Equity base", "Equity pesimista", "MVA firma (EV − capital invertido)", "TIR implícita firma*"
+                "ΔEV por CAPEX extra", "Equity base", "Equity pesimista", "MVA firma (EV − capital invertido)", "TIR implícita firma*",
+                "WACC implícito en el precio (DCF inverso)",
             ],
             "Valor": [
                 decision, f"{score}/7", prov["nivel_calidad"], prov["fuente_financiera"], prov["fuente_mercado"],
@@ -7886,6 +8053,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 f"{delta_ev:,.0f}", f"{val_base['Equity_Value']:,.0f}", f"{val_pes['Equity_Value']:,.0f}",
                 f"{vpn_p:,.1f}" if vpn_p == vpn_p else "N/D",
                 f"{tir_p*100:.2f}%" if (tir_p == tir_p) else "N/D",
+                (f"{wacc_impl*100:.2f}% ({(wacc_impl - wacc)*1e4:+,.0f} pb vs WACC)" if wacc_impl is not None else _wi_txt),
             ],
         })
 
@@ -7905,10 +8073,9 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 '<table',
                 '<table style="width:100%;border-collapse:collapse;font-size:12px;color:#E8EEF7;text-align:left"',
             )
-            sens_html = sens_html.replace('<th>', '<th style="text-align:left;padding:8px 10px;background:#0F766E;color:#ECFDF5">')
-            sens_html = sens_html.replace('<td>', '<td style="text-align:left;padding:6px 10px;border-bottom:1px solid #243044">')
-            sens_html = sens_html.replace('<th>', '<th style="background:#0A2540;color:#fff;padding:6px;text-align:left">')
-            sens_html = sens_html.replace('<td>', '<td style="padding:6px;border-bottom:1px solid #E2E8F0;text-align:left;color:#E8EEF7">')
+            # Cifras alineadas a la derecha; la primera columna (WACC) es la etiqueta de fila.
+            sens_html = sens_html.replace('<th>', '<th style="text-align:right;padding:8px 10px;background:#0F766E;color:#ECFDF5">')
+            sens_html = sens_html.replace('<td>', '<td class="num" style="text-align:right;padding:6px 10px;border-bottom:1px solid #243044;font-variant-numeric:tabular-nums">')
         except Exception as e_sens:
             sens_html = f"<p style='color:#991B1B'>No se pudo calcular la matriz de sensibilidad: {e_sens}</p>"
 
@@ -7933,7 +8100,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         resumen = f"""
 <div style="background:linear-gradient(135deg,{COLOR_PRIMARY} 0%,#1B6CA8 100%);padding:22px;border-radius:14px;margin-bottom:16px" class="dark-card">
 <h2 style="margin:0 0 6px 0;color:#5EEAD4 !important">Comité de inversión · {nombre_empresa}</h2>
-<p style="margin:0;color:#FFFFFF !important">Horizonte {horizonte} años · WACC {wacc*100:.2f}% · g {float(g)*100:.2f}% · ROIC {(f"{roic*100:.2f}%" if roic_ok else "N/D")}</p>
+<p style="margin:0;color:#FFFFFF !important">Horizonte {horizonte} años · WACC {wacc*100:.2f}% · g {float(val_base.get("g_used", g))*100:.2f}%{(f" (ingresado {float(g)*100:.2f}%, techo macro)" if abs(float(val_base.get("g_used", g)) - float(g)) > 1e-9 else "")} · ROIC {(f"{roic*100:.2f}%" if roic_ok else "N/D")}</p>
 <p style="margin:8px 0 0 0;color:#E2E8F0 !important">EV base {val_base['EV']:,.0f} · Equity base {val_base['Equity_Value']:,.0f} · Equity pesimista {val_pes['Equity_Value']:,.0f} (miles M · moneda del emisor)</p>
 </div>
 <div class="section-card">
@@ -7968,6 +8135,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "upside": _finite_or_none(val_base.get("upside_pct")),
                     "acciones": _finite_or_none(val_base.get("acciones")),
                     "wacc_calc": _finite_or_none(wacc),
+                    "wacc_implicito_mercado": _finite_or_none(wacc_impl),
                     "ke_calc": _finite_or_none(ke),
                     "roic_calc": _finite_or_none(roic),
                     "roic_fuente": "NOPAT medio proyectado / capital invertido (pestaña 4)",
@@ -9615,7 +9783,10 @@ def al_cambiar_empresa(nombre_empresa):
         p.setdefault("rf", CAPM_POR_MERCADO["CO"]["rf"])
         p.setdefault("erp", CAPM_POR_MERCADO["CO"]["erp"])
         p.setdefault("crp", 0.0)
-        p.setdefault("g_max_macro", 0.04)
+        # Techo nominal en COP: inflación implícita ~6 % (BanRep). Antes 4 % fijo
+        # (techo pensado para USD) → crecimiento real negativo a perpetuidad y
+        # valor terminal subestimado en todas las empresas colombianas.
+        p.setdefault("g_max_macro", CAPM_POR_MERCADO["CO"]["g_max_macro"])
         p.setdefault("mercado_capm", "CO")
     return (card,) + _params_para_ui(p) + _capm_para_ui(p)
 

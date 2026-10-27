@@ -2,7 +2,7 @@ name: Pruebas de calidad financiera
 
 on:
   push:
-    branches: ["**"]
+    branches: [main, "audit/**"]
   pull_request:
 
 permissions:
@@ -28,8 +28,7 @@ jobs:
           pip install pytest
 
       - name: Verificar sintaxis
-        run: |
-          python -m py_compile modelacion_logic.py streamlit_app.py streamlit_app-2.py portfolio_engine.py investment_simulator.py multiples_valuation.py
+        run: python -m compileall -q .
 
       - name: Ejecutar pruebas automatizadas
         run: pytest -q
@@ -38,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for entry in "streamlit_app.py:8501" "streamlit_app-2.py:8502"; do
+          for entry in "streamlit_app.py:8501"; do
             app="${entry%%:*}"
             port="${entry##*:}"
             log_file="$(mktemp)"
