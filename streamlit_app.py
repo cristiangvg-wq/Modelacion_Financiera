@@ -3353,8 +3353,9 @@ def main():
                 if _rp_ui:
                     st.caption(
                         f"Referencia Damodaran ({_rp_ui.get('fecha')}): ERP madura {_rp_ui['erp_madura']:.2%} · "
-                        f"{_rp_ui['pais']} {_rp_ui.get('rating')}: CRP {_rp_ui['crp']:.2%}, ERP total {_rp_ui['erp_total']:.2%}. "
-                        "Con rf en TES (COP) el CRP va en 0: el TES ya incluye el riesgo soberano."
+                        f"{_rp_ui['pais']} {_rp_ui.get('rating')}: riesgo país {_rp_ui['crp']:.2%}, ERP total {_rp_ui['erp_total']:.2%}, "
+                        f"spread de default {_rp_ui['spread']:.2%}. En pesos: rf = TES − spread de default y ERP = total "
+                        "(ya incluye el riesgo país, por eso CRP = 0). En dólares: ERP madura + CRP."
                     )
                 if _vig_ui.get("aviso"):
                     st.caption("⚠ " + _vig_ui["aviso"])
@@ -3399,15 +3400,38 @@ def main():
                 help="Crecimiento perpetuo máximo en la moneda del modelo: ~4 % en USD, ~6 % en COP "
                      "(inflación implícita ~6 %). Se aplica también min(techo, WACC − 1 pp).",
             )
-            ronic_spread = st.slider(
-                "Spread RONIC − WACC (perpetuidad)", 0.0, float(L.RONIC_SPREAD_MAX),
-                float(st.session_state.get("ronic_spread", L.RONIC_SPREAD)), 0.01, key=f"ronic_{ek}",
-                help="Retorno sobre el capital NUEVO en perpetuidad por encima del WACC. 0 = el crecimiento "
-                     "no crea valor (conservador; utilities reguladas, commodities). Franquicias con ventajas "
-                     "duraderas (marcas, ecosistemas) justifican 3–10 pp. Afecta a todas las pestañas.",
+            _ronic_opts = {
+                "roic": "Converge al ROIC observado (recomendado)",
+                "wacc": "Igual al WACC (conservador)",
+                "manual": "Manual",
+            }
+            _ronic_modo = st.selectbox(
+                "Retorno de la nueva inversión en perpetuidad (RONIC)", list(_ronic_opts),
+                format_func=lambda k: _ronic_opts[k], key=f"ronic_modo_{ek}",
+                help="Cuánto rinde lo que la empresa reinvierte para crecer después del horizonte. "
+                     "«Converge al ROIC»: WACC + ½ × (ROIC observado − WACC), nunca por debajo del WACC. "
+                     "«Igual al WACC»: el crecimiento no crea valor. Afecta a todas las pestañas.",
             )
+            ronic_spread = 0.0
+            if _ronic_modo == "manual":
+                ronic_spread = st.slider(
+                    "Spread RONIC − WACC (perpetuidad)", 0.0, float(L.RONIC_SPREAD_MAX),
+                    float(st.session_state.get("ronic_spread", L.RONIC_SPREAD)), 0.01, key=f"ronic_{ek}",
+                    help="0 = el crecimiento no crea valor (utilities reguladas, commodities). Franquicias con "
+                         "ventajas duraderas (marcas, ecosistemas) justifican 3–10 pp.",
+                )
             try:
-                L.fijar_ronic_spread(ronic_spread)
+                if _ronic_modo == "manual":
+                    L.fijar_ronic_spread(ronic_spread)
+                else:
+                    L.fijar_ronic_spread(None)
+                    L.fijar_modo_ronic(_ronic_modo)
+                _roic_ref = L.roic_referencia_sesion()
+                if _ronic_modo == "roic":
+                    st.caption(
+                        f"ROIC observado: {_roic_ref:.1%}. Si no supera el WACC, el RONIC queda igual al WACC."
+                        if _roic_ref is not None else "ROIC observado: se calcula al ejecutar el modelo (requiere capital invertido)."
+                    )
             except Exception:
                 pass
 
@@ -3729,7 +3753,7 @@ def main():
         empresa, horizonte, metodo, tax, de_ratio, kd, g, capex_extra, beta_u,
         deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
         exit_multiple, mid_year, g_max_macro, usar_publicos,
-        capital_invertido, inversion_inicial, _hash_archivo, moneda, ronic_spread,
+        capital_invertido, inversion_inicial, _hash_archivo, moneda, ronic_spread, _ronic_modo,
     ))
     _prev_fingerprint = st.session_state.get("_model_fingerprint")
     if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:

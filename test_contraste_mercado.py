@@ -192,7 +192,7 @@ class TestValoracion(BaseFake):
     def test_isa_deuda_neta_reportada(self):
         p = L._EMPRESAS_CATALOGO_INMUTABLE["ISA — Interconexión Eléctrica"]["params"]
         self.assertEqual(p["deuda_neta"], 30430)
-        self.assertEqual(L.CAPM_POR_MERCADO["CO"]["rf"], 0.13)
+        self.assertEqual(L.CAPM_POR_MERCADO["CO"]["rf_bruto"], 0.1318)
 
 
 if __name__ == "__main__":

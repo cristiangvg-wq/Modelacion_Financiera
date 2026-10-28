@@ -72,7 +72,7 @@ class TestCatalogoCurado(BaseFuentes):
         np.testing.assert_allclose(h["FCFF"], h["NOPAT"] + h["Depreciacion"] - h["CAPEX"] - h["Delta_NWC"], atol=1e-3)
 
     def test_kd_por_regla(self):
-        rf = L.CAPM_POR_MERCADO["CO"]["rf"]
+        rf = L.CAPM_POR_MERCADO["CO"].get("rf_bruto", L.CAPM_POR_MERCADO["CO"]["rf"])  # Kd sobre el TES completo
         self.assertAlmostEqual(L.EMPRESAS[ISA]["params"]["kd"], rf + 0.01)
         self.assertAlmostEqual(L.EMPRESAS["ECOPETROL"]["params"]["kd"], rf + 0.02)
         self.assertIn("spread", L.EMPRESAS[ISA]["params"]["kd_fuente"])

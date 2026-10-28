@@ -30,10 +30,16 @@ class TestDatosDamodaran(unittest.TestCase):
         self.assertAlmostEqual(co["crp"], co["spread"] * co["multiplicador"], places=6)
         self.assertIsNone(L.damodaran_riesgo_pais("XX"))
 
-    def test_erp_de_eeuu_desde_damodaran_y_tasa_local_sin_cambios(self):
+    def test_erp_de_eeuu_desde_damodaran(self):
         self.assertAlmostEqual(L.CAPM_POR_MERCADO["US"]["erp"], round(L.damodaran_riesgo_pais("US")["erp_us"], 4))
-        self.assertEqual(L.CAPM_POR_MERCADO["CO"]["erp"], 0.055)
-        self.assertEqual(L.CAPM_POR_MERCADO["CO"]["crp"], 0.0)  # TES ya incluye el riesgo soberano
+
+    def test_colombia_metodo_damodaran_en_pesos(self):
+        co, dam = L.CAPM_POR_MERCADO["CO"], L.damodaran_riesgo_pais("CO")
+        self.assertAlmostEqual(co["rf"], round(co["rf_bruto"] - dam["spread"], 4))   # TES − spread de default
+        self.assertAlmostEqual(co["erp"], round(dam["erp_total"], 4))                # madura + riesgo país
+        self.assertEqual(co["crp"], 0.0)                                              # sin doble conteo
+        isa = L.EMPRESAS["ISA — Interconexión Eléctrica"]["params"]
+        self.assertAlmostEqual(isa["kd"], round(co["rf_bruto"] + 0.01, 4))            # Kd sobre el TES completo
 
     def test_wacc_paridad_usa_primas_de_damodaran(self):
         wp = L.wacc_paridad_usd(0.42, 1.09, 0.22)

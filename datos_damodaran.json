@@ -1584,7 +1584,7 @@
  },
  "multiplos": {
   "US": {
-   "archivo": "vebitda.csv",
+   "archivo": "vebitda.xls",
    "hoja": "Industry Averages",
    "fecha": "2026-01-05",
    "industrias": {
@@ -2071,7 +2071,7 @@
    }
   },
   "Emergentes": {
-   "archivo": "vebitdaemerg.csv",
+   "archivo": "vebitdaemerg.xls",
    "hoja": "Industry Averages",
    "fecha": "2026-01-05",
    "industrias": {
@@ -2558,7 +2558,7 @@
    }
   },
   "Global": {
-   "archivo": "vebitdaGlobal.csv",
+   "archivo": "vebitdaGlobal.xls",
    "hoja": "Industry Averages",
    "fecha": "2026-01-05",
    "industrias": {
@@ -3043,6 +3043,66 @@
      "ev_ebit": 20.826400832535036
     }
    }
+  }
+ },
+ "ajuste_pais": {
+  "CO": {
+   "mediana_local": 7.809,
+   "n": 12,
+   "emisores": [
+    {
+     "ticker": "ISA.CL",
+     "ev_ebitda": 8.24
+    },
+    {
+     "ticker": "GEB.CL",
+     "ev_ebitda": 13.55
+    },
+    {
+     "ticker": "ECOPETROL.CL",
+     "ev_ebitda": 4.67
+    },
+    {
+     "ticker": "CELSIA.CL",
+     "ev_ebitda": 7.89
+    },
+    {
+     "ticker": "PROMIGAS.CL",
+     "ev_ebitda": 10.12
+    },
+    {
+     "ticker": "CEMARGOS.CL",
+     "ev_ebitda": 7.73
+    },
+    {
+     "ticker": "EXITO.CL",
+     "ev_ebitda": 5.9
+    },
+    {
+     "ticker": "TERPEL.CL",
+     "ev_ebitda": 3.79
+    },
+    {
+     "ticker": "ENKA.CL",
+     "ev_ebitda": 6.37
+    },
+    {
+     "ticker": "CONCONCRET.CL",
+     "ev_ebitda": 37.65
+    },
+    {
+     "ticker": "GRUPOARGOS.CL",
+     "ev_ebitda": 8.39
+    },
+    {
+     "ticker": "ETB.CL",
+     "ev_ebitda": 2.66
+    }
+   ],
+   "referencia_emergentes": 12.281,
+   "descuento": 0.3642,
+   "fecha": "2026-10-28",
+   "fuente": "Yahoo Finance (enterpriseToEbitda, BVC) vs Damodaran Total Market (without financials), emergentes"
   }
  }
 }

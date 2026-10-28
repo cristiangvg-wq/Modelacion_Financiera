@@ -245,30 +245,41 @@ def calcular_anclas(nombre_empresa, m, contexto_mercado=None):
                         _vps_desde_equity(v.get("Equity_Value"), acc))
             except Exception:
                 pass
-        # RONIC > WACC: crecimiento que crea valor (la mitad del exceso de ROIC, con techo)
-        roic = _num(m.get("roic_calc"))
-        if roic is not None and roic > wacc and nopat:
-            spread = min(0.5 * (roic - wacc), L.RONIC_SPREAD_MAX)
+        # Retorno de la nueva inversión en perpetuidad: el ancla A5 muestra la ALTERNATIVA al caso base.
+        ronic_base = _num(m.get("ronic_terminal"))
+        base_crea_valor = ronic_base is not None and ronic_base > wacc + 1e-6
+        roic = _num(m.get("roic_observado"))
+        roic = roic if roic is not None else _num(m.get("roic_calc"))
+        if base_crea_valor:
+            spread, nombre_a5 = 0.0, "DCF con RONIC = WACC (conservador)"
+            metodo_a5 = "El crecimiento perpetuo no crea valor: reinversión terminal = g / WACC"
+        elif roic is not None and roic > wacc:
+            spread = min(L.RONIC_CONVERGENCIA * (roic - wacc), L.RONIC_SPREAD_MAX)
+            nombre_a5 = "DCF con RONIC > WACC"
+            metodo_a5 = f"Spread RONIC−WACC {spread * 100:.1f} pp (½ del exceso del ROIC {roic:.1%} sobre el WACC)"
+        else:
+            spread = None
+        if spread is not None and nopat:
             try:
                 v = L.valoracion_dcf(fcff, wacc, g, deuda_neta=bp.get("deuda_neta", 0), caja=bp.get("caja", 0),
                                      nci=bp.get("nci", 0), otros_claims=bp.get("otros_claims", 0),
                                      asociados=bp.get("asociados", 0), acciones=acc, mid_year=mid,
                                      g_max_macro=gmax, nopat_final=nopat, ronic_spread=spread,
                                      deuda_es_bruta=bool(bp.get("deuda_es_bruta")))
-                agregar("A5", "DCF con RONIC > WACC", f"Spread RONIC−WACC {spread * 100:.1f} pp (½ del exceso de ROIC)",
-                        _vps_desde_equity(v.get("Equity_Value"), acc))
+                agregar("A5", nombre_a5, metodo_a5, _vps_desde_equity(v.get("Equity_Value"), acc))
             except Exception:
                 pass
 
     # Múltiplo EV/EBITDA de pares observados
     mult, pares = _multiplos_pares(nombre_empresa, m.get("moneda"))
-    eb = _num(m.get("ebitda_ultimo_hist"))
+    # EBITDA normalizado (margen representativo × tamaño actual), no el de un año raro
+    eb = _num(m.get("ebitda_normalizado")) or _num(m.get("ebitda_ultimo_hist"))
     if mult and eb and eb > 0 and acc:
         eq = mult * eb - float(bp.get("deuda_neta") or 0) - float(bp.get("nci") or 0) \
             - float(bp.get("otros_claims") or 0) + float(bp.get("asociados") or 0)
         if bp.get("deuda_es_bruta"):
             eq += float(bp.get("caja") or 0)
-        agregar("A6", "Múltiplo EV/EBITDA de pares", f"Mediana {mult:.1f}x de {len(pares)} pares × EBITDA último",
+        agregar("A6", "Múltiplo EV/EBITDA de pares", f"Mediana {mult:.1f}x de {len(pares)} pares × EBITDA normalizado",
                 _vps_desde_equity(eq, acc))
 
     # Múltiplo de la industria según Damodaran (agregado anual, región del emisor)
@@ -283,8 +294,10 @@ def calcular_anclas(nombre_empresa, m, contexto_mercado=None):
             - float(bp.get("otros_claims") or 0) + float(bp.get("asociados") or 0)
         if bp.get("deuda_es_bruta"):
             eq += float(bp.get("caja") or 0)
-        agregar("A8", "Múltiplo de industria (Damodaran)",
-                f"{dm['ev_ebitda']:.1f}x «{dm['industria']}» {dm['region']} ({int(dm.get('n_firmas') or 0)} firmas, {dm.get('fecha')}) × EBITDA último",
+        _aj = dm.get("ajuste_pais") or {}
+        agregar("A8", "Múltiplo de industria (Damodaran)" + (" ajustado a Colombia" if _aj else ""),
+                f"{dm['ev_ebitda']:.1f}x «{dm['industria']}» {dm['region']} ({int(dm.get('n_firmas') or 0)} firmas, {dm.get('fecha')})"
+                + (f" × (1 − descuento BVC {_aj['descuento']:.0%})" if _aj else "") + " × EBITDA normalizado",
                 _vps_desde_equity(eq, acc))
 
     # Consenso de analistas (ya en moneda de cotización)
@@ -395,7 +408,9 @@ def _hechos_instantanea(cm, m):
     dm = cm.get("damodaran_multiplo") or m.get("damodaran_multiplo")
     if dm:
         add("mercado", f"EV/EBITDA de la industria «{dm['industria']}» ({dm['region']}, {int(dm.get('n_firmas') or 0)} firmas)",
-            f"{dm['ev_ebitda']:.1f}x", dm.get("fecha"), "Damodaran, NYU Stern")
+            f"{dm.get('ev_ebitda_industria', dm['ev_ebitda']):.1f}x"
+            + (f"; ajustado a Colombia {dm['ev_ebitda']:.1f}x (descuento BVC {dm['ajuste_pais']['descuento']:.0%})" if dm.get("ajuste_pais") else ""),
+            dm.get("fecha"), "Damodaran, NYU Stern; descuento BVC con Yahoo")
     if _num(mac.get("inflacion_lp_co")) is not None:
         add("macro", "Inflación implícita de largo plazo en Colombia", _pct(mac["inflacion_lp_co"]), asof, "Constantes del modelo (INFLACION_LP)")
     return hechos
@@ -552,7 +567,7 @@ def construir_prompt_dictamen(m, anclas, hechos, contexto_mercado=None):
 A. RESULTADOS DEL MODELO (pestañas 1–4)
 - Precio {_fmt(m.get('precio_mercado'))} {mon_px} · VPS base {_fmt(m.get('vps_modelo'))} {mon} · upside {_fmt(m.get('upside'), 1, ' %')}
 - WACC modelo {_pct(m.get('wacc_calc'))} · WACC por paridad USD {_pct(m.get('wacc_paridad_usd'))} · WACC implícito en el precio {_pct(m.get('wacc_implicito_mercado'))} · Ke {_pct(m.get('ke_calc'))}
-- g terminal {_pct(m.get('g_usada') if m.get('g_usada') is not None else m.get('g'))} · % del EV en valor terminal {_pct(m.get('tv_pct_ev'))} · ROIC {_pct(m.get('roic_calc'))} · D/E {_fmt(m.get('de_ratio'))}
+- g terminal {_pct(m.get('g_usada') if m.get('g_usada') is not None else m.get('g'))} · % del EV en valor terminal {_pct(m.get('tv_pct_ev'))} · ROIC {_pct(m.get('roic_calc'))} (observado {_pct(m.get('roic_observado'))}) · retorno de la nueva inversión en perpetuidad (RONIC) {_pct(m.get('ronic_terminal'))} · D/E {_fmt(m.get('de_ratio'))}
 - Margen EBITDA proyectado {_pct(m.get('margen_ebitda_proy'))} · crecimiento histórico de ingresos {_pct(m.get('g_ingresos_historico'))}
 - EV/EBITDA: modelo {_fmt(cm.get('ev_ebitda_modelo'), 1, 'x')} vs mercado {_fmt(cm.get('ev_ebitda_mercado'), 1, 'x')} · pares observados: {t_par}
 - Emisor de materias primas: {'sí' if m.get('emisor_ciclico') else 'no'} · crecimiento fuera de dominio del motor: {'sí' if m.get('fuera_de_dominio_crecimiento') else 'no'}
