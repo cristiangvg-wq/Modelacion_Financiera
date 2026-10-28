@@ -2906,6 +2906,19 @@ INDUSTRIA_DAMODARAN_REGLAS = (
     (("consumer electronics", "computer hardware"), "Computers/Peripherals"),
     (("semiconductor",), "Semiconductor"),
     (("banks - regional", "banks - diversified", "banco"), None),   # EV/EBITDA no aplica a bancos
+    # Consumo (EE. UU.): beta de industria y múltiplo de referencia para empresas maduras.
+    (("beverages - non-alcoholic", "soft drinks"), "Beverage (Soft)"),
+    (("beverages - brewers", "beverages - wineries", "distilleries", "cerveza"), "Beverage (Alcoholic)"),
+    (("household & personal products", "household products", "personal products"), "Household Products"),
+    (("confectioners",), "Food Processing"),
+    (("restaurants",), "Restaurant/Dining"),
+    (("discount stores", "department stores"), "Retail (General)"),
+    (("grocery stores", "supermercados"), "Retail (Grocery and Food)"),
+    (("tobacco", "tabaco"), "Tobacco"),
+    (("drug manufacturers",), "Drugs (Pharmaceutical)"),
+    (("biotechnology",), "Drugs (Biotechnology)"),
+    (("apparel", "footwear"), "Apparel"),
+    (("lodging", "resorts & casinos"), "Hotel/Gaming"),
     (("food", "alimentos", "packaged foods"), "Food Processing"),
     (("telecom",), "Telecom. Services"),
     (("cement", "cemento", "building materials"), "Building Materials"),
@@ -3665,6 +3678,7 @@ def capital_invertido_operativo_yahoo(info):
     return round(capital / 1e9, 4)
 
 
+BETA_REGRESION_MIN = 0.30          # beta bruta de Yahoo por debajo de esto se considera ruido (EE. UU.)
 CONSENSO_G_LIMITES = (-0.30, 1.00)   # crecimiento anual de ingresos aceptado del consenso
 HORIZONTE_TRES_ETAPAS = 10
 
@@ -4036,16 +4050,27 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["beta_u"] = 1.0
         p["beta_fuente"] = "proxy_mercado_1.0"
     # Empresas de EE. UU.: beta «bottom-up» de la industria (Damodaran, corregida por caja).
-    # Se deja como REFERENCIA, no como valor por defecto: el promedio simple de la industria lo dominan
-    # empresas pequeñas y volátiles (Computers/Peripherals 1,32 frente a 1,03 de Apple), mientras que la
-    # regresión de una empresa muy grande y líquida es precisa y Blume ya la encoge hacia 1.
+    # Por defecto es REFERENCIA: el promedio simple de la industria lo dominan empresas pequeñas y volátiles
+    # (Computers/Peripherals 1,32 frente a 1,03 de Apple), mientras que la regresión de una empresa grande y
+    # líquida es precisa y Blume ya la encoge hacia 1.
+    # Pasa a ser la BASE cuando la regresión no informa: Yahoo no trae beta (KO: antes 1,0 de mercado) o la
+    # beta bruta es < BETA_REGRESION_MIN (GIS 0,02, HSY 0,09: con un error estándar de ≈ 0,2, son ruido y
+    # llevaban el WACC a 6 %).
     if merc == "US" and _mercado_desde_pais(country) == "US":
         _bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", "US")
         if _bd:
             p["beta_industria_u"] = round(float(_bd["beta_u"]), 4)
             p["industria_beta"] = _bd["industria"]
-            p["beta_fuente"] = (f"{p['beta_fuente']}; referencia bottom-up {_bd['fuente']}: {_bd['industria']} "
-                                f"{p['beta_industria_u']:.2f} ({int(_bd['n_firmas'] or 0)} empresas, corregida por caja)")
+            _ref = (f"{_bd['fuente']}: {_bd['industria']} {p['beta_industria_u']:.2f} "
+                    f"({int(_bd['n_firmas'] or 0)} empresas, corregida por caja)")
+            if beta is None or beta <= 0 or float(beta) < BETA_REGRESION_MIN:
+                p["beta_regresion_u"] = p["beta_u"] if beta is not None and beta > 0 else None
+                p["beta_u"] = p["beta_industria_u"]
+                _motivo = ("Yahoo sin beta" if beta is None or beta <= 0
+                           else f"beta de regresión {float(beta):.2f} < {BETA_REGRESION_MIN:.2f}: no informativa")
+                p["beta_fuente"] = f"bottom-up {_ref} ({_motivo})"
+            else:
+                p["beta_fuente"] = f"{p['beta_fuente']}; referencia bottom-up {_ref}"
 
     # Asociadas / negocios conjuntos: el valor contable puede quedarse muy corto frente a lo que
     # rinden (GEB recibe ≈ 2,3 billones COP/año de participadas). Como sus resultados ya no entran
