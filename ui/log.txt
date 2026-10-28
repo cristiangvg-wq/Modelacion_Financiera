@@ -1,0 +1,8 @@
+aria: ['Ticker', 'Peers', 'Emisor', 'file upload', 'Datos públicos si no hay Excel', 'Horizonte (años)', 'D/E', 'D/E (valor exacto)', 'Kd', 'Kd (valor exacto)', 'Tax', 'Tax (valor exacto)']
+inputs: 19
+Kd caja antes: 0.1418
+Kd caja después: 0.1525
+barra Kd: Kd  0.15  0.00  0.25
+cabecera: WACC D/E · CAPM · g · bridge PASO 3 Generar modelo Todo o po
+excepciones: []
+consola: []
