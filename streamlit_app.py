@@ -69,7 +69,7 @@ st.set_page_config(
     page_title="Modelación Financiera · Terminal",
     page_icon="◈",
     layout="wide",
-    initial_sidebar_state="auto",  # en móvil el menú abierto tapaba toda la app
+    initial_sidebar_state="expanded",  # con "auto" el menú quedó superpuesto al contenido en la prueba de escritorio
     menu_items={
         "About": "Terminal de modelación financiera multisectorial · apoyo a decisión · no es asesoría de inversión.",
     },
@@ -1176,7 +1176,7 @@ def _plotly_table(df, title="Tabla"):
                 f'<div class="tf-section-title" style="margin:0.35rem 0 0.5rem 0">{title}</div>',
                 unsafe_allow_html=True,
             )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
         return True
     except Exception as e:
         st.caption(f"Tabla: {e}")
@@ -1226,11 +1226,11 @@ def _dataframe_formateado(df):
     altura = min(38 + 35 * (len(d) + 1), 620)
     try:
         sty = d.style.format(_fmt_celda_num, subset=num_cols) if num_cols else d.style
-        st.dataframe(sty, use_container_width=True, hide_index=not years_idx and isinstance(df.index, pd.RangeIndex),
+        st.dataframe(sty, width="stretch", hide_index=not years_idx and isinstance(df.index, pd.RangeIndex),
                      height=altura)
     except Exception:
         # Styler falla con columnas duplicadas o tipos mixtos: mostrar sin formato antes que nada.
-        st.dataframe(d, use_container_width=True, height=altura)
+        st.dataframe(d, width="stretch", height=altura)
 
 
 def _show_df(df, label=None, csv_key=None):
@@ -1254,10 +1254,10 @@ def _show_df(df, label=None, csv_key=None):
                 unsafe_allow_html=True,
             )
         try:
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
         except TypeError:
             try:
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width="stretch")
             except Exception:
                 st.write(df)
         except Exception:
@@ -1272,7 +1272,7 @@ def _show_df(df, label=None, csv_key=None):
                 file_name=f"{csv_key}.csv",
                 mime="text/csv",
                 key=f"dl_{csv_key}",
-                use_container_width=False,
+                width="content",
             )
         except Exception:
             pass
@@ -1764,9 +1764,9 @@ def _finish_plotly(fig, title="", height=520, key=None, **extra):
     except Exception:
         pass
     if key is not None:
-        st.plotly_chart(fig, use_container_width=True, key=key)
+        st.plotly_chart(fig, width="stretch", key=key)
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     return True
 
 
@@ -3250,7 +3250,7 @@ def main():
         with st.expander("Buscar Yahoo Finance", expanded=False):
             tq = st.text_input("Ticker", placeholder="AAPL · EC · ISA.CL", label_visibility="collapsed")
             peers = st.text_input("Peers", placeholder="MSFT,GOOGL", label_visibility="collapsed")
-            if st.button("Descargar datos", type="primary", use_container_width=True):
+            if st.button("Descargar datos", type="primary", width="stretch"):
                 with st.spinner("Yahoo Finance…"):
                     try:
                         ok, html, display_name, params_tuple = L.buscar_y_descargar_empresa(
@@ -3323,7 +3323,7 @@ def main():
                         f,
                         file_name="Plantilla_EEFF.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
+                        width="stretch",
                     )
         except Exception:
             pass
@@ -3400,7 +3400,7 @@ def main():
             prov = st.selectbox("Proveedor", ["yahoo", "api_key", "manual"])
             api_key = st.text_input("API key", type="password")
             api_url = st.text_input("URL vendor")
-            if st.button("Aplicar", use_container_width=True):
+            if st.button("Aplicar", width="stretch"):
                 try:
                     _html(L.aplicar_config_mercado_ui(prov, api_key, api_url))
                 except Exception as e:
@@ -3409,12 +3409,12 @@ def main():
         # «Modo claro (experimental)» se retiró: inyectaba un <script> que Streamlit no ejecuta
         # (st.markdown no corre JavaScript) y no existía CSS claro, así que no hacía nada.
         st.markdown('<p class="tf-sidebar-label">Experiencia</p>', unsafe_allow_html=True)
-        if st.button("Repetir tour guiado", use_container_width=True, key="btn_retour"):
+        if st.button("Repetir tour guiado", width="stretch", key="btn_retour"):
             st.session_state["tour_done"] = False
             st.session_state["tour_step"] = 1
             st.rerun()
         with st.expander("Self-test núcleo valoración", expanded=False):
-            if st.button("Correr pruebas unitarias", key="btn_self_test", use_container_width=True):
+            if st.button("Correr pruebas unitarias", key="btn_self_test", width="stretch"):
                 try:
                     if hasattr(L, "self_test_valuation_core"):
                         rows = L.self_test_valuation_core()
@@ -3620,7 +3620,7 @@ def main():
                 ),
             ], cols=2)
             _analogy("WACC")
-            if st.button("Ver impacto en valoración", key="btn_sens", use_container_width=True, type="primary"):
+            if st.button("Ver impacto en valoración", key="btn_sens", width="stretch", type="primary"):
                 try:
                     st.session_state["hero_html"] = L.sensibilidad_rapida_ui(
                         empresa, sw, sg, horizonte, tax,
@@ -3666,7 +3666,7 @@ def main():
                 placeholder="Vacío = Gemini por defecto",
             )
             st.caption("Prioridad: clave escrita aquí → Secrets/env → clave Gemini embebida.")
-        consultar = st.button("Consultar", type="primary", key="btn_ia", use_container_width=True)
+        consultar = st.button("Consultar", type="primary", key="btn_ia", width="stretch")
         if consultar:
             with st.spinner("Consultando…"):
                 try:
@@ -3739,7 +3739,7 @@ def main():
     except Exception:
         pass
 
-    if st.button("▶ Generar todo", type="primary", key="btn_generar_todo", use_container_width=True):
+    if st.button("▶ Generar todo", type="primary", key="btn_generar_todo", width="stretch"):
         try:
             _alinear_moneda_y_precio(empresa)
         except Exception:
@@ -3863,7 +3863,7 @@ def main():
         _tab_keys = ["tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7"]
         for i, col in enumerate(ctabs):
             with col:
-                if st.button(_tab_labels[i], key=f"btn_solo_{_tab_keys[i]}", use_container_width=True):
+                if st.button(_tab_labels[i], key=f"btn_solo_{_tab_keys[i]}", width="stretch"):
                     try:
                         _alinear_moneda_y_precio(empresa)
                     except Exception:
@@ -4239,11 +4239,11 @@ def main():
             with _cb1:
                 _btn_gen = st.button(
                     "▶ Generar dictamen del comité (IA)", type="primary", key="btn_tab4_comite_ia",
-                    use_container_width=True, disabled=not _tiene_base,
+                    width="stretch", disabled=not _tiene_base,
                 )
             with _cb2:
                 _btn_forzar = st.button(
-                    "↻ Regenerar", key="btn_tab4_comite_ia_forzar", use_container_width=True,
+                    "↻ Regenerar", key="btn_tab4_comite_ia_forzar", width="stretch",
                     disabled=not _tiene_base,
                     help="Ignora el dictamen guardado: vuelve a llamar a la IA aunque los insumos no hayan cambiado.",
                 )
@@ -4288,7 +4288,7 @@ def main():
                         "Convicción": h.get("conviccion"), "Hechos web": h.get("hechos_web"),
                         "Proveedor": h.get("proveedor"),
                     } for h in reversed(_hist)])
-                    st.dataframe(_df_h, use_container_width=True, hide_index=True)
+                    st.dataframe(_df_h, width="stretch", hide_index=True)
                     if len(_hist) >= 2:
                         _a, _b = _hist[-2], _hist[-1]
                         _cambios = []
@@ -4499,7 +4499,7 @@ def main():
 
             st.markdown("###### Contraste de mercado (consulta bajo demanda)")
             st.caption("La cotización y los múltiplos provienen del proveedor disponible; no se presentan como feed oficial BVC. Se muestran fecha y fuente cuando el proveedor las informa.")
-            if st.button("↻ Consultar mercado y contrastar VPS", key="btn_contraste_mercado", use_container_width=True):
+            if st.button("↻ Consultar mercado y contrastar VPS", key="btn_contraste_mercado", width="stretch"):
                 try:
                     _emp_market = L.resolver_empresa(empresa) or {}
                     _ticker_yf = _emp_market.get("ticker_yf") or (
@@ -4615,7 +4615,7 @@ def main():
                             file_name=f"informe_ejecutivo_{datetime.now().strftime('%Y%m%d')}.pdf",
                             mime="application/pdf",
                             type="primary",
-                            use_container_width=True,
+                            width="stretch",
                         )
                     st.caption(
                         "PDF v2.1 · dashboard (decisión, KPIs, escenarios, auditoría, sector; "
@@ -4833,13 +4833,13 @@ def main():
             st.markdown("###### Pesos sugeridos por el optimizador")
             _weights_df = pd.DataFrame.from_dict(_portfolio_saved["weights"], orient="index", columns=["Peso"])
             _weights_df["Peso (%)"] = _weights_df["Peso"] * 100
-            st.dataframe(_weights_df[["Peso (%)"]], use_container_width=True)
+            st.dataframe(_weights_df[["Peso (%)"]], width="stretch")
             st.markdown("###### Frontera eficiente aproximada")
             _frontier_df = pd.DataFrame(_portfolio_saved["frontier"])
             if not _frontier_df.empty:
                 st.line_chart(
                     _frontier_df.sort_values("Volatilidad").set_index("Volatilidad")[["Retorno esperado"]],
-                    use_container_width=True,
+                    width="stretch",
                 )
             _focal_ticker = _portfolio_saved.get("focal_ticker")
             _focal_company = _portfolio_saved.get("focal_company")
@@ -5004,7 +5004,7 @@ def main():
         )
         _sim_run = st.button(
             "Simular inversión", type="primary", key="investment_sim_run",
-            use_container_width=True,
+            width="stretch",
         )
         if _sim_run:
             try:
@@ -5120,7 +5120,7 @@ def main():
             _sim_chart = pd.DataFrame(_sim_res["trayectoria"])
             if not _sim_chart.empty:
                 st.markdown("###### Evolución estimada del capital")
-                st.line_chart(_sim_chart.set_index("Año"), use_container_width=True)
+                st.line_chart(_sim_chart.set_index("Año"), width="stretch")
             st.markdown("###### Comparación de escenarios")
             _sim_rows = []
             for _sim_name, _sim_values in _sim_summary["escenarios"].items():
@@ -5131,7 +5131,7 @@ def main():
                     "Rentabilidad acumulada": f"{_sim_values['rentabilidad_total']:.2%}",
                     "Rentabilidad anualizada": f"{_sim_values['rentabilidad_anualizada']:.2%}",
                 })
-            st.dataframe(pd.DataFrame(_sim_rows), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(_sim_rows), hide_index=True, width="stretch")
             _sim_upside = (_sim_saved.get("dcf") or {}).get("upside")
             if isinstance(_sim_upside, (int, float)):
                 st.markdown("###### Contraste con la valoración de la empresa")
@@ -5253,7 +5253,7 @@ def main():
             st.warning(f"No se pudo construir la lista automática de comparables: {_mx_error}")
         if _mx_auto_rows:
             st.markdown("###### Comparables con múltiplos de mercado identificados")
-            st.dataframe(pd.DataFrame(_mx_auto_rows), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(_mx_auto_rows), hide_index=True, width="stretch")
         else:
             st.warning(
                 "No se identificaron comparables automáticos con fuente de mercado suficientemente clara. "
@@ -5326,7 +5326,7 @@ def main():
                 {"Concepto": "Equity estimado", "Valor": _mx_res["equity_value"]},
                 {"Concepto": "Múltiplo mínimo", "Valor": _mx_res["multiple_min"]},
                 {"Concepto": "Múltiplo máximo", "Valor": _mx_res["multiple_max"]},
-            ]), hide_index=True, use_container_width=True)
+            ]), hide_index=True, width="stretch")
             st.caption(
                 "Resultado indicativo, no recomendación de inversión. Verifica que los comparables compartan "
                 "sector, geografía, crecimiento, márgenes, apalancamiento y normas contables. "

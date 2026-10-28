@@ -99,7 +99,9 @@ class TestAnclas(_Base):
         anc = CI.calcular_anclas("ISA — Interconexión Eléctrica", _metricas(),
                                  {"objetivo_analistas": 31000.0, "n_analistas": 5})
         ids = {a["id"]: a for a in anc["anclas"]}
-        self.assertEqual(set(ids), {"A1", "A2", "A3", "A4", "A5", "A6", "A7"})
+        # El pesimista (equity 2.000 → 1.805 COP/acción) es < ½ de la mediana: se informa, no amplía el rango.
+        self.assertEqual(set(ids), {"A1", "A3", "A4", "A5", "A6", "A7"})
+        self.assertEqual([a["id"] for a in anc["descartadas"]], ["A2"])
         self.assertAlmostEqual(ids["A1"]["vps_precio"], 13423.0)
         self.assertAlmostEqual(ids["A3"]["vps_modelo"], 32000.0 * 1000 / 1108.0)
         self.assertEqual(anc["multiplo_pares"], 8.0)  # mediana de 9,0 y 7,0: excluye focal y estimados
@@ -111,6 +113,19 @@ class TestAnclas(_Base):
         self.assertGreater(ids["A4"]["vps_modelo"], base)  # WACC paridad < WACC local → más valor
         self.assertGreater(ids["A5"]["vps_modelo"], base)  # RONIC > WACC: el crecimiento crea valor
         self.assertEqual(anc["rango"], (min(a["vps_precio"] for a in anc["anclas"]), max(a["vps_precio"] for a in anc["anclas"])))
+
+    def test_pares_de_la_misma_moneda_y_ancla_atipica(self):
+        L.RESULTADOS_SESION["empresa"] = "ISA — Interconexión Eléctrica"
+        L.RESULTADOS_SESION["tabs"] = {"6": {"multiplos_pares": [
+            {"empresa": "GEB", "ev_ebitda": 8.0, "fuente": "Yahoo Finance (enterpriseToEbitda)", "moneda": "COP", "es_focal": False},
+            {"empresa": "Celsia", "ev_ebitda": 7.0, "fuente": "Yahoo Finance (enterpriseToEbitda)", "moneda": "COP", "es_focal": False},
+            {"empresa": "Duke", "ev_ebitda": 14.0, "fuente": "Yahoo Finance (enterpriseToEbitda)", "moneda": "USD", "es_focal": False},
+            {"empresa": "NextEra", "ev_ebitda": 16.0, "fuente": "Yahoo Finance (enterpriseToEbitda)", "moneda": "USD", "es_focal": False}]}}
+        mult, pares = CI._multiplos_pares("ISA — Interconexión Eléctrica", "COP")
+        self.assertEqual(mult, 7.5)
+        self.assertEqual({p["empresa"] for p in pares}, {"GEB", "Celsia"})
+        mult_usd, _ = CI._multiplos_pares("ISA — Interconexión Eléctrica", "EUR")  # sin pares en EUR: todos
+        self.assertEqual(mult_usd, 11.0)
 
     def test_anclas_convertidas_a_moneda_de_cotizacion(self):
         m = _metricas(moneda="USD", moneda_precio="COP", vps_modelo=4.0, precio_mercado=19400.0,
