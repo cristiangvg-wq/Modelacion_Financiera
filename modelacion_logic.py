@@ -5611,14 +5611,18 @@ def aplicar_shocks_drivers_proyeccion(df_proj, tax=0.35, shock=None):
             ings = [x * g_fac for x in ings]
             d["Ingresos"] = ings
 
+    ebitda_delta = pd.Series(0.0, index=d.index, dtype=float)
     if "EBITDA" in d.columns and "Ingresos" in d.columns:
-        # margen * m_fac, acotado
-        for i in range(len(d)):
-            ing = float(d["Ingresos"].iloc[i])
-            ebitda_old = float(d["EBITDA"].iloc[i]) if "EBITDA" in d.columns else 0.0
-            margen = (ebitda_old / ing) if ing else 0.0
-            margen = float(np.clip(margen * m_fac, -0.5, 0.85))
-            d.iloc[i, d.columns.get_loc("EBITDA")] = ing * margen
+        # Ajustar el margen EBITDA sin imponer EBIT = EBITDA - D&A.
+        # Para shock base, EBITDA y EBIT quedan exactamente iguales al caso base;
+        # para otros escenarios, el cambio de EBITDA se traslada incrementalmente al EBIT.
+        ebitda_old = pd.to_numeric(d["EBITDA"], errors="coerce").fillna(0.0).astype(float)
+        ing_series = pd.to_numeric(d["Ingresos"], errors="coerce").replace(0, np.nan).astype(float)
+        margen = (ebitda_old / ing_series).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        margen_nuevo = (margen * m_fac).clip(-0.5, 0.85)
+        ebitda_nuevo = pd.to_numeric(d["Ingresos"], errors="coerce").fillna(0.0).astype(float) * margen_nuevo
+        ebitda_delta = ebitda_nuevo - ebitda_old
+        d["EBITDA"] = ebitda_nuevo
 
     if "CAPEX" in d.columns:
         d["CAPEX"] = pd.to_numeric(d["CAPEX"], errors="coerce").fillna(0.0) * cx_fac
@@ -5626,12 +5630,11 @@ def aplicar_shocks_drivers_proyeccion(df_proj, tax=0.35, shock=None):
     if "Delta_NWC" in d.columns:
         d["Delta_NWC"] = pd.to_numeric(d["Delta_NWC"], errors="coerce").fillna(0.0) * nwc_fac
 
-    # Reconstruir EBIT / Dep / NOPAT / FCFF
-    if "EBITDA" in d.columns and "Depreciacion" in d.columns:
-        dep = pd.to_numeric(d["Depreciacion"], errors="coerce").fillna(0.0)
-        d["EBIT"] = pd.to_numeric(d["EBITDA"], errors="coerce").fillna(0.0) - dep
-    elif "EBITDA" in d.columns:
-        d["EBIT"] = pd.to_numeric(d["EBITDA"], errors="coerce").fillna(0.0)
+    # Preservar el EBIT independiente de D&A y trasladar solo el shock incremental.
+    # No reconstruir EBIT como EBITDA - D&A: la diferencia puede incluir impuestos
+    # operativos y resultados de participadas según la definición reportada del emisor.
+    if "EBIT" in d.columns:
+        d["EBIT"] = pd.to_numeric(d["EBIT"], errors="coerce").fillna(0.0) + ebitda_delta
 
     if "EBIT" in d.columns:
         ebit = pd.to_numeric(d["EBIT"], errors="coerce").fillna(0.0)
