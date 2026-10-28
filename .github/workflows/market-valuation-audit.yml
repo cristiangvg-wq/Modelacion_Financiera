@@ -1,0 +1,50 @@
+name: Contraste de valoración con mercado en vivo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["audit/market-validation-2026-10-28"]
+    paths:
+      - "scripts/contraste_mercado_real.py"
+      - ".github/workflows/market-valuation-audit.yml"
+      - "modelacion_logic.py"
+      - "datos_mercado.json"
+
+permissions:
+  contents: read
+
+jobs:
+  market-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar contraste de mercado (6 activos)
+        id: audit
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts
+          python scripts/contraste_mercado_real.py 2>&1 | tee artifacts/market_audit.txt
+
+      - name: Publicar informe aunque la auditoría detecte discrepancias
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-valuation-audit
+          path: artifacts/market_audit.txt
+          if-no-files-found: warn
+          retention-days: 30
