@@ -16,7 +16,7 @@ jobs:
       - run: |
           set +e
           mkdir -p out/ui
-          python diag/pdfs.py > out/pdfs.txt 2>&1
+          python diag/pdfs.py > out/pdfs.txt 2>&1; cp -r out/pdf out/pdfs 2>/dev/null
           streamlit run streamlit_app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > out/ui/streamlit.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8501/_stcore/health && break; sleep 2; done
           timeout 400 python diag/ui_portafolio.py http://127.0.0.1:8501 out/ui > out/ui/salida.txt 2>&1

@@ -12,6 +12,8 @@ with sync_playwright() as pw:
         except Exception:
             pass
     pg.get_by_role("tab").nth(7).click(); pg.wait_for_timeout(5000)
+    f = pg.get_by_label("Otros tickers del universo, separados por coma").first
+    f.fill("ECOPETROL.CL,GEB.CL,AAPL"); f.press("Enter"); pg.wait_for_timeout(4000)
     pg.get_by_role("button", name="Optimizar portafolio").first.click(timeout=10000); pg.wait_for_timeout(90000)
     t = pg.locator('[role="tabpanel"]:visible').first.inner_text()
     open(f"{OUT}/tab8.txt", "w").write(t)
