@@ -16,14 +16,18 @@ with sync_playwright() as pw:
         except Exception:
             pass
     pg.get_by_text("Parámetros del modelo").first.click(timeout=10000)
+    log.append('aria: ' + str(pg.locator('[data-testid="stSidebar"] input').evaluate_all('els => els.map(e => e.getAttribute("aria-label")).slice(0,12)')))
     pg.wait_for_timeout(3000)
     sb = pg.locator('[data-testid="stSidebar"]')
     sb.screenshot(path=f"{OUT}/sidebar_antes.png")
-    caja = pg.get_by_label("Kd (valor exacto)").first
+    caja = pg.locator('input[aria-label*="Kd"]').last
+    log.append("inputs: " + str(pg.locator('[data-testid="stSidebar"] input[type="number"]').count()))
     log.append("Kd caja antes: " + caja.input_value())
-    caja.fill("0.1418"); caja.press("Enter"); pg.wait_for_timeout(5000)
-    caja = pg.get_by_label("Kd (valor exacto)").first
+    caja.fill("0.1525"); caja.press("Enter"); pg.wait_for_timeout(5000)
+    caja = pg.locator('input[aria-label*="Kd"]').last
     log.append("Kd caja después: " + caja.input_value())
+    sl = pg.locator('[data-testid="stSidebar"] [data-testid="stSlider"]').nth(2).inner_text()
+    log.append("barra Kd: " + sl.replace("\n", " "))
     body = pg.inner_text("body")
     i = body.find("WACC")
     log.append("cabecera: " + body[i:i + 60].replace("\n", " "))
