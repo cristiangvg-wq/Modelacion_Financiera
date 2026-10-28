@@ -152,6 +152,34 @@ class TestNucleoValoracion(unittest.TestCase):
             float(proj["FCFF"].iloc[0]), 150.0 * (1 - 0.22) + 30.0 - 100.0, places=6
         )
 
+    def test_shocks_base_preservan_ebit_y_shock_ingresos_escala_ebitda(self):
+        base = pd.DataFrame({
+            "Ingresos": [1000.0, 1100.0],
+            "EBITDA": [200.0, 220.0],
+            "EBIT": [150.0, 165.0],
+            "Depreciacion": [30.0, 33.0],
+            "CAPEX": [100.0, 110.0],
+            "Delta_NWC": [5.0, 5.0],
+            "NOPAT": [117.0, 128.7],
+            "FCFF": [42.0, 46.7],
+        }, index=[2026, 2027])
+        base_shock = L.aplicar_shocks_drivers_proyeccion(
+            base, tax=0.22,
+            shock={"g_ingresos": 1.0, "margen_ebitda": 1.0, "capex_factor": 1.0, "nwc_factor": 1.0},
+        )
+        np.testing.assert_allclose(base_shock["EBIT"].to_numpy(), base["EBIT"].to_numpy())
+        np.testing.assert_allclose(base_shock["EBITDA"].to_numpy(), base["EBITDA"].to_numpy())
+        revenue_shock = L.aplicar_shocks_drivers_proyeccion(
+            base, tax=0.22,
+            shock={"g_ingresos": 0.9, "margen_ebitda": 1.0, "capex_factor": 1.0, "nwc_factor": 1.0},
+        )
+        np.testing.assert_allclose(revenue_shock["Ingresos"].to_numpy(), base["Ingresos"].to_numpy() * 0.9)
+        np.testing.assert_allclose(revenue_shock["EBITDA"].to_numpy(), base["EBITDA"].to_numpy() * 0.9)
+        np.testing.assert_allclose(
+            revenue_shock["EBIT"].to_numpy(),
+            base["EBIT"].to_numpy() + base["EBITDA"].to_numpy() * (0.9 - 1.0),
+        )
+
     def test_catalogo_todas_las_proyecciones_son_finitas_y_fcff_reconcilia(self):
         self.assertEqual(len(L.EMPRESAS), 7)
         for name, company in L.EMPRESAS.items():
