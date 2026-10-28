@@ -1,0 +1,24 @@
+OK  utility_neutral          mantener_en_rango          
+OK  utility_neutral          objetivo_fuera_de_rango    Precio objetivo 45,000.00 fuera del rango de anclas 13,423.00 – 29,017.00
+OK  veto_activo              comprar_con_veto           Recomienda COMPRAR con un veto de calidad activo
+OK  veto_activo              mantener_condicionado      
+OK  veto_activo              mantener_sin_condicion     Hay veto de calidad: el dictamen debe quedar condicionado a recalibrar el modelo
+OK  motor_prudente_comprar   comprar_sin_divergencia    La recomendación contradice al motor cuantitativo sin declarar y justificar la divergencia
+OK  motor_prudente_comprar   comprar_con_divergencia    
+OK  motor_favorable_vender   vender_sin_divergencia     La recomendación contradice al motor cuantitativo sin declarar y justificar la divergencia
+OK  motor_favorable_vender   comprar_en_rango           
+OK  sin_anclas               objetivo_null              
+OK  sin_anclas               objetivo_inventado         Hay precio objetivo sin anclas calculables: debe ser null; El precio objetivo no indica qué anclas usa
+OK  hecho_inventado          cita_w9                    Cita hechos inexistentes: W9
+OK  ancla_inventada          usa_a9                     Cita anclas inexistentes: A9
+OK  moneda_distinta          objetivo_en_cop            
+OK  moneda_distinta          objetivo_en_usd            Precio objetivo 5.40 fuera del rango de anclas 13,313.00 – 21,500.00
+OK  hipercrecimiento         mantener_consenso          
+OK  hipercrecimiento         conviccion_cero            Convicción inválida (0): debe ser un entero 1–10
+OK  formato_incompleto       un_riesgo                  Se requieren al menos 2 riesgos con su indicador
+OK  formato_incompleto       vocabulario_antiguo        Recomendación «INVERTIR» fuera de COMPRAR/MANTENER/VENDER
+OK  conciliacion_limitacion  mantener_explicado         
+OK  conciliacion_limitacion  vender_por_brecha          Causa LIMITACION_CRECIMIENTO: el modelo no sirve para decidir; la recomendación debe ser MANTENER
+OK  conciliacion_limitacion  sin_cifra                  La conciliación con el mercado debe explicar la brecha con al menos una cifra de la sección E
+
+22 de 22 veredictos correctos
