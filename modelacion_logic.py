@@ -7343,7 +7343,9 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
         recomendacion = re.sub(r"\s+", " ", rec.group(1)).strip()
         favorable_motor = ("FAVORABLE" in decision_motor or "POSITIVO" in decision_motor)
         prudente_motor = ("EVITAR" in decision_motor or "NEUTRAL" in decision_motor or "MONITOREAR" in decision_motor)
-        diverge = (recomendacion in ("INVERTIR", "INVERTIR CONDICIONALMENTE") and prudente_motor) or (recomendacion == "NO INVERTIR" and favorable_motor)
+        # La recomendación condicional puede ser una cautela compatible con el motor prudente.
+        # Solo exigir divergencia cuando la recomendación contradice directamente la señal.
+        diverge = (recomendacion == "INVERTIR" and prudente_motor) or (recomendacion == "NO INVERTIR" and favorable_motor)
         if diverge and "DIVERGENCIA FRENTE AL MOTOR CUANTITATIVO" not in upper:
             errors.append("La recomendación difiere del motor cuantitativo sin declarar y justificar la divergencia")
     score = re.search(r"PUNTAJE(?:\s+DE\s+VIABILIDAD)?\s*[:：-]*\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*10)?", upper)
