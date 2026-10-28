@@ -1,0 +1,25 @@
+/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/yfinance/utils.py:568: Pandas4Warning: The inplace keyword in DataFrame.sort_index is deprecated and will be removed in a future version (PDEP-8).
+See https://pandas.pydata.org/docs/dev/whatsnew/v3.1.0.html#deprecation-inplace for more details.
+  quotes.sort_index(inplace=True)
+BASE {'H': 5, 'de': 1.1291, 'kd': 0.1418, 'tax': 0.219, 'g': 0.06, 'cx': 0.0, 'bu': 0.2896, 'rf': 0.1143, 'erp': 0.0692, 'crp': 0.0, 'ex': 8.24, 'gmax': 0.06, 'mid': True}
+base                 vps=24461.373992807876 upside=-11.114193340087663
+g=0.08               vps=24461.373992807876 upside=-11.114193340087663
+g=0.07               vps=24461.373992807876 upside=-11.114193340087663
+gmax=0.08,g=0.08     vps=25133.649430474725 upside=-8.67133201135638
+H=10                 vps=29925.459395721704 upside=8.740768153058509
+H=3                  vps=21691.107681838057 upside=-21.180568016576828
+de=0                 vps=22580.61734179315 upside=-17.948338147553965
+de=2                 vps=24965.23551063868 upside=-9.283301196807125
+de=5                 vps=25593.002765165318 upside=-7.002170184719048
+kd=0.08              vps=42625.73863692268 upside=54.89003865160858
+tax=0.35             vps=19015.033920333593 upside=-30.904673254601768
+tax=0                vps=31754.166713932413 upside=15.385780210510225
+bu=0                 vps=34708.44856105511 upside=26.120815992206083
+rf=0.0943            vps=29139.357397663858 upside=5.884292869418095
+rf=0.02              vps=78028.04524990373 upside=183.53214116970835
+erp=0.03             vps=29485.403977184586 upside=7.141729568257937
+crp=0.03             vps=18610.830878734007 upside=-32.37343430692585
+ex=0                 vps=24461.373992807876 upside=-11.114193340087663
+ex=12                vps=24461.373992807876 upside=-11.114193340087663
+mid=False            vps=21079.884478519023 upside=-23.401582563520996
+cx=500               vps=22774.099880506892 upside=-17.245276596995307
