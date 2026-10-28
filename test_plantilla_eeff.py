@@ -117,3 +117,43 @@ class TestFormatos(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestParametrosArchivoAuditoria4(_Base):
+    """Auditoría 4: la hoja Parámetros también aplica a empresas del catálogo y a las descargadas de Yahoo."""
+
+    def _llena(self, nombre):
+        ruta = self.plantilla(nombre)
+        wb = openpyxl.load_workbook(ruta)
+        ws, wp = wb["Datos"], wb["Parametros"]
+        for r, fila in enumerate(FILAS, start=4):
+            for c, v in enumerate(fila, start=1):
+                ws.cell(r, c, v)
+        valores = {"Tasa de impuestos (%)": 30, "Deuda financiera": 30000, "Caja y equivalentes": 2000,
+                   "Interés minoritario": 10000, "Acciones en circulación (millones)": 1107.68}
+        for row in wp.iter_rows(min_row=3, max_row=14):
+            if row[0].value in valores:
+                row[1].value = valores[row[0].value]
+        wb.save(ruta)
+        return ruta
+
+    def test_catalogo_guarda_puente_del_archivo(self):
+        isa = "ISA — Interconexión Eléctrica"
+        _df, msg = L.cargar_y_limpiar_excel(self._llena("isa.xlsx"), isa, False)
+        pa = L.parametros_archivo(isa)
+        self.assertAlmostEqual(pa["deuda_neta"], 28000.0)
+        self.assertAlmostEqual(pa["nci"], 10000.0)
+        self.assertAlmostEqual(pa["tax"], 0.30)
+        self.assertAlmostEqual(pa["acciones"], 1107.68)
+        self.assertIn("reemplaza", msg)
+        self.assertNotIn("sin catálogo BVC", msg)
+
+    def test_empresa_yahoo_conserva_ticker(self):
+        nombre = "Prueba EEFF Yahoo"
+        L.EMPRESAS_RUNTIME[nombre] = {"ticker_yf": "MINEROS.CL", "ticker_bvc": "MINEROS", "moneda_precio": "COP",
+                                      "sector": "Minería", "params": {}}
+        L.cargar_y_limpiar_excel(self._llena("y.xlsx"), nombre, False)
+        rt = L.EMPRESAS_RUNTIME[nombre]
+        self.assertEqual(rt["ticker_yf"], "MINEROS.CL")
+        self.assertEqual(rt["sector"], "Minería")
+        self.assertEqual(rt["moneda_precio"], "COP")
