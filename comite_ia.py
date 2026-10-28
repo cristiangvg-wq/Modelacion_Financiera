@@ -152,8 +152,12 @@ def _a_moneda_precio(vps_modelo, m):
     return _num(conv.get("precio")) if conv.get("convertido") else None
 
 
-def _multiplos_pares(nombre_empresa):
-    """Mediana EV/EBITDA de pares OBSERVADOS en mercado (excluye estimados y la empresa focal)."""
+def _multiplos_pares(nombre_empresa, moneda=None):
+    """Mediana EV/EBITDA de pares OBSERVADOS en mercado (excluye estimados y la empresa focal).
+
+    Si hay al menos 2 pares que reportan en la misma moneda que la empresa, se usan solo esos:
+    aplicar a ISA (COP) el múltiplo de utilities de EE. UU. (≈ 13x) ignora el riesgo país.
+    """
     filas = None
     try:
         t6 = (L.RESULTADOS_SESION.get("tabs") or {}).get("6") or {}
@@ -168,6 +172,7 @@ def _multiplos_pares(nombre_empresa):
             filas = [{"empresa": str(r.get("Nombre") or r.get("Empresa")),
                       "ev_ebitda": _num(r.get("EV/EBITDA (x)")),
                       "fuente": str(r.get("Fuente múltiplo") or ""),
+                      "moneda": str(r.get("Moneda") or ""),
                       "es_focal": str(r.get("Empresa") or "").upper() == focal}
                      for _, r in df_raw.iterrows()]
         except Exception:
@@ -175,6 +180,10 @@ def _multiplos_pares(nombre_empresa):
     observados = [f for f in filas or []
                   if not f.get("es_focal") and f.get("ev_ebitda") and 1.0 <= f["ev_ebitda"] <= 50.0
                   and (str(f.get("fuente", "")).startswith("Yahoo") or str(f.get("fuente", "")).startswith("Aprox"))]
+    mon = str(moneda or "").upper()
+    misma = [f for f in observados if mon and str(f.get("moneda") or "").upper() == mon]
+    if len(misma) >= 2:
+        observados = misma
     vals = sorted(f["ev_ebitda"] for f in observados)
     if len(vals) < 2:
         return None, observados
@@ -252,7 +261,7 @@ def calcular_anclas(nombre_empresa, m, contexto_mercado=None):
                 pass
 
     # Múltiplo EV/EBITDA de pares observados
-    mult, pares = _multiplos_pares(nombre_empresa)
+    mult, pares = _multiplos_pares(nombre_empresa, m.get("moneda"))
     eb = _num(m.get("ebitda_ultimo_hist"))
     if mult and eb and eb > 0 and acc:
         eq = mult * eb - float(bp.get("deuda_neta") or 0) - float(bp.get("nci") or 0) \
@@ -270,9 +279,28 @@ def calcular_anclas(nombre_empresa, m, contexto_mercado=None):
         anclas.append({"id": "A7", "nombre": "Consenso de analistas (Yahoo)",
                        "metodo": f"Objetivo medio de {int(n_an)} analistas", "vps_modelo": None, "vps_precio": obj})
 
+    # Anclas internas atípicas (< ½ o > 2× la mediana de las anclas del modelo) se informan pero no
+    # amplían el rango permitido: un múltiplo de pares de otro mercado o un pesimista extremo dejaban
+    # el control de precio objetivo sin efecto (ISA: 5.100–62.400 COP). El DCF base (A1) y el
+    # consenso externo (A7) siempre cuentan.
+    internas = [a["vps_precio"] for a in anclas if a["id"] not in ("A1", "A7") and _num(a.get("vps_precio"))]
+    base_med = sorted(internas + [a["vps_precio"] for a in anclas if a["id"] == "A1" and _num(a.get("vps_precio"))])
+    descartadas = []
+    if len(base_med) >= 3:
+        n = len(base_med)
+        med = base_med[n // 2] if n % 2 else (base_med[n // 2 - 1] + base_med[n // 2]) / 2
+        validas = []
+        for a in anclas:
+            v = _num(a.get("vps_precio"))
+            if a["id"] not in ("A1", "A7") and v and not (0.5 * med <= v <= 2.0 * med):
+                descartadas.append(dict(a, motivo=f"atípica frente a la mediana de las anclas del modelo ({med:,.2f})"))
+            else:
+                validas.append(a)
+        anclas = validas
     vals = [a["vps_precio"] for a in anclas if _num(a.get("vps_precio"))]
     rango = (min(vals), max(vals)) if vals else None
-    return {"anclas": anclas, "rango": rango, "moneda": m.get("moneda_precio") or m.get("moneda"),
+    return {"anclas": anclas, "descartadas": descartadas, "rango": rango,
+            "moneda": m.get("moneda_precio") or m.get("moneda"),
             "pares": pares, "multiplo_pares": mult, "escenarios": escenarios}
 
 
@@ -753,7 +781,10 @@ def dictamen_a_html(res):
     filas_anc = "".join(
         f"<tr style='{'font-weight:700' if a['id'] in usadas else 'color:#94A3B8'}'><td>{_e(a['id'])}</td><td>{_e(a['nombre'])}</td>"
         f"<td style='text-align:right'>{_fmt(a.get('vps_precio'))}</td><td>{_e(a['metodo'])}</td></tr>"
-        for a in anc.get("anclas") or [])
+        for a in anc.get("anclas") or []) + "".join(
+        f"<tr style='color:#64748B'><td>{_e(a['id'])}</td><td>{_e(a['nombre'])} <i>(descartada)</i></td>"
+        f"<td style='text-align:right'>{_fmt(a.get('vps_precio'))}</td><td>{_e(a.get('motivo'))}</td></tr>"
+        for a in anc.get("descartadas") or [])
     hx = {h["id"]: h for h in hechos}
     citados = [hx[i] for i in (d.get("contexto_mercado") or {}).get("hechos_usados") or [] if i in hx]
 
