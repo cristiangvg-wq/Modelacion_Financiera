@@ -1,0 +1,4 @@
+Covarianza con contracción de Ledoit-Wolf (α = 0.03): reduce el ruido de las correlaciones históricas. Todas las cifras describen el pasado (pesos actuales aplicados a toda la ventana) y no garantizan
+El peso de ISA — Interconexión Eléctrica se estima con datos históricos. No se pudo obtener una señal DCF válida para complementar la recomendación.
+Retornos históricos anualizados, no pronósticos. No se incluyen impuestos, costos de transacción, liquidez ni conversión FX. No es asesoría de inversión.
+excepciones: []
