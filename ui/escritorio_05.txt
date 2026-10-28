@@ -1,0 +1,137 @@
+VPN · TIR · Payback
+
+Resultados generados con «Generar todo».
+
+VPN
+Valor hoy
+Pasa el cursor
+TIR
+Rentabilidad %
+Pasa el cursor
+PAYBACK
+Años
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+VPN (al 13.00%)
+15,814.5
+CREA VALOR (VPN > 0)
+TIR del proyecto
+87.74%
+TIR > WACC → Tiene sentido
+Payback
+1.2 años
+Años para recuperar
+💡 En palabras sencillas
+VPN positivo = después de devolver el costo del capital, el proyecto todavía deja ganancia en pesos de hoy. TIR = rentabilidad anual; si supera el WACC, rinde más que el costo del dinero. Payback = años para recuperar la inversión. Inversión usada en el cálculo: 6,452 (catálogo: 1,706) miles de millones (moneda del emisor). Inversión inicial del catálogo (1,706.3) es baja frente al FCFF medio (6,452.2) / capital (47,655.9); se usa piso 6,452.2 para que VPN/TIR del proyecto sean interpretables (no es CAPEX real auditado).
+Cómo leer la tabla año a año
+FCFF = flujo del año. Factor de descuento = cuánto 'vale' ese peso futuro en pesos de hoy. PV(FCFF) = flujo ya traído a valor presente. VPN acumulado = si ya recuperaste la inversión (cuando pasa de negativo a positivo). El gráfico de la derecha muestra ese recorrido.
+FLUJOS
+2026
+2027
+2028
+2029
+2030
+t=0 (Inversión)
+Año
+-6,452.2
+5,483.8
+5,930.3
+6,413.0
+6,934.8
+7,499.2
+FCFF
+1.00
+0.885
+0.7832
+0.6931
+0.6134
+0.5428
+Factor Descuento
+-6,452.2
+4,853.1
+4,644.5
+4,444.8
+4,253.6
+4,070.7
+PV(FCFF)
+-6,452.2
+-968.40
+4,961.9
+11,374.9
+18,309.7
+25,808.9
+FCFF Acumulado
+-6,452.2
+-1,599.2
+3,045.4
+7,490.2
+11,743.8
+15,814.5
+VPN Acumulado
+
+⬇ CSV · Flujos
+
+5,484
+5,930
+6,413
+6,935
+7,499
+2026
+2027
+2028
+2029
+2030
+−8000
+−6000
+−4000
+−2000
+0
+2000
+4000
+6000
+8000
+Flujos del proyecto · VPN / recuperación
+Periodo
+Flujo / VPN
+
+VPN (DATOS DISPONIBLES)
+
+15,814.44
+
+TIR
+
+87.74%
+
+PAYBACK (VP)
+
+t=2
+
+-1,599.2
+3,045.3
+7,490.1
+11,743.7
+15,814.4
+2026
+2,026.5
+2027
+2,027.5
+2028
+2,028.5
+2029
+2,029.5
+2030
+−5k
+0
+5k
+10k
+15k
+Ya recuperó y gana (VPN≥0)
+Aún no recupera (VPN<0)
+VPN acumulada
+Cómo evoluciona el valor del proyecto · WACC 13.00%
+Periodo
+VPN acumulada (valor presente)
+¿Qué mirar?Barras = flujo de cada periodo (datos financieros disponibles). La segunda gráfica calcula la VPN descontando esos flujos al WACC: zona roja = VPN acumulada negativa; zona verde = ya recuperaste en valor presente.
+Burbuja de lectura · VPN / TIR: VPN > 0 = el proyecto deja más valor del que “cuesta” el capital (buena señal con estos supuestos). TIR = la rentabilidad anual implícita; se compara con el WACC (si TIR > WACC suele ser atractivo). Payback solo dice en cuántos años recuperas la plata; no dice si el riesgo valía la pena.

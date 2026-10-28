@@ -1,0 +1,158 @@
+Recomendación de comité
+
+Resultados generados con «Generar todo».
+
+DECISIÓN
+Marco de discusión
+Pasa el cursor
+GOBERNANZA
+Reglas y alertas
+Pasa el cursor
+COMITÉ IA
+Deliberación opcional
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+MARCO DE DECISIÓN INSTITUCIONAL (APOYO · NO ORDEN DE COMPRA)
+PRELIMINAR POSITIVO · PENDIENTE DE DATOS AUDITADOS
+
+Los fundamentos modelados se ven bien (ROIC > WACC, equity positivo incluso en pesimista), pero la serie financiera es una descarga pública agregada (Yahoo), no estados auditados. No se puede emitir sesgo de inversión firme hasta cargar estados auditados o un Excel oficial.
+
+Modelo v2.0-institucional · 2026-10-28 19:25 · CAPM: rf=11.4% · ERP=6.9% · CRP=0.0% · Ke=15.20%
+
+Vetos de calidad del modelo (control interno · no son rating de la acción)
+Ningún veto duro activo
+Alertas
+ROIC, MVA y TIR implícita son indicativos porque la fuente financiera no está verificada con estados financieros completos; valida periodo, unidades y capital invertido antes de interpretar las alertas como una conclusión económica sobre la empresa.
+Soportes
+ROIC (15.8%) > WACC (13.0%): crea valor económico.
+Equity positivo en escenario pesimista (margen de seguridad relativo).
+Perfil de caja proyectado sin tensiones severas.
+GOBERNANZA
+WACC
+ROIC
+Decisión de comité (modelo)
+Score heurístico
+Calidad de datos
+Fuente financiera
+Fuente mercado
+Ke (CAPM)
+ΔEV por CAPEX extra
+Equity base
+Equity pesimista
+MVA firma (EV − capital invertido)
+TIR implícita firma*
+WACC implícito en el precio (DCF inverso)
+Flujos que exige el precio (DCF inverso)
+Crecimiento de flujos a 10 años que exige elprecio
+Causa principal de la brecha modelo vs mercado
+EBITDA normalizado (base de múltiplos)
+Indicador
+6/7
+MEDIA
+15.20%
+13.00%
+15.76%
+0
+27,173
+6,755
+15,551.3
+19.16%
+PRELIMINAR POSITIVO · PENDIENTE DE DATOSAUDITADOS
+Descarga pública Yahoo Finance (agregada; no esel PDF auditado)
+Precio de mercado disponible (27,100 COP)
+12.47% (-53 pb vs WACC)
+1.05 × los del modelo (razonable)
+2.2% anual (el modelo implica 1.5%; razonable)
+El valor del modelo y el precio difieren 10 % omenos (ALINEADO)
+9,385.8 · margen EBITDA representativo 59.0%(mediana) × ingresos del último periodo
+Valor
+Comité de inversión · ISA — Interconexión Eléctrica
+
+Horizonte 5 años · WACC 13.00% · g 6.00% · ROIC 15.76%
+
+EV base 63,207 · Equity base 27,173 · Equity pesimista 6,755 (miles M · moneda del emisor)
+
+Matriz de sensibilidad EV (filas = WACC, columnas = g)
+
+Si el valor se desploma con pequeños cambios de WACC o g, la tesis es frágil para un comité institucional.
+
+WACC %	g=4.0% EV	g=4.5% EV	g=5.0% EV	g=5.5% EV	g=6.0% EV
+11.0	75138.5	75537.5	75964.3	76426.3	76934.3
+12.0	67924.5	68134.8	68345.1	68555.4	68765.7
+13.0	62461.2	62647.7	62834.2	63020.7	63207.2
+14.0	57793.7	57960.1	58126.6	58293.0	58459.5
+15.0	53762.1	53911.5	54060.8	54210.2	54359.6
+💡 En palabras sencillas
+Checklist mínimo antes de una decisión real: (1) cifras auditadas, (2) CAPM calibrado al mercado, (3) deuda y CAPEX del guidance oficial, (4) liquidez del título en BVC, (5) límites de riesgo del mandato.
+Puente profesional EV → Equity
+
+Unidad del modelo: miles de millones COP · Convención de descuento: mitad de año. g usado 6.00% (techo 6.00%). TV (normalizado (valor-conductor)) 68,521 · TV Exit 103,071 · EV ref. 63,207 (caso base = DCF con valor terminal normalizado; el múltiplo de salida es solo referencia)
+
+Enterprise Value	63,207.2
+(-) Deuda neta	-29,806.7
+(-) Interés minoritario (NCI)	-10,457.8
+(-) Otros claims	-0.0
+(+) Asociados / JV	4,230.7
+Equity atribuible	27,173.4
+Claims netos descontados del EV	36,033.8
+EV mínimo para Equity = 0	36,033.8
+Equity / EV (%)	43.0 %
+Deuda neta / EV (%)	47.2 %
+FCFF usado en TV (normalizado N+1)	4,794.7
+Reinversión terminal (% NOPAT)	46.2 %
+RONIC terminal (%)	13.0 %
+% del EV en valor terminal	62.6 %
+Nota puente	Deuda ya neta de caja; la caja no se suma otra vez.
+Nota TV	TV normalizado por valor-conductor (NOPAT terminal y reinversión coherentes con g/RONIC).
+
+Valor por acción (modelo): 24,532 COP
+Upside / downside vs mercado: -9.5% vs precio 27,100 COP
+
+En palabras simples: la recomendación resume si, con estos números, tiene sentido llevar el caso a un comité. No es una orden de compra: es un marco para discutir riesgos y valor. El módulo de contraste automático modelo vs mercado ya no se muestra aquí; la lectura de mercado queda a cargo del comité IA (abajo) y del informe de la pestaña 7.
+Supuesto g
+g por debajo del WACC con margen razonable.
+Riesgo financiero
+Apalancamiento en zona manejable para el ejercicio.
+Uso del output
+Esto apoya la discusión; no es una orden de compra/venta.
+Equity: Lo que les quedaría a los dueños si se vendiera el negocio y se pagaran deudas y otros compromisos.
+🤖 Comité de inversión IA · modelo + mercado real
+
+Mismo proveedor/API key que Consulta IA. Tres bloques: (1) crítica de los resultados del modelo, (2) coyuntura de mercado verificada (instantánea + búsqueda web con Gemini) y (3) recomendación COMPRAR / MANTENER / VENDER con tesis, riesgos y catalizadores.
+
+keyboard_arrow_down
+
+Generar deliberación del comité con IA
+
+PRECIO MERCADO
+27,100.00 COP
+Pasa el cursor
+VPS MODELO
+24,531.86 COP
+Pasa el cursor
+UPSIDE
+-9.5%
+Pasa el cursor
+EV / EQUITY
+63,207 / 27,173
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+keyboard_arrow_right
+
+Proveedor y API key (compartido con Consulta IA)
+
+Contexto de mercado en vivo (búsqueda web)
+
+WACC modelo 13.00% · paridad USD 11.90% · implícito en el precio 12.47%. Si difieren mucho, el comité debe explicar qué supuesto produce la brecha.
+
+keyboard_arrow_right
+
+Instantánea de mercado que recibe el comité
+
+▶ Generar dictamen del comité (IA)
+
+↻ Regenerar

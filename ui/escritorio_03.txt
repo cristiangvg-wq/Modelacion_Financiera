@@ -1,0 +1,62 @@
+Coherencia de supuestos
+
+Resultados generados con «Generar todo».
+
+AUDITORÍA
+Lista de chequeo
+Pasa el cursor
+G VS WACC
+Regla clave
+Pasa el cursor
+SEMÁFORO
+Verde / ámbar / rojo
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+Auditoría del modelo · ISA — Interconexión Eléctrica
+
+1. ¿El crecimiento es realista?
+g debe ser menor que WACC. Hoy: g=6.00% | WACC=13.00%. ✅ Cumple.
+
+2. ¿La empresa crea valor?
+ROIC ≈ 15.76% vs WACC 13.00%. ✅ Crea valor.
+
+3. ¿El crecimiento se sostiene?
+Reinversión ≈ 14.1% → crecimiento sostenible ≈ 2.22%.
+
+4. ¿Cuánta deuda?
+D/E=1.15 → 53.4% deuda y 46.6% de los dueños. Costo efectivo de deuda ≈ 11.07%.
+
+💡 En palabras sencillas
+Esta pestaña es un examen de coherencia. No dice si la acción está cara o barata; dice si los números tienen lógica entre sí.
+Cómo leer las pruebas
+Verde ✅ = el supuesto es coherente. Amarillo ⚠️ = conviene revisarlo. Rojo ❌ = hay un problema serio en el modelo (por ejemplo, asumir un crecimiento mayor que el costo del dinero hace explotar el valor de largo plazo).
+PRUEBAS
+✅ g < WACC
+✅ ROIC > WACC
+⚠️ g poco coherente
+ℹ️ D/E dentro de umbral orientativo
+ℹ️ CAPM: validar fuente y fecha
+ℹ️ Identidades históricas
+Prueba
+Bien. Crecimiento (6.00%) < costo del dinero(13.00%). Modelo estable.
+Crea valor: rinde 15.76% y el dinero le cuesta13.00%.
+Tu g=6.00% vs sostenible 2.22%.
+D/E=1.15. El riesgo debe compararse con empresasdel mismo sector, país y modelo de negocio; 1.5no es un límite universal.
+rf=11.43%, ERP=6.92%, CRP=0.00%. Documentarmoneda, plazo, fecha de corte y fuente;comprobar que CRP no esté duplicada en rf/ERP.
+Identidades revisadas dentro de toleranciaabsoluta 1.0.
+Interpretación sencilla
+
+⬇ CSV · Pruebas
+
+En palabras simples: la auditoría es una lista de chequeo. Si muchas pruebas salen en rojo (por ejemplo g casi igual al WACC, o poca historia), el modelo puede estar ‘forzado’ y conviene ajustar supuestos antes de decidir.
+Crecimiento (g)
+g (6.0%) por debajo del WACC (13.0%): coherente.
+Apalancamiento
+D/E = 1.15: nivel moderado.
+Historia
+Solo 4 años: las proyecciones son más frágiles.
+Impuestos
+Tasa 22% en rango habitual.
+g: Qué tan rápido crece el efectivo a largo plazo. No puede ser más alto que la economía de forma sostenible.

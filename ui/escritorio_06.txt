@@ -1,0 +1,74 @@
+Ranking sectorial
+
+Resultados generados con «Generar todo».
+
+SCORE
+Puntaje relativo
+Pasa el cursor
+MARGEN EBITDA
+De cada 100
+Pasa el cursor
+EV / EBITDA
+Múltiplo
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+Ranking de comparables del mismo sector
+
+La mejor posicionada según margen, retorno, costo de capital, crecimiento y múltiplo es DUK (Score 0.69).
+
+Tu selección ocupa el puesto #2 (Score 0.68).
+
+💡 En palabras sencillas
+Margen EBITDA alto = de cada peso vendido queda más utilidad. ROIC alto = el capital rinde bien. EV/EBITDA bajo = el mercado paga menos por cada unidad de utilidad (puede verse más atractivo). WACC bajo = el dinero le cuesta menos a la empresa.
+Cómo leer el ranking
+El Score combina margen, retorno del capital, costo de capital, crecimiento y múltiplo de mercado. No es una recomendación de inversión: es una foto comparativa para discutir posiciones relativas entre empresas del sector.
+Referencia de industria (Damodaran)
+EV/EBITDA agregado de la industria: 9.2x para «Power» (Emergentes, 328 firmas, datos de 2026-01-05); ajustado a Colombia 5.8x (la BVC paga 7.8x frente a 12.3x del total emergente: descuento 36%, 12 emisores); el emisor cotiza a 8.2x; la mediana de la tabla es 13.2x. Es una referencia anual de contraste, no un par directo: agrega muchos países y se actualiza en enero.
+Fuentes de esta pestaña (ya no es solo tabla fija)
+Comparables del sector de la empresa en análisis (Transmisión de energía / Infraestructura). Emisores en tabla: 9 · cotización live: 9. Claves peers: infraestructura. No se impone el catálogo BVC salvo sector energía/utilities o falta de datos.
+Origen del múltiplo EV/EBITDA por empresa
+DUK: Yahoo Finance (enterpriseToEbitda) · peer manual
+ISA: Yahoo Finance (enterpriseToEbitda) · focal
+AEP: Yahoo Finance (enterpriseToEbitda) · peer manual
+SO: Yahoo Finance (enterpriseToEbitda) · peer manual
+NEE: Yahoo Finance (enterpriseToEbitda) · peer manual
+D: Yahoo Finance (enterpriseToEbitda) · peer manual
+ECOPETROL: Yahoo Finance (enterpriseToEbitda) · mismo sector
+GEB: Yahoo Finance (enterpriseToEbitda) · mismo sector
+CELSIA: Yahoo Finance (enterpriseToEbitda) · mismo sector
+COMPARABLES
+
+⬇ CSV · Comparables
+
+0.69
+0.68
+0.59
+0.55
+0.54
+0.50
+0.40
+0.38
+0.27
+0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+#9 · CELSIA
+#8 · GEB
+#7 · ECOPETROL
+#6 · D
+#5 · NEE
+#4 · SO
+#3 · AEP
+#2 · ISA
+#1 · DUK
+Ranking sectorial por Score
+Score compuesto
+¿Qué mirar?Pasa el cursor por cada empresa: verás margen y múltiplo en palabras simples. Compara con ‘vecinas’ del mismo oficio. Un múltiplo muy bajo puede ser oportunidad… o señal de problemas.
+Burbuja de lectura · Sector: no mires la empresa sola: compárala con pares. Margen EBITDA = de cada 100 de ventas, cuánto queda como utilidad operativa bruta. EV/EBITDA = cuántas veces el mercado paga esa utilidad. Si el ROIC supera al WACC, el negocio suele crear valor para los dueños.

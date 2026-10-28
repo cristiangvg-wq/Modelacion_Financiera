@@ -1,0 +1,112 @@
+Escenarios pesimista · base · optimista
+
+Resultados generados con «Generar todo».
+
+EV
+Valor empresa
+Pasa el cursor
+EQUITY
+Valor dueños
+Pasa el cursor
+TV / EV
+% terminal
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+Parámetros · ISA — Interconexión Eléctrica
+Parámetro	Valor	¿Qué significa?
+D/E	1.15	Deuda por cada peso de los dueños
+Kd	14.18%	Interés que paga por sus deudas
+Impuestos	21.9%	Porcentaje que se va en impuestos
+g perpetuo	6.00%	Crecimiento de largo plazo
+CAPEX extra	0	Inversión adicional en activos
+β apalancado	0.55	Riesgo del negocio + efecto deuda
+Ke	15.20%	Rentabilidad que piden los accionistas
+WACC	13.00%	Costo promedio del dinero
+
+
+
+EV base: 63,207 | Equity base: 27,173
+
+¿Qué es cada escenario?
+
+No son predicciones del futuro: son tres historias posibles para ver qué tan sensible es el valor de la empresa si los flujos, el crecimiento o el costo del dinero cambian.
+
+Pesimista
+
+Qué estamos asumiendo: Flujos de caja libres al 75% de lo esperado, crecimiento a largo plazo un punto más bajo y WACC más alto (14.50%). Es el “si todo lo malo ocurre a la vez”.
+
+Aunque todo lo que pudiera salir mal saliera mal (flujos 25% más bajos, crecimiento de largo plazo más flojo y dinero más caro), la empresa todavía tendría valor positivo: EV ≈ 42,789 y para los dueños ≈ 6,755 miles de millones (moneda del emisor). Eso sugiere un colchón de resiliencia.
+
+WACC 14.50% · g 5.00% · EV 42,789 · Equity 6,755 (miles de millones (moneda del emisor))
+
+Base
+
+Qué estamos asumiendo: Flujos según la proyección, crecimiento de largo plazo 6.00% y WACC 13.00% (el costo promedio del dinero de la empresa).
+
+Es el futuro más probable con los supuestos actuales. La empresa valdría cerca de 63,207 en total y unos 27,173 para los dueños. Sirve como punto de referencia para comparar el pesimista y el optimista.
+
+WACC 13.00% · g 6.00% · EV 63,207 · Equity 27,173 (miles de millones (moneda del emisor))
+
+Optimista
+
+Qué estamos asumiendo: Flujos al 125% de lo esperado, crecimiento de largo plazo un punto más alto y WACC más bajo (12.00%).
+
+Si las cosas salen mejor de lo esperado (flujos 25% más altos, un poco más de crecimiento y dinero un poco más barato), el valor sube a EV ≈ 81,727 y Equity ≈ 45,693. Muestra el potencial al alza, no una promesa.
+
+WACC 12.00% · g 6.00% · EV 81,727 · Equity 45,693 (miles de millones (moneda del emisor))
+
+Puente profesional EV → Equity
+
+Unidad del modelo: miles de millones COP · Convención de descuento: mitad de año. g usado 6.00% (techo 6.00%). TV (normalizado (valor-conductor)) 68,521 · TV Exit 103,071 · EV ref. 63,207 (caso base = DCF con valor terminal normalizado; el múltiplo de salida es solo referencia)
+
+Enterprise Value	63,207.2
+(-) Deuda neta	-29,806.7
+(-) Interés minoritario (NCI)	-10,457.8
+(-) Otros claims	-0.0
+(+) Asociados / JV	4,230.7
+Equity atribuible	27,173.4
+Claims netos descontados del EV	36,033.8
+EV mínimo para Equity = 0	36,033.8
+Equity / EV (%)	43.0 %
+Deuda neta / EV (%)	47.2 %
+FCFF usado en TV (normalizado N+1)	4,794.7
+Reinversión terminal (% NOPAT)	46.2 %
+RONIC terminal (%)	13.0 %
+% del EV en valor terminal	62.6 %
+Nota puente	Deuda ya neta de caja; la caja no se suma otra vez.
+Nota TV	TV normalizado por valor-conductor (NOPAT terminal y reinversión coherentes con g/RONIC).
+
+Valor por acción (modelo): 24,532 COP
+Upside / downside vs mercado: -9.5% vs precio 27,100 COP
+
+💡 En palabras sencillas
+Incluso en el escenario pesimista el valor para los dueños sigue siendo positivo: hay un margen de seguridad relativo frente a sorpresas malas.
+Cómo leer la tabla de escenarios
+WACC = costo del dinero usado para descontar. g = crecimiento de largo plazo. EV = valor de toda la empresa. Equity Value = valor para los accionistas (EV menos deuda neta). PV FCFF = valor presente de los flujos del horizonte. PV Terminal = valor presente de todo lo que viene después.
+POR ESCENARIO
+
+⬇ CSV · Por escenario
+
+42,789
+63,207
+81,727
+6,755
+27,173
+45,693
+Pesimista
+Base
+Optimista
+0
+20k
+40k
+60k
+80k
+EV (negocio)
+Equity (dueños)
+Escenarios · EV vs Equity
+Escenario
+Valor (miles de millones)
+¿Qué mirar?Pasa el cursor por cada barra: te explica qué es EV y Equity en ese escenario. Barras altas de Equity = más valor para el accionista. Si Equity es bajo o negativo, la deuda pesa mucho.
+Burbuja de lectura · Escenarios: es como preguntar “¿y si va mal, normal o bien?”. Ahora los escenarios también mueven drivers (ingresos, margen EBITDA, CAPEX, NWC), no solo escalan el FCFF. EV = precio de toda la empresa (como el de una casa antes de la hipoteca). Equity = lo que les quedaría a los dueños tras pagar deudas. Revisa la columna TV / EV % y el método de valor terminal: si el TV domina, el caso es sensible a g y WACC.

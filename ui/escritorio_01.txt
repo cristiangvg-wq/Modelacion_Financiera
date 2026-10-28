@@ -1,0 +1,156 @@
+Proyección de FCFF
+
+Método usado: Drivers + identidad FCFF (recomendado). Usa el botón «Generar todo» arriba para calcular.
+
+FCFF
+Dinero libre
+Pasa el cursor
+HISTÓRICO
+Años pasados
+Pasa el cursor
+PROYECCIÓN
+Años futuros
+Pasa el cursor
+FAN CHART
+Rango probable
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+Proyección · Drivers robustos + identidad FCFF · ISA — Interconexión Eléctrica
+
+Histórico en sesión (ISA.CL) · Yahoo Finance (ISA.CL), 4 años válidos. Posibles atípicos FCFF (Hampel z>3,5): años [2023] — revisar CAPEX/NWC.
+
+Horizonte: 5 años | Último año: 2025 | FCFF último: 4,470 | FCFF promedio proyectado: 6,452 | g ingresos: 5.8% | Margen EBITDA: 59.0% | CAPEX/Ingresos: 12.2%
+
+Incertidumbre: Monte Carlo (800 simulaciones) · vol. ingresos hist. ≈ 2.0%
+
+💡 En palabras sencillas
+El método Drivers + identidad FCFF no inventa el flujo libre a solas: proyecta ingresos y márgenes, y calcula el FCFF como en contabilidad (utilidad + depreciación − inversión − capital de trabajo). Las franjas de color vienen de Monte Carlo: miles de escenarios con shocks aleatorios.
+Cómo leer la tabla de proyección
+Cada fila es un año futuro. Ingresos = ventas esperadas. EBITDA = utilidad operativa del día a día. CAPEX = plata reinvertida en activos. FCFF = lo que realmente queda libre después de operar e invertir. Todos los valores están en miles de millones de pesos colombianos.
+Normalización de atípicos aplicada · contexto: Drivers robustos + identidad FCFF
+Motivo: Un valor extremo en un driver (crecimiento, margen, CAPEX/ingresos, NWC) distorsiona la mediana y el FCFF proyectado. Se detecta con filtro de Hampel y se recorta al límite (winsor) para conservar el año sin dejar que el atípico domine el estimador. Aplica a catálogo, tickers Yahoo y Excel propios.
+Método: Hampel (mediana ± 3,5·σ_MAD) + winsorización. Si MAD≈0 se usa respaldo Tukey (1,5·IQR).
+Series tratadas:
+margen EBITDA: atípicos en [2025] → winsor al límite Hampel
+CAPEX: atípicos en [2023] → winsor al límite Hampel
+NWC: atípicos en [2023] → winsor al límite Hampel
+El histórico en tablas se conserva; la normalización actúa sobre los drivers que alimentan la proyección FCFF (válido para empresas del catálogo, descargadas por ticker y cargadas por Excel).
+¿Por qué ya no es solo ARIMA?
+Drivers (recomendado): más coherente con valoración DCF. ETS/Holt: suaviza tendencia con series cortas. ARIMA: se mantiene como benchmark estadístico. En series anuales de 5–10 puntos, drivers o ETS suelen ser más estables.
+HISTORIAL
+2022
+2023
+2024
+2025
+Año
+13,356.0
+14,134.0
+14,934.8
+15,918.0
+Ingresos
+7,873.2
+8,336.0
+9,061.6
+7,955.6
+EBITDA
+6,866.9
+7,068.0
+8,034.4
+6,875.5
+EBIT
+1,832.9
+4,632.0
+1,578.1
+1,706.3
+CAPEX
+4,536.4
+2,964.4
+4,545.9
+4,469.9
+FCFF
+
+⬇ CSV · Historial
+
+PROYECCIÓN
+
+⬇ CSV · Proyección
+
+4,536
+2,964
+4,546
+4,470
+5,484
+5,930
+6,413
+6,935
+7,499
+2022
+2023
+2024
+2025
+2026
+2027
+2028
+2029
+2030
+3000
+4000
+5000
+6000
+7000
+8000
+FCFF histórico
+Banda ≈ ±12%
+FCFF proyectado
+Fan chart · FCFF (historia → proyección)
+Año
+FCFF (miles de millones)
+2022
+2023
+2024
+2025
+3000
+3500
+4000
+4500
+2022
+2023
+2024
+2025
+14k
+15k
+16k
+2022
+2023
+2024
+2025
+8000
+8500
+9000
+2022
+2023
+2024
+2025
+2000
+3000
+4000
+Original
+Normalizado
+Atípico
+Comparación de drivers · original vs normalizado
+Año
+Año
+FCFF
+Ingresos
+EBITDA
+CAPEX
+
+Azul = dato real · teal punteado = suavizado (sin picos extremos) · cruz roja = año atípico. Pasa el cursor: cada punto te explica en lenguaje simple qué estás viendo.
+
+Burbuja de lectura · Drivers: la línea azul es el número tal como salió en los libros. La línea teal es la misma serie “calmada” (sin picos extremos). Las cruces rojas marcan años raros: venta de activos, crisis, cambio contable, etc. Para proyectar, suele ser más sano apoyarse en la serie suavizada.
+Cómo leer la comparación de atípicos
+Izquierda = serie original (atípicos marcados). Derecha = tras Hampel/winsor. La nota superior detalla motivo, método y años.
+¿Qué mirar?Pasa el cursor sobre cada punto: verás el año y el dinero libre en lenguaje claro. La zona sombreada es el rango probable; la línea del medio es el caso más típico. Si un año del pasado queda muy fuera de la línea, puede haber sido un evento único.
+Burbuja de lectura · Fan chart: piensa en el FCFF como la “plata libre” del negocio (después de pagar operación e inversiones). La línea azul es lo que ya ocurrió; la teal es lo que el modelo espera. No es una bola de cristal: la sombra muestra que el futuro es un rango, no un número exacto.

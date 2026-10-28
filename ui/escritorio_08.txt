@@ -1,0 +1,29 @@
+Optimización de portafolios
+
+MVP cuantitativo: usa rendimientos históricos ajustados para estimar riesgo y retorno. No convierte automáticamente el upside del DCF en rendimiento esperado.
+
+Universos con activos en COP (BVC) y USD se convierten a la moneda de análisis con la serie diaria COP/USD (Yahoo COP=X), fecha a fecha: el riesgo cambiario queda incluido en los retornos. Otras monedas se bloquean.
+
+Incluir automáticamente la empresa que estoy valorando (ISA.CL)
+
+Otros tickers del universo, separados por coma
+
+Empresa seleccionada para valoración: ISA — Interconexión Eléctrica · ticker detectado: ISA.CL. Escribe aquí otros activos para diversificar; si incluyes la empresa valorada, solo necesitas añadir al menos otro ticker.
+
+Peso máximo por activo
+
+0.60
+
+0.10
+
+1.00
+
+Objetivo de optimización
+
+Ventana histórica
+
+Moneda de análisis
+
+Tasa libre de riesgo anual en USD (decimal)
+
+Optimizar portafolio

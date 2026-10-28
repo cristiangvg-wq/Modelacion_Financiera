@@ -1,0 +1,160 @@
+Dashboard ejecutivo - Resumen para comite
+
+Vista gerencial: decision, valoracion, escenarios, proyecto y sector. Misma data que el PDF. Generado con Generar todo.
+
+TESIS Y RECOMENDACION
+PRELIMINAR POSITIVO · PENDIENTE DE DATOS AUDITADOS
+Puntaje de viabilidad: 6/7 · Apoyo a decision · no es orden de compra/venta
+
+Pasa el cursor por la decisión y por cada indicador: verás una explicación en lenguaje simple.
+
+EV BASE
+63,207
+Pasa el cursor
+EQUITY BASE
+27,173
+Pasa el cursor
+VPS MODELO
+24,531.86
+Pasa el cursor
+UPSIDE
+-9.5%
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+WACC
+13.00%
+Pasa el cursor
+ROIC
+15.76%
+Pasa el cursor
+VPN PROYECTO
+15,814.5
+Pasa el cursor
+TIR / PAYBACK
+87.74% · 1.2 años
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+Contraste de mercado (consulta bajo demanda)
+
+La cotización y los múltiplos provienen del proveedor disponible; no se presentan como feed oficial BVC. Se muestran fecha y fuente cuando el proveedor las informa.
+
+↻ Consultar mercado y contrastar VPS
+
+Escenarios de equity
+PESIMISTA
+6,755
+Pasa el cursor
+BASE
+27,173
+Pasa el cursor
+OPTIMISTA
+45,693
+Pasa el cursor
+
+💡 Pasa el cursor sobre cada número para leer qué significa, en palabras simples.
+
+keyboard_arrow_right
+
+Detalle de KPIs y lectura sencilla
+
+Resumen grafico
+4,536
+2,964
+4,546
+4,470
+5,484
+5,930
+6,413
+6,935
+7,499
+2022
+2023
+2024
+2025
+2026
+2027
+2028
+2029
+2030
+3000
+4000
+5000
+6000
+7000
+42,789
+63,207
+81,727
+6,755
+27,173
+45,693
+62
+63
+64
+Pesimista
+Base
+Optimista
+0
+20k
+40k
+60k
+80k
+5,484
+5,930
+6,413
+6,935
+7,499
+2026
+2027
+2028
+2029
+2030
+−5000
+0
+5000
+0.69
+0.68
+0.59
+0.55
+0.54
+0.50
+0.40
+0.38
+0.27
+0
+0.2
+0.4
+0.6
+#9 · CELSIA
+#8 · GEB
+#7 · ECOPETROL
+#6 · D
+#5 · NEE
+#4 · SO
+#3 · AEP
+#2 · ISA
+#1 · DUK
+Histórico
+Proyectado
+EV
+Equity
+EV
+Flujos
+Score
+Resumen grafico · comite
+A) FCFF historia y proyección
+B) Escenarios EV / Equity
+C) Flujos del proyecto
+D) Ranking sectorial
+
+Ejecuta antes las pestañas 1, 2, 5 y 6 para llenar los cuatro paneles. Pasa el cursor: cada punto o barra te explica el resultado en lenguaje simple.
+
+¿Qué mirar?A) FCFF B) Escenarios C) Flujos / VPN D) Sector. Mismos numeros clave que el PDF ejecutivo (sin narrativa larga).
+Exportar para directivos
+
+Descargar informe ejecutivo (PDF)
+
+PDF v2.1 · dashboard (decisión, KPIs, escenarios, auditoría, sector; extracto comité IA solo si lo generaste en pestaña 4). Si ves un PDF viejo: pulsa otra vez Generar todo o la pestaña 7 tras actualizar modelacion_logic.py.

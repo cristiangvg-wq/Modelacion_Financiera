@@ -1,0 +1,31 @@
+Simulador de inversión
+
+Estima cuánto podría valer una inversión en la empresa seleccionada bajo tres escenarios. Los escenarios son supuestos editables, no pronósticos ni garantías.
+
+Ticker de la empresa
+
+Capital disponible
+
+Moneda de tu capital
+
+Horizonte de inversión
+
+Dividendos anuales estimados (%)
+
+Costo de compra (%)
+
+Costo de venta (%)
+
+Retención sobre dividendos (%)
+
+Supuestos de valorización anual
+
+Pesimista (%)
+
+Base (%)
+
+Optimista (%)
+
+Tasa de cambio COP por USD (solo si las monedas difieren)
+
+Simular inversión
