@@ -2415,6 +2415,38 @@ def _cierres_desde_download(df, symbols):
     return out
 
 
+def _slider_y_caja(label, minimo, maximo, defecto, paso, key, formato="%.4f", help=None, paso_caja=None):
+    """Barra + casilla para escribir el valor exacto (la barra solo muestra 2 decimales y salta de a «paso»).
+
+    La casilla manda: el modelo usa su valor exacto; la barra se mueve al punto más cercano de su rejilla.
+    Ambas se sincronizan por callbacks, sin depender del orden de ejecución.
+    """
+    minimo, maximo = float(minimo), float(maximo)
+    k_caja = f"{key}__caja"
+    if key not in st.session_state:
+        st.session_state[key] = min(max(float(defecto), minimo), maximo)
+    if k_caja not in st.session_state:
+        st.session_state[k_caja] = float(st.session_state[key])
+
+    def _desde_barra():
+        st.session_state[k_caja] = float(st.session_state[key])
+
+    def _desde_caja():
+        v = st.session_state.get(k_caja)
+        v = minimo if v is None else min(max(float(v), minimo), maximo)
+        st.session_state[k_caja] = v
+        st.session_state[key] = min(max(round(round(v / paso) * paso, 10), minimo), maximo)
+
+    c_barra, c_caja = st.columns([3, 2], vertical_alignment="bottom")
+    with c_barra:
+        st.slider(label, minimo, maximo, step=float(paso), key=key, on_change=_desde_barra, help=help)
+    with c_caja:
+        st.number_input(f"{label} (valor exacto)", min_value=minimo, max_value=maximo, step=float(paso_caja or paso),
+                        format=formato, key=k_caja, on_change=_desde_caja, label_visibility="collapsed",
+                        help="Escribe el valor exacto; la barra se ajusta al punto más cercano.")
+    return float(st.session_state[k_caja])
+
+
 def _como_dialogo(titulo, width="large"):
     """st.dialog si existe (Streamlit ≥ 1.34); si no, la función se ejecuta en línea.
 
@@ -3492,18 +3524,19 @@ def main():
                 help=("Empresa de EE. UU. con consenso de analistas: modelo de tres etapas a 10 años "
                       "(consenso → convergencia → perpetuidad)." if _h_def == 10 else None),
             )
-            de_ratio = st.slider("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.2) or 1.2), 0.01, key=f"de_{ek}")
-            kd = st.slider("Kd", 0.0, 0.25, float(p.get("kd", 0.08) or 0.08), 0.005, key=f"kd_{ek}")
-            tax = st.slider("Tax", 0.0, 0.50, float(p.get("tax", 0.35) or 0.35), 0.01, key=f"tax_{ek}")
-            g = st.slider("g terminal", 0.0, 0.08, float(p.get("g", 0.03) or 0.03), 0.005, key=f"g_{ek}")
-            capex_extra = st.slider("CAPEX extra", 0, 8000, 0, 50, key=f"cx_{ek}")
-            beta_u = st.slider("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5) or 0.5), 0.05, key=f"bu_{ek}")
+            st.caption("Tasas en fracción (0,1318 = 13,18 %). Escribe el valor exacto en la casilla de la derecha.")
+            de_ratio = _slider_y_caja("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.2) or 1.2), 0.01, f"de_{ek}", "%.4f", paso_caja=0.0001)
+            kd = _slider_y_caja("Kd", 0.0, 0.25, float(p.get("kd", 0.08) or 0.08), 0.005, f"kd_{ek}", "%.4f", paso_caja=0.0001)
+            tax = _slider_y_caja("Tax", 0.0, 0.50, float(p.get("tax", 0.35) or 0.35), 0.01, f"tax_{ek}", "%.4f", paso_caja=0.0001)
+            g = _slider_y_caja("g terminal", 0.0, 0.08, float(p.get("g", 0.03) or 0.03), 0.005, f"g_{ek}", "%.4f", paso_caja=0.0001)
+            capex_extra = _slider_y_caja("CAPEX extra", 0.0, 8000.0, 0.0, 50.0, f"cx_{ek}", "%.1f", paso_caja=1.0)
+            beta_u = _slider_y_caja("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5) or 0.5), 0.05, f"bu_{ek}", "%.4f", paso_caja=0.0001)
 
             st.markdown("**CAPM**")
-            rf = st.slider("rf", 0.02, 0.16, float(st.session_state.get("rf", 0.12)), 0.005, key=f"rf_{ek}")
+            rf = _slider_y_caja("rf", 0.02, 0.16, float(st.session_state.get("rf", 0.12)), 0.005, f"rf_{ek}", "%.4f", paso_caja=0.0001)
             # Paso 0,0005: las primas de Damodaran (p. ej. 4,42 %) no son múltiplos de 0,5 pp.
-            erp = st.slider("ERP", 0.03, 0.10, float(st.session_state.get("erp", 0.055)), 0.0005, format="%.4f", key=f"erp_{ek}")
-            crp = st.slider("CRP", 0.0, 0.08, float(st.session_state.get("crp", 0.0)), 0.0005, format="%.4f", key=f"crp_{ek}")
+            erp = _slider_y_caja("ERP", 0.03, 0.10, float(st.session_state.get("erp", 0.055)), 0.0005, f"erp_{ek}", "%.4f", paso_caja=0.0001)
+            crp = _slider_y_caja("CRP", 0.0, 0.08, float(st.session_state.get("crp", 0.0)), 0.0005, f"crp_{ek}", "%.4f", paso_caja=0.0001)
             try:
                 _dam_ui = L.damodaran_empresa(empresa) if hasattr(L, "damodaran_empresa") else {}
                 _rp_ui = (_dam_ui or {}).get("riesgo_pais") or {}
@@ -3567,13 +3600,12 @@ def main():
                 "Acciones (M)", value=float(_acc0 or 0), step=1.0, key=f"acc_{ek}",
                 help="Millones de acciones diluidas. Si queda en 0, el modelo intenta obtenerlas de Yahoo.",
             )
-            exit_multiple = st.slider(
-                "Exit EV/EBITDA", 0.0, 40.0, float(p.get("exit_multiple", 9) or 9), 0.5, key=f"em_{ek}"
-            )
+            exit_multiple = _slider_y_caja("Exit EV/EBITDA", 0.0, 40.0, float(p.get("exit_multiple", 9) or 9), 0.5,
+                                           f"em_{ek}", "%.2f", paso_caja=0.01)
             mid_year = st.checkbox("Mid-year", value=True, key=f"my_{ek}")
-            g_max_macro = st.slider(
+            g_max_macro = _slider_y_caja(
                 "Techo g terminal (nominal)", 0.02, 0.06, float(st.session_state.get("g_max_macro", 0.04)), 0.005,
-                key=f"gmax_{ek}",
+                f"gmax_{ek}", "%.4f", paso_caja=0.0001,
                 help="Crecimiento perpetuo máximo en la moneda del modelo: ~4 % en USD, ~6 % en COP "
                      "(inflación implícita ~6 %). Se aplica también min(techo, WACC − 1 pp).",
             )
@@ -3591,9 +3623,9 @@ def main():
             )
             ronic_spread = 0.0
             if _ronic_modo == "manual":
-                ronic_spread = st.slider(
+                ronic_spread = _slider_y_caja(
                     "Spread RONIC − WACC (perpetuidad)", 0.0, float(L.RONIC_SPREAD_MAX),
-                    float(st.session_state.get("ronic_spread", L.RONIC_SPREAD)), 0.01, key=f"ronic_{ek}",
+                    float(st.session_state.get("ronic_spread", L.RONIC_SPREAD)), 0.01, f"ronic_{ek}", "%.4f", paso_caja=0.0001,
                     help="0 = el crecimiento no crea valor (utilities reguladas, commodities). Franquicias con "
                          "ventajas duraderas (marcas, ecosistemas) justifican 3–10 pp.",
                 )
