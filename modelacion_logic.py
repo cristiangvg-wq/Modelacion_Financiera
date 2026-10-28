@@ -2349,7 +2349,11 @@ def obtener_datos_financieros_publicos(nombre_empresa, preferir_yahoo=True):
                 detalle = f" ({'; '.join(aviso)})" if aviso else ""
                 if emp.get("ejercicio_cerrado_hasta"):
                     df.attrs["ejercicio_cerrado_hasta"] = int(emp["ejercicio_cerrado_hasta"])
-                return df, f"Histórico en sesión ({emp.get('ticker_yf') or nombre_empresa}), {len(df)} años válidos{detalle}.", "PUBLICA_RUNTIME"
+                # La fuente en el mensaje permite a procedencia_datos rotularla (antes «Mixto / revisar fuente»
+                # para todas las empresas descargadas de Yahoo, incluidas ISA, GEB y Ecopetrol).
+                _fte = emp.get("fuente") or "fuente no indicada"
+                return df, (f"Histórico en sesión ({emp.get('ticker_yf') or nombre_empresa}) · {_fte}, {len(df)} años "
+                            f"válidos{detalle}."), "PUBLICA_RUNTIME"
 
     # 2) Catálogo estático: SIEMPRE priorizar sobre Yahoo (evita cola en cero / unidades raras)
     if nombre_empresa in EMPRESAS and "historico" in EMPRESAS[nombre_empresa]:
@@ -3133,7 +3137,20 @@ def es_sector_ciclico(sector="", industry=""):
 
 
 def _aplicar_reglas_catalogo():
-    """Kd del catálogo = rf del mercado CO + spread según calificación (datos_curados.json)."""
+    """Kd del catálogo = rf del mercado CO + spread según calificación (datos_curados.json).
+
+    g terminal = g de largo plazo del mercado CO (la misma que usa la ruta Yahoo). El catálogo traía
+    3–5 % nominal en COP, por debajo de la inflación de largo plazo (6,15 %): contracción real perpetua,
+    y un valor muy distinto al de la ruta Yahoo para la misma empresa (ISA 14.000 vs 24.400 COP).
+    """
+    g_co = min(float(CAPM_POR_MERCADO["CO"]["g_lp"]), float(CAPM_POR_MERCADO["CO"]["g_max_macro"]))
+    for catalogo in (EMPRESAS, _EMPRESAS_CATALOGO_INMUTABLE):
+        for emp in catalogo.values():
+            g_cat = emp["params"].get("g")
+            if g_cat is None or float(g_cat) < g_co:
+                emp["params"]["g_catalogo"] = g_cat
+                emp["params"]["g"] = round(g_co, 4)
+                emp["params"]["g_fuente"] = f"g de largo plazo del mercado CO ({g_co:.1%} nominal en COP); catálogo {g_cat}"
     rf = CAPM_POR_MERCADO["CO"].get("rf_bruto", CAPM_POR_MERCADO["CO"]["rf"])  # Kd sobre el TES completo
     spreads = ((_DATOS_CURADOS.get("reglas") or {}).get("spread_kd_por_calificacion") or {})
     for catalogo in (EMPRESAS, _EMPRESAS_CATALOGO_INMUTABLE):
@@ -5232,7 +5249,13 @@ def matriz_sensibilidad_wacc_g(fcff_series, deuda_neta, wacc_base, g_base, deuda
     """Matriz EV y Equity ante cambios de WACC y g (herramienta de comité)."""
     deuda = float(deuda_neta if deuda_neta_val is None else deuda_neta_val)
     waccs = [max(0.04, wacc_base + dw) for dw in (-0.02, -0.01, 0.0, 0.01, 0.02)]
-    gs = [max(0.005, g_base + dg) for dg in (-0.01, -0.005, 0.0, 0.005, 0.01)]
+    # g no puede superar el techo (min(g_max_macro, WACC−1 pp) en la fila más baja): si la rejilla lo cruzaba,
+    # las columnas por encima del techo repetían el mismo EV (ISA: g = 6,0/6,5/7,0 % idénticas). Se desplaza
+    # la rejilla para que termine en el techo.
+    techo = min(float(g_max_macro), min(waccs) - 0.01)
+    g_top = min(g_base + 0.01, techo)
+    gs = [max(0.005, g_top + dg) for dg in (-0.02, -0.015, -0.01, -0.005, 0.0)]
+    gs = sorted(dict.fromkeys(round(x, 6) for x in gs))
     # Evitar g >= wacc
     rows = []
     for w in waccs:
@@ -5417,8 +5440,10 @@ def motor_decision_institucional(
             color = "#CA8A04"
             sesgo = (
                 "Los fundamentos modelados se ven bien (ROIC > WACC, equity positivo incluso en pesimista), "
-                "pero la serie financiera es de respaldo ilustrativo. "
-                "No se puede emitir sesgo de inversión firme hasta cargar estados auditados o un Excel oficial."
+                + ("pero la serie financiera es una descarga pública agregada (Yahoo), no estados auditados. "
+                   if procedencia.get("nivel_calidad") == "MEDIA" and not solo_dato else
+                   "pero la serie financiera es de respaldo ilustrativo. ")
+                + "No se puede emitir sesgo de inversión firme hasta cargar estados auditados o un Excel oficial."
             )
         else:
             decision = "NEUTRAL / MONITOREAR"
@@ -6479,6 +6504,32 @@ def _escalar_fcff(fcff, fac):
 def _nopat_final(df, fac=1.0):
     """NOPAT del último año (con el mismo escalamiento sensible al signo de los escenarios)."""
     return float(_escalar_fcff([float(df["NOPAT"].iloc[-1])], fac)[0])
+
+
+# Escenarios por shocks de drivers: UNA sola definición para las pestañas 2, 4 y 7 (antes la 2 usaba shocks
+# de drivers y la 4/7 escalaban el FCFF × 0,75: «Equity pesimista» de ISA 6.651 en la 2 y 5.883 en la 4).
+SHOCKS_ESCENARIOS = {
+    "Pesimista": {"g_ingresos": 0.90, "margen_ebitda": 0.92, "capex_factor": 1.15, "nwc_factor": 1.10},
+    "Base": {"g_ingresos": 1.00, "margen_ebitda": 1.00, "capex_factor": 1.00, "nwc_factor": 1.00},
+    "Optimista": {"g_ingresos": 1.08, "margen_ebitda": 1.06, "capex_factor": 0.92, "nwc_factor": 0.95},
+}
+FACTOR_RESPALDO_ESCENARIO = {"Pesimista": 0.75, "Base": 1.0, "Optimista": 1.25}
+
+
+def insumos_escenario(df_proj, nombre, tax=0.35):
+    """(FCFF, NOPAT terminal, EBITDA de salida) del escenario por shocks de drivers; respaldo: escalar FCFF."""
+    try:
+        df_e = aplicar_shocks_drivers_proyeccion(df_proj, tax=tax, shock=SHOCKS_ESCENARIOS.get(nombre, {}))
+        fc = [float(x) for x in df_e["FCFF"].values]
+        nop = float(df_e["NOPAT"].iloc[-1]) if "NOPAT" in df_e.columns else None
+        eb = float(df_e["EBITDA"].iloc[-1]) if "EBITDA" in df_e.columns else None
+        if fc and all(np.isfinite(fc)):
+            return fc, nop, eb
+    except Exception:
+        pass
+    fac = FACTOR_RESPALDO_ESCENARIO.get(nombre, 1.0)
+    eb = float(df_proj["EBITDA"].iloc[-1]) * fac if "EBITDA" in df_proj.columns else None
+    return [float(x) for x in _escalar_fcff(df_proj["FCFF"].values, fac)], _nopat_final(df_proj, fac), eb
 
 
 def aplicar_shocks_drivers_proyeccion(df_proj, tax=0.35, shock=None):
@@ -8647,6 +8698,8 @@ def tab1_carga_y_pronostico(nombre_empresa, archivo, horizonte, metodo="Drivers 
                 "fcff_ultimo": float(df_hist["FCFF"].iloc[-1]) if "FCFF" in df_hist.columns and len(df_hist) else None,
                 "fcff_promedio_proyectado": float(df_proj["FCFF"].mean()) if "FCFF" in df_proj.columns else None,
                 "fcff_proj": [float(x) for x in df_proj["FCFF"].values],
+                "metodo_key": metodo_key,
+                "nopat_final": float(df_proj["NOPAT"].iloc[-1]) if "NOPAT" in df_proj.columns else None,
                 "g_ingresos": meta.get("g_ingresos"),
                 "margen_ebitda": meta.get("margen_ebitda"),
                 "capex_ratio": meta.get("capex_ratio"),
@@ -8687,11 +8740,7 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
         g_pes = max(0.005, float(g) - 0.01)
         g_opt = min(float(g) + 0.01, wacc - 0.005) if wacc > 0.02 else float(g)
         # Escenarios por shocks de drivers (+ ajuste WACC/g). Fallback: escalado FCFF legacy.
-        _SHOCKS = {
-            "Pesimista": {"g_ingresos": 0.90, "margen_ebitda": 0.92, "capex_factor": 1.15, "nwc_factor": 1.10},
-            "Base":      {"g_ingresos": 1.00, "margen_ebitda": 1.00, "capex_factor": 1.00, "nwc_factor": 1.00},
-            "Optimista": {"g_ingresos": 1.08, "margen_ebitda": 1.06, "capex_factor": 0.92, "nwc_factor": 0.95},
-        }
+        _SHOCKS = SHOCKS_ESCENARIOS
         escenarios = {}
         for nombre, fac, g_e, w_adj in [
             ("Pesimista", 0.75, g_pes, wacc + 0.015),
@@ -9065,7 +9114,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         razones = list(dict.fromkeys(razones))
 
         g_pes = max(0.005, float(g) - 0.01)
-        val_pes = valorar_con_bridge(_escalar_fcff(df_proj["FCFF"].values, 0.75), wacc + 0.015, g_pes, bp, ebitda_salida=(ebitda_out * 0.75 if ebitda_out else None), precio_mercado=precio_p, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj, 0.75))
+        _fc_p, _nop_p, _eb_p = insumos_escenario(df_proj, "Pesimista", tax=tax)  # mismo pesimista que la pestaña 2
+        val_pes = valorar_con_bridge(_fc_p, wacc + 0.015, g_pes, bp, ebitda_salida=_eb_p, precio_mercado=precio_p, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nop_p)
 
         emp = resolver_empresa(nombre_empresa) or {}
         mkt = obtener_datos_mercado_bvc(emp.get("ticker_yf"), ticker_bvc=emp.get("ticker_bvc"))
@@ -9100,9 +9150,12 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         # Alertas de dominio del modelo (no cambian la decisión; informan al comité).
         _g_hist = meta_proj.get("g_ingresos_historico")
         if meta_proj.get("fuera_de_dominio_crecimiento"):
+            _techo_txt = (f"tres etapas: consenso de analistas y convergencia desde máx. {CRECIMIENTO_MAX_ETAPA2:.0%} "
+                          f"en {int(horizonte)} años" if meta_proj.get("tres_etapas")
+                          else f"12 % con convergencia en {int(horizonte)} años")
             motor.setdefault("alertas", []).append(
-                f"Crecimiento histórico de ingresos ≈ {_g_hist*100:.0f} %/año, muy por encima del techo del motor "
-                "(12 % con convergencia en 5 años): el DCF base subestima por construcción a un emisor de "
+                f"Crecimiento histórico de ingresos ≈ {_g_hist*100:.0f} %/año, muy por encima de lo que el motor "
+                f"puede sostener ({_techo_txt}): el DCF base subestima por construcción a un emisor de "
                 "hipercrecimiento. Úsalo como piso conservador y contrasta con un escenario explícito de crecimiento."
             )
         if meta_proj.get("ciclico"):
@@ -10458,16 +10511,17 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 
         # Escenario pesimista para el mismo motor de gobernanza que la pestaña 4
         g_pes_m = max(0.005, float(g) - 0.01)
+        _fc_p, _nop_p, _eb_p = insumos_escenario(df_proj, "Pesimista", tax=tax)  # mismo pesimista que la pestaña 2
         val_pes = valorar_con_bridge(
-            _escalar_fcff(df_proj["FCFF"].values, 0.75),
+            _fc_p,
             wacc + 0.015,
             g_pes_m,
             bp,
-            ebitda_salida=(float(df_proj["EBITDA"].iloc[-1]) * 0.75 if "EBITDA" in df_proj.columns else None),
+            ebitda_salida=_eb_p,
             precio_mercado=precio,
             mid_year=bool(mid_year),
             g_max_macro=float(g_max_macro),
-            nopat_final=_nopat_final(df_proj, 0.75),
+            nopat_final=_nop_p,
         )
         prov = procedencia_datos(mensaje_datos, ticker_yf=tk, mkt=mkt)
 
@@ -11756,21 +11810,26 @@ except Exception:
 # ---------------------------------------------------------------------------
 # UX Gradio: sensibilidad rápida + hero KPI (sin reproyectar FCFF completo)
 # ---------------------------------------------------------------------------
-def _fcff_desde_sesion_o_hist(nombre_empresa, horizonte=5, tax=0.35):
-    """Recupera FCFF proyectado de RESULTADOS_SESION o recalcula drivers una vez."""
+def _fcff_desde_sesion_o_hist(nombre_empresa, horizonte=5, tax=0.35, con_nopat=False):
+    """FCFF proyectado por DRIVERS (el mismo motor de la pestaña 4) y, si se pide, el NOPAT terminal.
+
+    Reutiliza la pestaña 1 solo si se proyectó por drivers con el mismo horizonte: con ETS/ARIMA los
+    flujos difieren de los de la pestaña 4 y la sensibilidad mostraba otro valor por acción.
+    """
     tabs = (RESULTADOS_SESION.get("tabs") or {})
     t1 = tabs.get("1") or {}
-    # Si hay proyección en sesión con lista guardada
-    if t1.get("fcff_proj"):
-        return list(t1["fcff_proj"]), None
+    if (t1.get("fcff_proj") and t1.get("metodo_key", "drivers") == "drivers"
+            and int(t1.get("horizonte") or 0) == int(horizonte) and (t1.get("nopat_final") is not None or not con_nopat)):
+        fc = list(t1["fcff_proj"])
+        return (fc, None, t1.get("nopat_final")) if con_nopat else (fc, None)
     try:
         df_hist, _ = cargar_y_limpiar_excel(None, nombre_empresa, usar_datos_publicos=True)
         df_hist, _ = _sanear_historico_tab1(df_hist)
         df_proj, meta = proyectar_variables_con_meta(df_hist, int(horizonte), metodo="drivers", tax=float(tax))
         fcff = [float(x) for x in df_proj["FCFF"].values]
-        return fcff, meta
+        return (fcff, meta, _nopat_final(df_proj)) if con_nopat else (fcff, meta)
     except Exception as e:
-        return [], str(e)
+        return ([], str(e), None) if con_nopat else ([], str(e))
 
 
 def sensibilidad_rapida_ui(nombre_empresa, wacc, g, horizonte, tax, deuda_neta, caja, nci, otros_claims, asociados, acciones, mid_year, g_max_macro):
@@ -11778,7 +11837,7 @@ def sensibilidad_rapida_ui(nombre_empresa, wacc, g, horizonte, tax, deuda_neta, 
     try:
         wacc = float(wacc)
         g = float(g)
-        fcff, err = _fcff_desde_sesion_o_hist(nombre_empresa, horizonte=horizonte, tax=tax)
+        fcff, err, nopat_fin = _fcff_desde_sesion_o_hist(nombre_empresa, horizonte=horizonte, tax=tax, con_nopat=True)
         if not fcff:
             msg = err or "Ejecuta la pestaña 1 (Pronóstico) primero."
             return (
@@ -11794,10 +11853,12 @@ def sensibilidad_rapida_ui(nombre_empresa, wacc, g, horizonte, tax, deuda_neta, 
             "acciones": acciones,
             "exit_multiple": 0.0,
         }
+        # Mismo valor terminal que la pestaña 4 (NOPAT terminal y RONIC): antes Gordon sobre el último FCFF.
         val = valorar_con_bridge(
             fcff, wacc, g, bp,
             mid_year=bool(mid_year),
             g_max_macro=float(g_max_macro or 0.04),
+            nopat_final=nopat_fin,
         )
         ev = val.get("EV")
         eq = val.get("Equity_Value")
