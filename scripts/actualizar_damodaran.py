@@ -53,7 +53,10 @@ def leer_riesgo_pais(raw, archivo):
     meta = {}
     for i in range(0, 8):
         etiqueta = str(df.iat[i, 0] or "").lower()
-        valor = df.iat[i, 1] if df.shape[1] > 1 else None
+        fila_v = [v for v in df.iloc[i, 1:8].tolist() if v is not None and v == v]
+        # La fecha está en la columna B; los valores numéricos/«Yes» suelen estar en la E.
+        numericos = [v for v in fila_v if _f(v) is not None and not isinstance(v, (pd.Timestamp, dt.datetime))]
+        valor = fila_v[0] if "date" in etiqueta and fila_v else (numericos[0] if numericos else None)
         if "date of update" in etiqueta:
             meta["fecha"] = str(pd.Timestamp(valor).date()) if valor is not None else None
         elif "mature equity market" in etiqueta:
@@ -79,7 +82,10 @@ def leer_riesgo_pais(raw, archivo):
 
 
 def leer_multiplos(raw, archivo):
-    hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+    if archivo.endswith(".csv"):
+        hojas = {"Industry Averages": pd.read_csv(io.BytesIO(raw), header=None)}
+    else:
+        hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
     for nombre_hoja, df in hojas.items():
         filas = df.index[df.apply(lambda r: r.astype(str).str.strip().eq("Industry Name").any(), axis=1)]
         if len(filas) == 0:
@@ -100,7 +106,14 @@ def leer_multiplos(raw, archivo):
                 continue
             industrias[ind.strip()] = {"n_firmas": _f(r.iloc[c_n]), "ev_ebitda": _f(r.iloc[c_ebitda]), "ev_ebit": _f(r.iloc[c_ebit])}
         if industrias:
-            return {"archivo": archivo, "hoja": nombre_hoja, "industrias": industrias}
+            fecha = None
+            for i in range(min(h, 6)):
+                if "date updated" in str(df.iat[i, 0]).lower():
+                    try:
+                        fecha = str(pd.Timestamp(df.iat[i, 1]).date())
+                    except Exception:
+                        fecha = None
+            return {"archivo": archivo, "hoja": nombre_hoja, "fecha": fecha, "industrias": industrias}
     raise ValueError(f"{archivo}: no se encontró la tabla de industrias")
 
 
@@ -120,10 +133,12 @@ def construir(carpeta=None):
             out["riesgo_pais"] = rp
     for nombre, region in REGIONES_MULT.items():
         raw = _bajar(nombre, carpeta)
+        archivo = nombre
+        if not raw and carpeta:  # copia ya convertida a CSV (sin xlrd)
+            archivo = nombre.replace(".xls", ".csv")
+            raw = _bajar(archivo, carpeta)
         if raw:
-            m = leer_multiplos(raw, nombre)
-            m["fecha"] = "enero " + str(dt.date.today().year if dt.date.today().month >= 1 else dt.date.today().year - 1)
-            out["multiplos"][region] = m
+            out["multiplos"][region] = leer_multiplos(raw, archivo)
     if out["riesgo_pais"] is None or not out["multiplos"]:
         raise SystemExit("No se pudieron leer las tablas de Damodaran.")
     return out

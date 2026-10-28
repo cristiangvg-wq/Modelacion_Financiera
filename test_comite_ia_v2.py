@@ -96,7 +96,7 @@ class TestAnclas(_Base):
                 {"empresa": "Celsia", "ev_ebitda": 7.0, "fuente": "Aprox. (MarketCap+deuda neta)/EBITDA histórico", "es_focal": False},
                 {"empresa": "EPM", "ev_ebitda": 8.0, "fuente": "Fallback sectorial", "es_focal": False}]},
         }
-        anc = CI.calcular_anclas("ISA — Interconexión Eléctrica", _metricas(),
+        anc = CI.calcular_anclas("ISA — Interconexión Eléctrica", _metricas(damodaran_multiplo=False),
                                  {"objetivo_analistas": 31000.0, "n_analistas": 5})
         ids = {a["id"]: a for a in anc["anclas"]}
         # El pesimista (equity 2.000 → 1.805 COP/acción) es < ½ de la mediana: se informa, no amplía el rango.

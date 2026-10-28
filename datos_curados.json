@@ -76,7 +76,8 @@
         ]
       },
       "fuente_historico": "Informes oficiales de resultados consolidados ISA 4T23, 4T24 y 4T25. EBITDA y EBIT ajustados excluyendo resultados de co-controladas y asociadas (2023: 530; 2024: 540; 2025: 494) porque el DCF valora el negocio operativo y el puente agrega las inversiones en participadas. Depreciación, ingresos y CAPEX tomados de los informes oficiales. NWC estimado; requiere validación con balances detallados.",
-      "verificacion": "parcial: ingresos, EBITDA/EBIT ajustados, depreciación y CAPEX 2023–2025 contrastados con informes oficiales; NWC estimado; valor de participadas a valor contable, no de mercado."
+      "verificacion": "parcial: ingresos, EBITDA/EBIT ajustados, depreciación y CAPEX 2023–2025 contrastados con informes oficiales; NWC estimado; valor de participadas a valor contable, no de mercado.",
+      "industria_damodaran": "Power"
     },
     "GEB — Grupo Energía Bogotá": {
       "ticker_bvc": "GEB",
@@ -149,7 +150,8 @@
         ]
       },
       "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA reemplazados por utilidad OPERATIVA de Yahoo (oct-2026): el EBIT anterior incluía ≈ 2,3 billones/año del método de participación, que el puente ya suma como asociadas.",
-      "verificacion": "parcial: EBIT operativo, NCI y asociadas contrastados con Yahoo (oct-2026); asociadas a valor en libros."
+      "verificacion": "parcial: EBIT operativo, NCI y asociadas contrastados con Yahoo (oct-2026); asociadas a valor en libros.",
+      "industria_damodaran": "Power"
     },
     "CELSIA — Celsia S.A. E.S.P.": {
       "ticker_bvc": "CELSIA",
@@ -220,7 +222,8 @@
         ]
       },
       "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA = utilidad operativa (Yahoo, oct-2026).",
-      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+      "verificacion": "pendiente: verificar contra estados financieros consolidados",
+      "industria_damodaran": "Power"
     },
     "EPM — Empresas Públicas de Medellín": {
       "ticker_bvc": "EPM",
@@ -247,7 +250,8 @@
       },
       "historico": null,
       "fuente_historico": null,
-      "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario."
+      "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario.",
+      "industria_damodaran": "Power"
     },
     "ENEL Colombia": {
       "ticker_bvc": "ENELAM",
@@ -274,7 +278,8 @@
       },
       "historico": null,
       "fuente_historico": null,
-      "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario."
+      "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario.",
+      "industria_damodaran": "Power"
     },
     "BVC — Bolsa de Valores de Colombia": {
       "ticker_bvc": "BVC",
@@ -426,7 +431,8 @@
       },
       "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA = utilidad operativa (Yahoo, oct-2026), sin método de participación (≈ 710/año), que entra por el puente.",
       "verificacion": "parcial: puente EV→equity verificado con EEFF consolidados 30-jun-2025; histórico de ingresos/EBITDA por verificar (catálogo previo). Ingresos 1S25 = 61.035 consistentes con 2025 ≈ 119.694.",
-      "ciclico": true
+      "ciclico": true,
+      "industria_damodaran": "Oil/Gas (Integrated)"
     }
   },
   "series": {

@@ -1,0 +1,37 @@
+name: Actualizar datos de Damodaran
+
+# Damodaran publica múltiplos por industria en enero y riesgo país en enero y julio.
+on:
+  schedule:
+    - cron: "17 13 20 1,7 *"   # 20 de enero y 20 de julio
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt xlrd
+      - name: Descargar y regenerar datos_damodaran.json
+        run: python scripts/actualizar_damodaran.py
+      - name: Proponer cambios si hay datos nuevos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- datos_damodaran.json; then echo "Sin cambios."; exit 0; fi
+          rama="auto/damodaran-$(date +%Y-%m)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$rama"
+          git add datos_damodaran.json
+          git commit -m "Actualiza datos de Damodaran ($(date +%Y-%m))"
+          git push -f origin "$rama"
+          gh pr create --base main --head "$rama" --title "Actualiza datos de Damodaran ($(date +%Y-%m))" \
+            --body "Datos regenerados con scripts/actualizar_damodaran.py. Revisa los cambios de prima de riesgo y múltiplos antes de fusionar." \
+            || echo "No se pudo abrir el PR automáticamente: ábrelo desde la rama $rama."
