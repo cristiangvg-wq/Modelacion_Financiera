@@ -57,7 +57,11 @@
       "hay_divergencia": false,
       "justificacion": ""
     },
-    "condicionado_a_recalibrar": false
+    "condicionado_a_recalibrar": false,
+    "conciliacion_mercado": {
+      "explicacion": "El precio exige un WACC 308 pb menor que el del modelo (10,88 % vs 13,96 %): la tasa local explica la brecha.",
+      "es_oportunidad": false
+    }
   },
   "casos": [
     {
@@ -1028,6 +1032,166 @@
           },
           "esperado_ok": false,
           "error_contiene": "fuera de COMPRAR"
+        }
+      ]
+    },
+    {
+      "id": "conciliacion_limitacion",
+      "descripcion": "La conciliación clasifica la brecha como limitación del modelo: solo se admite MANTENER y una explicación con cifras.",
+      "metricas": {
+        "empresa": "Palantir",
+        "ticker": "PLTR",
+        "moneda": "USD",
+        "moneda_precio": "USD",
+        "precio_mercado": 198.73,
+        "vps_modelo": 7.47,
+        "wacc_calc": 0.15,
+        "g": 0.03,
+        "fuera_de_dominio_crecimiento": true,
+        "decision_modelo": "NEUTRAL / MONITOREAR · PRECIO SOBRE VALOR",
+        "vetos_calidad": [],
+        "conciliacion_mercado": {
+          "causa": "LIMITACION_CRECIMIENTO",
+          "tipo": "limitacion_modelo",
+          "descripcion": "El precio exige un crecimiento que un DCF de este tipo no puede representar",
+          "secundarias": [],
+          "palancas": [
+            {
+              "palanca": "Flujos (× modelo)",
+              "modelo": 1.0,
+              "exigido": 8.55,
+              "razonable": false
+            }
+          ],
+          "supuesto_que_iguala": "flujos 8.55 veces los del modelo — ninguno razonable por sí solo",
+          "advertencias_datos": [],
+          "inverso": {
+            "precio": 194.4,
+            "vps_modelo": 26.2,
+            "brecha": -0.865
+          }
+        }
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 7.47,
+            "vps_precio": 7.47
+          },
+          {
+            "id": "A7",
+            "nombre": "Consenso",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 190.0,
+            "vps_precio": 190.0
+          }
+        ],
+        "rango": [
+          7.47,
+          190.0
+        ],
+        "moneda": "USD"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "mantener_explicado",
+          "parche": {
+            "precio_objetivo": 150.0,
+            "anclas_usadas": [
+              "A1",
+              "A7"
+            ],
+            "contexto_mercado": {
+              "resumen": "ok",
+              "hechos_usados": [
+                "Y1",
+                "Y2"
+              ]
+            },
+            "metodo_precio_objetivo": "Ponderación de las anclas listadas",
+            "recomendacion": "MANTENER",
+            "conciliacion_mercado": {
+              "explicacion": "El precio exige flujos 8,55 veces los del modelo: un crecimiento que este DCF no puede representar; hace falta un modelo de hipercrecimiento.",
+              "es_oportunidad": false
+            }
+          },
+          "esperado_ok": true
+        },
+        {
+          "etiqueta": "vender_por_brecha",
+          "parche": {
+            "precio_objetivo": 150.0,
+            "anclas_usadas": [
+              "A1",
+              "A7"
+            ],
+            "contexto_mercado": {
+              "resumen": "ok",
+              "hechos_usados": [
+                "Y1",
+                "Y2"
+              ]
+            },
+            "metodo_precio_objetivo": "Ponderación de las anclas listadas",
+            "recomendacion": "VENDER",
+            "conciliacion_mercado": {
+              "explicacion": "El precio exige flujos 8,55 veces los del modelo: un crecimiento que este DCF no puede representar; hace falta un modelo de hipercrecimiento.",
+              "es_oportunidad": true
+            },
+            "divergencia_motor": {
+              "hay_divergencia": true,
+              "justificacion": "El precio supera ampliamente todas las anclas de valor del modelo calculadas."
+            }
+          },
+          "esperado_ok": false,
+          "error_contiene": "debe ser MANTENER"
+        },
+        {
+          "etiqueta": "sin_cifra",
+          "parche": {
+            "precio_objetivo": 150.0,
+            "anclas_usadas": [
+              "A1",
+              "A7"
+            ],
+            "contexto_mercado": {
+              "resumen": "ok",
+              "hechos_usados": [
+                "Y1",
+                "Y2"
+              ]
+            },
+            "metodo_precio_objetivo": "Ponderación de las anclas listadas",
+            "recomendacion": "MANTENER",
+            "conciliacion_mercado": {
+              "explicacion": "Crece mucho.",
+              "es_oportunidad": false
+            }
+          },
+          "esperado_ok": false,
+          "error_contiene": "al menos una cifra"
         }
       ]
     }

@@ -6287,6 +6287,188 @@ def wacc_implicito_mercado(fcff_series, g, bridge_params, precio_objetivo, mid_y
         return sin
 
 
+# ---------------------------------------------------------------------------
+# Conciliación modelo vs mercado (DCF inverso + causa de la brecha, reglas deterministas)
+# ---------------------------------------------------------------------------
+CAUSAS_BRECHA = {
+    "ALINEADO": ("alineado", "El valor del modelo y el precio difieren 10 % o menos"),
+    "SUPUESTO_TASA": ("supuesto_modelo", "Una diferencia razonable en la tasa de descuento explica la brecha"),
+    "MATERIA_PRIMA": ("expectativa_mercado", "El precio descuenta un precio de la materia prima distinto al del modelo"),
+    "PRIMA_CALIDAD": ("prima_calidad", "El mercado acepta un rendimiento cercano a la tasa libre de riesgo por la calidad y estabilidad del negocio"),
+    "LIMITACION_CRECIMIENTO": ("limitacion_modelo", "El precio exige un crecimiento que un DCF de este tipo no puede representar"),
+    "LIMITACION_PARTICIPADAS": ("limitacion_modelo", "Buena parte del valor está en participadas que el modelo valora de forma simplificada"),
+    "EXPECTATIVA_PESIMISTA": ("expectativa_mercado", "El mercado espera menos crecimiento o rentabilidad (o más riesgo) que el modelo"),
+    "EXPECTATIVA_OPTIMISTA": ("expectativa_mercado", "El mercado espera más crecimiento o rentabilidad que el modelo"),
+}
+BRECHA_ALINEADO = 0.10          # |valor/precio − 1| ≤ 10 %
+DELTA_WACC_RAZONABLE = 0.03     # ±300 pb de tasa se consideran discutibles, no un error
+PRIMA_CALIDAD_ERP_RELATIVA = 0.40  # prima de mercado implícita < 40 % de la del modelo → prima por calidad
+PARTICIPADAS_PESO_MIN = 0.25    # participadas ≥ 25 % del valor de la firma
+
+
+def dcf_inverso(m):
+    """Qué exige el precio de mercado, moviendo UNA palanca a la vez sobre la corrida de la pestaña 4.
+
+    · WACC implícito (todo lo demás igual);
+    · múltiplo de los flujos (k × FCFF y NOPAT terminal del modelo);
+    · crecimiento anual de los flujos durante 10 años desde el FCFF del año 1, con Gordon al g terminal,
+      comparado con el crecimiento que, con el mismo esquema, reproduce el valor del modelo.
+    Devuelve None si faltan insumos o el precio no está en la moneda del modelo.
+    """
+    try:
+        fc = [float(x) for x in (m.get("fcff_proy") or [])]
+        bp = dict(m.get("bridge") or {})
+        bp["acciones"] = m.get("acciones") or bp.get("acciones")
+        w, g = float(m["wacc_calc"]), float(m.get("g_usada") if m.get("g_usada") is not None else m.get("g"))
+        vps_m = float(m["vps_modelo"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    px = m.get("precio_mercado_moneda_modelo")
+    if px is None and m.get("moneda") and m.get("moneda") == (m.get("moneda_precio") or m.get("moneda")):
+        px = m.get("precio_mercado")
+    try:
+        px = float(px)
+    except (TypeError, ValueError):
+        return None
+    if not fc or not bp.get("acciones") or px <= 0 or vps_m <= 0:
+        return None
+    sup = m.get("supuestos") or {}
+    mid = bool(sup.get("mid_year", True))
+    gmax = max(float(sup.get("g_max_macro") or 0.05), g)
+    nop = m.get("nopat_final")
+
+    def vps(serie, wacc, gg, nopat):
+        v = valorar_con_bridge(list(serie), wacc, gg, bp, mid_year=mid, g_max_macro=gmax, nopat_final=nopat)
+        return float(v["Equity_Value"]) * 1000.0 / float(bp["acciones"])
+
+    def resolver(f, lo, hi):
+        try:
+            a, b = f(lo), f(hi)
+            if not (np.isfinite(a) and np.isfinite(b)) or a * b > 0:
+                return None
+            return float(brentq(f, lo, hi, xtol=1e-6))
+        except (ValueError, RuntimeError, ZeroDivisionError):
+            return None
+
+    out = {"precio": px, "vps_modelo": vps_m, "brecha": vps_m / px - 1.0, "wacc": w, "g": g}
+    out["wacc_implicito"] = m.get("wacc_implicito_mercado")
+    if out["wacc_implicito"] is None:
+        out["wacc_implicito"] = resolver(lambda x: vps(fc, x, min(g, x - 0.0105), nop) - px, g + 0.0106, 0.40)
+    out["k_flujos"] = resolver(lambda k: vps([f * k for f in fc], w, g, (float(nop) * k if nop else None)) - px, 0.05, 60.0)
+    base = fc[0] if fc[0] > 0 else (float(nop) * 0.5 if nop and nop > 0 else 0.0)
+    out["crec10_precio"] = out["crec10_modelo"] = None
+    if base > 0:
+        serie = lambda x: [base * (1 + x) ** t for t in range(10)]
+        out["crec10_precio"] = resolver(lambda x: vps(serie(x), w, g, None) - px, -0.30, 1.50)
+        out["crec10_modelo"] = resolver(lambda x: vps(serie(x), w, g, None) - vps_m, -0.30, 1.50)
+    return out
+
+
+def conciliacion_mercado(m):
+    """Clasifica la brecha valor del modelo vs precio con reglas deterministas (lista cerrada CAUSAS_BRECHA).
+
+    Devuelve {"causa", "tipo", "descripcion", "secundarias", "palancas", "supuesto_que_iguala", "inverso"}.
+    El comité IA solo INTERPRETA este resultado: no elige la causa.
+    """
+    inv = dcf_inverso(m)
+    if not inv:
+        return None
+    mon = str(m.get("moneda") or "").upper()
+    merc = MERCADO_POR_MONEDA.get(mon, "DEFAULT")
+    rf = float((m.get("supuestos") or {}).get("rf") or CAPM_POR_MERCADO.get(merc, CAPM_POR_MERCADO["DEFAULT"])["rf"])
+    w, wi, k = inv["wacc"], inv.get("wacc_implicito"), inv.get("k_flujos")
+    c_px, c_mod = inv.get("crec10_precio"), inv.get("crec10_modelo")
+    g_hist = m.get("g_ingresos_historico")
+    brecha = inv["brecha"]
+    bajo_precio = brecha < 0          # el modelo vale menos que el precio
+
+    # Prima de mercado IMPLÍCITA: del WACC implícito se despeja el Ke (con la deuda del modelo) y luego
+    # ERP = (Ke − rf − CRP) / β apalancada. Compararla con la ERP del modelo evita juzgar contra rf, que
+    # en pesos queda por encima de muchos WACC por el escudo fiscal de la deuda.
+    sup = m.get("supuestos") or {}
+    erp_impl = erp_mod = None
+    try:
+        de, t = float(m.get("de_ratio") or 0.0), float(sup["tax"])
+        bl = float(sup["beta_u"]) * (1 + (1 - t) * de)
+        erp_mod, crp = float(sup["erp"]), float(sup.get("crp") or 0.0)
+        if wi is not None and bl > 0.05:
+            ke_impl = (wi * (1 + de) - de * float(sup["kd"]) * (1 - t))
+            erp_impl = (ke_impl - rf - crp) / bl
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        erp_impl = None
+    if erp_impl is not None and erp_mod:
+        tasa_ok = erp_impl >= PRIMA_CALIDAD_ERP_RELATIVA * erp_mod
+        prima_calidad = erp_impl < PRIMA_CALIDAD_ERP_RELATIVA * erp_mod
+    else:  # sin supuestos de CAPM: criterio simple contra la tasa libre de riesgo
+        tasa_ok = wi is not None and wi >= rf + 0.02
+        prima_calidad = wi is not None and wi < rf + 0.015
+
+    # Palancas y su razonabilidad (umbrales explícitos, no juicio del LLM)
+    pal = []
+    if wi is not None:
+        pal.append({"palanca": "WACC", "modelo": w, "exigido": wi,
+                    "razonable": bool(tasa_ok and abs(wi - w) <= DELTA_WACC_RAZONABLE)})
+    if k is not None:
+        pal.append({"palanca": "Flujos (× modelo)", "modelo": 1.0, "exigido": k, "razonable": bool(0.75 <= k <= 1.35)})
+    if c_px is not None and c_mod is not None:
+        tope = max(c_mod + 0.04, (float(g_hist) if g_hist is not None else 0.0) + 0.03)
+        pal.append({"palanca": "Crecimiento anual de flujos 10 años", "modelo": c_mod, "exigido": c_px,
+                    "razonable": bool(c_px <= min(tope, 0.25))})
+
+    # Peso de las participadas en el valor de la firma
+    aso = float((m.get("bridge") or {}).get("asociados") or 0.0)
+    ev = m.get("val_ev")
+    peso_aso = aso / (float(ev) + aso) if (ev and float(ev) + aso > 0) else 0.0
+
+    sec = []
+    if m.get("emisor_ciclico"):
+        sec.append("MATERIA_PRIMA")
+    if peso_aso >= PARTICIPADAS_PESO_MIN:
+        sec.append("LIMITACION_PARTICIPADAS")
+    if wi is not None and abs(wi - w) <= DELTA_WACC_RAZONABLE and tasa_ok:
+        sec.append("SUPUESTO_TASA")
+
+    if abs(brecha) <= BRECHA_ALINEADO:
+        causa = "ALINEADO"
+    elif bajo_precio and (m.get("fuera_de_dominio_crecimiento") or (k is not None and k > 4.0)
+                          or (c_px is not None and c_px > 0.30)):
+        causa = "LIMITACION_CRECIMIENTO"
+    elif m.get("emisor_ciclico"):
+        causa = "MATERIA_PRIMA"
+    elif bajo_precio and peso_aso >= PARTICIPADAS_PESO_MIN:
+        causa = "LIMITACION_PARTICIPADAS"
+    elif wi is not None and abs(wi - w) <= DELTA_WACC_RAZONABLE and tasa_ok:
+        causa = "SUPUESTO_TASA"
+    elif bajo_precio and wi is not None and prima_calidad:
+        causa = "PRIMA_CALIDAD"
+    else:
+        causa = "EXPECTATIVA_OPTIMISTA" if bajo_precio else "EXPECTATIVA_PESIMISTA"
+    sec = [x for x in dict.fromkeys(sec) if x != causa]
+    bf = str(m.get("beta_fuente") or "")
+    datos = []
+    if "no informativa" in bf or "Yahoo sin beta" in bf or bf.startswith("proxy"):
+        datos.append("beta sustituida o de mercado (la regresión de la acción no era utilizable)")
+    if m.get("vetos_calidad"):
+        datos.append("veto de calidad del modelo activo")
+
+    razonables = [p for p in pal if p["razonable"]]
+
+    def _txt(p):
+        if p["palanca"] == "WACC":
+            return f"WACC de {p['exigido']:.2%} (modelo {p['modelo']:.2%}, {(p['exigido'] - p['modelo']) * 1e4:+,.0f} pb)"
+        if p["palanca"].startswith("Flujos"):
+            return f"flujos {p['exigido']:.2f} veces los del modelo"
+        return f"crecimiento de los flujos de {p['exigido']:.1%} anual por 10 años (el modelo implica {p['modelo']:.1%})"
+
+    iguala = (_txt(razonables[0]) + " — supuesto razonable") if razonables else (
+        ("; ".join(_txt(p) for p in pal) + " — ninguno razonable por sí solo") if pal else "N/D")
+    tipo, desc = CAUSAS_BRECHA[causa]
+    return {"causa": causa, "tipo": tipo, "descripcion": desc, "secundarias": sec, "palancas": pal,
+            "supuesto_que_iguala": iguala, "alguna_razonable": bool(razonables), "advertencias_datos": datos,
+            "peso_participadas": round(peso_aso, 4), "rf": rf, "erp_implicita": erp_impl, "erp_modelo": erp_mod,
+            "inverso": inv}
+
+
 def _escalar_fcff(fcff, fac):
     """Escala escenarios sin perder el sentido: flujos positivos × fac; negativos × (2 − fac).
     (Con fac=0.75 un FCFF de −100 pasa a −125; antes pasaba a −75, es decir, 'mejoraba'.)"""
@@ -8960,12 +9142,40 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             "sin_precio_comparable": "N/D: sin precio en la moneda del modelo",
         }.get(_wi.get("motivo"), "N/D")
 
+        # Conciliación modelo vs mercado (DCF inverso + causa de la brecha por reglas): la lee el comité IA.
+        _conc = None
+        try:
+            _conc = conciliacion_mercado({
+                "fcff_proy": [float(x) for x in df_proj["FCFF"].values], "bridge": dict(bp),
+                "acciones": val_base.get("acciones"), "wacc_calc": wacc, "g_usada": val_base.get("g_used", g), "g": g,
+                "vps_modelo": val_base.get("value_per_share"), "precio_mercado": precio_p,
+                "precio_mercado_moneda_modelo": val_base.get("precio_moneda_modelo"),
+                "moneda": mon_modelo, "moneda_precio": mon_precio, "nopat_final": _nopat_final(df_proj),
+                "supuestos": {"mid_year": bool(mid_year), "g_max_macro": float(g_max_macro), "rf": float(rf),
+                              "erp": float(erp), "crp": float(crp), "kd": float(kd), "tax": float(tax),
+                              "beta_u": float(beta_u)},
+                "de_ratio": de_ratio,
+                "wacc_implicito_mercado": wacc_impl, "g_ingresos_historico": meta_proj.get("g_ingresos_historico"),
+                "emisor_ciclico": bool(meta_proj.get("ciclico")),
+                "fuera_de_dominio_crecimiento": bool(meta_proj.get("fuera_de_dominio_crecimiento")),
+                "val_ev": val_base.get("EV"), "beta_fuente": (params_empresa(nombre_empresa) or {}).get("beta_fuente"),
+                "vetos_calidad": list(motor.get("vetos") or []),
+            })
+        except Exception:
+            _conc = None
+        _pal = {x["palanca"]: x for x in ((_conc or {}).get("palancas") or [])}
+        _k = _pal.get("Flujos (× modelo)")
+        _c10 = _pal.get("Crecimiento anual de flujos 10 años")
+
         kpis = pd.DataFrame({
             "Indicador": [
                 "Decisión de comité (modelo)", "Score heurístico", "Calidad de datos",
                 "Fuente financiera", "Fuente mercado", "Ke (CAPM)", "WACC", "ROIC",
                 "ΔEV por CAPEX extra", "Equity base", "Equity pesimista", "MVA firma (EV − capital invertido)", "TIR implícita firma*",
                 "WACC implícito en el precio (DCF inverso)",
+                "Flujos que exige el precio (DCF inverso)",
+                "Crecimiento de flujos a 10 años que exige el precio",
+                "Causa principal de la brecha modelo vs mercado",
                 "EBITDA normalizado (base de múltiplos)",
             ],
             "Valor": [
@@ -8975,6 +9185,10 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 f"{vpn_p:,.1f}" if vpn_p == vpn_p else "N/D",
                 f"{tir_p*100:.2f}%" if (tir_p == tir_p) else "N/D",
                 (f"{wacc_impl*100:.2f}% ({(wacc_impl - wacc)*1e4:+,.0f} pb vs WACC)" if wacc_impl is not None else _wi_txt),
+                (f"{_k['exigido']:.2f} × los del modelo ({'razonable' if _k['razonable'] else 'exigente'})" if _k else "N/D"),
+                (f"{_c10['exigido']:.1%} anual (el modelo implica {_c10['modelo']:.1%}; "
+                 f"{'razonable' if _c10['razonable'] else 'exigente'})" if _c10 else "N/D"),
+                (f"{_conc['descripcion']} ({_conc['causa']})" if _conc else "N/D"),
                 (f"{meta_proj['ebitda_normalizado']:,.1f} · {meta_proj.get('ebitda_normalizado_metodo')}"
                  if meta_proj.get("ebitda_normalizado") else "N/D"),
             ],
@@ -9122,6 +9336,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "consenso_ingresos": meta_proj.get("consenso_ingresos"),
                     "horizonte": int(horizonte),
                     "beta_industria_u": _finite_or_none((params_empresa(nombre_empresa) or {}).get("beta_industria_u")),
+                    "beta_fuente": (params_empresa(nombre_empresa) or {}).get("beta_fuente"),
+                    "conciliacion_mercado": _conc,
                     "bridge": dict(bp),
                 },
             })
