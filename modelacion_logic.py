@@ -42,6 +42,7 @@ from scipy.optimize import brentq
 from datetime import datetime
 import tempfile
 import os
+import hashlib
 import re
 import unicodedata
 
@@ -1155,6 +1156,13 @@ def buscar_y_descargar_empresa(query, peers_tickers="", nombre_display=None):
         "moneda_precio": px_cur,
         "pais": info.get("country") or "",
         "ejercicio_cerrado_hasta": cerrado_hasta,
+        # Perfil para el informe (pestaña 7)
+        "industria": industry,
+        "ciudad": info.get("city") or "",
+        "web": info.get("website") or "",
+        "empleados": info.get("fullTimeEmployees"),
+        "bolsa": info.get("fullExchangeName") or info.get("exchange") or "",
+        "descripcion_completa": (info.get("longBusinessSummary") or "").strip(),
     }
 
     precio = info.get("regularMarketPrice") or info.get("currentPrice")
@@ -7697,6 +7705,9 @@ def reporte_normalizacion_atipicos(df_hist, meta=None):
         if msk.any():
             ax1.scatter(np.array(x)[msk], y1[msk], s=55, color=COLOR_SUCCESS, zorder=5, label="Ajustado")
         ax1.set_title(f"{clave} · tras Hampel/winsor", fontsize=10)
+        for _ax in (ax0, ax1):  # años enteros en el eje (antes 2022.5)
+            _ax.set_xticks(x)
+            _ax.set_xticklabels([str(v) for v in x], fontsize=8)
         ax1.axhline(0, color="#94A3B8", ls=":", lw=1)
         ax1.legend(loc="best", fontsize=7)
         ax1.spines["top"].set_visible(False)
@@ -10584,291 +10595,484 @@ def tab6_comparacion_sectorial(nombre_empresa):
 
 
 
+def _fmt_monto(v, dec=None):
+    """Monto en miles de millones: sin decimales desde 1.000, uno desde 10, dos por debajo (USD pequeños)."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return "N/D"
+    if not np.isfinite(x):
+        return "N/D"
+    if dec is None:
+        dec = 0 if abs(x) >= 1000 else (1 if abs(x) >= 10 else 2)
+    return f"{x:,.{dec}f}"
+
+
+def _fmt_precio(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return "N/D"
+    return "N/D" if not np.isfinite(x) else (f"{x:,.0f}" if abs(x) >= 1000 else f"{x:,.2f}")
+
+
+def _pct_txt(v, dec=2):
+    try:
+        x = float(v)
+        return f"{x * 100:.{dec}f} %" if np.isfinite(x) else "N/D"
+    except (TypeError, ValueError):
+        return "N/D"
+
+
+def _datos_informe_v3(nombre_empresa, *, df_hist, df_proj, meta_proj, val_base, escenarios, wacc, ke, beta_l, rf, erp,
+                      crp, kd, tax, de_ratio, we, wd, beta_u, g, horizonte, precio, bp, mon_modelo, mon_precio,
+                      capital_invertido, prov, mensaje_datos, motor, mid_year, g_max_macro, vpn_firma, tir_firma,
+                      nota_norm=False):
+    """Contenido del informe v3: perfil, valor vs precio en ambas monedas, supuestos, puente, rango de valor,
+    conciliación con el mercado, comité IA estructurado y fuentes. Todo de la misma corrida que la pestaña 4."""
+    out = {"perfil": perfil_empresa(nombre_empresa)}
+    mon = mon_modelo or ""
+    mon_px = mon_precio or mon
+    snap = instantanea_precio_mercado(nombre_empresa)
+    vps = val_base.get("value_per_share")
+    fx = val_base.get("fx_aplicado")
+    out["valor"] = {
+        "vps": vps, "mon_vps": mon, "precio": precio, "mon_precio": mon_px, "fx": fx,
+        "precio_en_modelo": val_base.get("precio_moneda_modelo") if fx else None,
+        "vps_en_precio": (float(vps) * float(fx) if (fx and vps is not None and mon_px == "COP" and mon == "USD") else
+                          (float(vps) / float(fx) if (fx and vps is not None and mon_px == "USD" and mon == "COP") else None)),
+        "upside": val_base.get("upside_pct"), "fecha_precio": snap.get("fecha"), "fuente_precio": snap.get("fuente"),
+    }
+    # Supuestos (construcción del WACC y del valor terminal)
+    ronic = val_base.get("ronic")
+    out["supuestos"] = [
+        ["Tasa libre de riesgo (rf)", _pct_txt(rf), CAPM_POR_MERCADO.get(MERCADO_POR_MONEDA.get(mon, "DEFAULT"), {}).get("rf_fuente")
+         or CAPM_POR_MERCADO.get(MERCADO_POR_MONEDA.get(mon, "DEFAULT"), {}).get("rf_bruto_fuente") or "Parámetros del modelo"],
+        ["Prima de mercado (ERP)", _pct_txt(erp), CAPM_POR_MERCADO.get(MERCADO_POR_MONEDA.get(mon, "DEFAULT"), {}).get("erp_fuente") or "Parámetros del modelo"],
+        ["Prima de riesgo país (CRP)", _pct_txt(crp), "Solo si los flujos están en moneda dura de un emisor emergente"],
+        ["Beta sin deuda / con deuda", f"{float(beta_u):.2f} / {float(beta_l):.2f}", (params_empresa(nombre_empresa) or {}).get("beta_fuente") or "Parámetros del modelo"],
+        ["Costo del patrimonio (Ke)", _pct_txt(ke), "rf + beta con deuda × ERP + CRP"],
+        ["Costo de la deuda (Kd) antes / después de impuestos", f"{_pct_txt(kd)} / {_pct_txt(float(kd) * (1 - float(tax)))}",
+         (params_empresa(nombre_empresa) or {}).get("kd_fuente") or "Parámetros del modelo"],
+        ["Tasa de impuestos", _pct_txt(tax, 1), (params_empresa(nombre_empresa) or {}).get("tax_fuente") or "Parámetros del modelo"],
+        ["Deuda / patrimonio (pesos)", f"{float(de_ratio):.2f} ({_pct_txt(we, 0)} patrimonio · {_pct_txt(wd, 0)} deuda)", "Valor de mercado"],
+        ["WACC", _pct_txt(wacc), "Ke × peso del patrimonio + Kd × (1 − t) × peso de la deuda"],
+        ["Crecimiento perpetuo (g)", _pct_txt(val_base.get("g_used", g)), f"Nominal en {mon}; techo {_pct_txt(g_max_macro, 1)} y WACC − 1 pp"],
+        ["Rentabilidad de la reinversión futura (RONIC)", _pct_txt(ronic) if ronic is not None else "N/D",
+         {"roic": "Converge al ROIC observado (piso: WACC)", "wacc": "Igual al WACC", "manual": "Manual"}.get(modo_ronic_sesion(), "")],
+        ["Horizonte explícito", f"{int(horizonte)} años", "Descuento a mitad de año" if mid_year else "Descuento a fin de año"],
+    ]
+    est = (meta_proj or {}).get("estimador_ingresos") or ""
+    out["proyeccion"] = (
+        f"Ingresos: {est or 'mediana robusta del histórico'}; crecimiento año 1 {_pct_txt((meta_proj or {}).get('g_ingresos'), 1)}. "
+        f"Margen EBITDA representativo {_pct_txt((meta_proj or {}).get('margen_ebitda'), 1)}; CAPEX converge hacia el nivel de "
+        f"mantenimiento. Valor terminal: {_pct_txt(val_base.get('tv_pct_ev'), 0)} del valor de la empresa."
+        + (" Emisor de materias primas: precio de ciclo medio (base últimos doce meses)." if (meta_proj or {}).get("ciclico") else "")
+    )
+    b = val_base.get("bridge") or {}
+    filas = []
+    for k in ("Enterprise Value", "(-) Deuda neta", "(-) Deuda bruta", "(+) Caja y equivalentes",
+              "(-) Interés minoritario (NCI)", "(-) Otros claims", "(+) Asociados / JV", "Equity atribuible"):
+        if k in b and (k in ("Enterprise Value", "Equity atribuible") or abs(float(b[k] or 0)) > 1e-9):
+            etiqueta = {"Enterprise Value": "Valor de la empresa (EV)", "(-) Deuda neta": "(−) Deuda neta",
+                        "(-) Deuda bruta": "(−) Deuda bruta", "(+) Caja y equivalentes": "(+) Caja",
+                        "(-) Interés minoritario (NCI)": "(−) Interés minoritario", "(-) Otros claims": "(−) Otros pasivos",
+                        "(+) Asociados / JV": "(+) Asociadas y negocios conjuntos",
+                        "Equity atribuible": "Patrimonio de los accionistas"}[k]
+            filas.append([etiqueta, _fmt_monto(b[k])])
+    acc = val_base.get("acciones") or bp.get("acciones")
+    if acc:
+        filas.append(["÷ Acciones (millones)", _fmt_monto(acc)])
+    filas.append([f"Valor por acción ({mon})", _fmt_precio(vps)])
+    out["puente"] = filas
+    out["firma"] = {"mva": vpn_firma, "tir": tir_firma}
+    out["escenarios_v3"] = [
+        [k, _pct_txt(escenarios[k]["WACC"]), _pct_txt(escenarios[k]["g"]), _fmt_monto(escenarios[k]["EV"]),
+         _fmt_monto(escenarios[k]["Equity_Value"]), _fmt_precio(escenarios[k].get("value_per_share"))]
+        for k in ("Pesimista", "Base", "Optimista")]
+    # Métricas de la pestaña 4 (misma corrida): conciliación y anclas
+    m4 = metricas_valoracion_sesion(nombre_empresa) or {}
+    out["conciliacion"] = m4.get("conciliacion_mercado")
+    out["anclas"] = None
+    if m4.get("vps_modelo") is not None:
+        try:
+            import comite_ia as _CI
+            cm = contexto_mercado_comite(nombre_empresa, m4)
+            anc = _CI.calcular_anclas(nombre_empresa, m4, cm)
+            out["anclas"] = {"moneda": anc.get("moneda"), "rango": anc.get("rango"),
+                             "filas": [[a["id"], a["nombre"], _fmt_precio(a.get("vps_precio")), a.get("metodo")] for a in anc.get("anclas") or []],
+                             "descartadas": [[a["id"], a["nombre"], _fmt_precio(a.get("vps_precio")), a.get("motivo")] for a in anc.get("descartadas") or []],
+                             "valores": {a["id"]: a.get("vps_precio") for a in anc.get("anclas") or []}}
+        except Exception as e:
+            out["anclas"] = {"error": str(e)[:200]}
+    # Comité IA (dictamen estructurado v3) de esta empresa
+    ci = (RESULTADOS_SESION.get("tabs") or {}).get("comite_ia") or {}
+    if RESULTADOS_SESION.get("empresa") in (None, nombre_empresa) and isinstance(ci.get("dictamen"), dict):
+        out["comite"] = ci["dictamen"]
+    # Datos, fuentes y correcciones del usuario
+    dv = damodaran_vigencia()
+    tm = TASAS_MERCADO
+    out["calidad"] = {"nivel": prov.get("nivel_calidad"), "fuente": prov.get("fuente_financiera"), "mercado": prov.get("fuente_mercado")}
+    hu, sdp = historico_usuario(nombre_empresa), suma_partes_sesion(nombre_empresa)
+    out["ajustes"] = []
+    if hu:
+        out["ajustes"].append("Histórico corregido por el usuario: " + ("; ".join(hu.get("cambios") or []) or "sin celdas distintas"))
+    if sdp:
+        out["ajustes"].append(f"Participadas por suma de partes: {_fmt_monto(sdp['total'])} ({len(sdp.get('detalle') or [])} participadas, Ke {_pct_txt(sdp.get('ke'))})")
+    anios = [int(x) for x in df_hist.index] if df_hist is not None and len(df_hist) else []
+    out["fuentes"] = [
+        ["Estados financieros", (out["perfil"].get("fuente") or "") + (f" · {anios[0]}–{anios[-1]}" if anios else ""), "Último ejercicio cerrado"],
+        ["Precio de la acción", ("Yahoo Finance (" + str(out["valor"]["fuente_precio"]).split(":", 1)[-1] + ")")
+         if str(out["valor"].get("fuente_precio") or "").lower().startswith("yahoo") else str(out["valor"].get("fuente_precio") or "Yahoo Finance"),
+         str(out["valor"].get("fecha_precio") or "")[:10]],
+        ["Tasa libre de riesgo", (tm.get("co_rf_bruto") if mon == "COP" else tm.get("us_rf"), )[0]["fuente"] if tm else "", (tm.get("co_rf_bruto") if mon == "COP" else tm.get("us_rf"))["fecha"] if tm else ""],
+        ["Primas de mercado y riesgo país", "Aswath Damodaran (NYU Stern)", str(dv.get("riesgo_pais") or "")],
+        ["Múltiplos y betas por industria", "Aswath Damodaran (NYU Stern)", str(dv.get("multiplos") or "")],
+        ["Pares del sector y consenso", "Yahoo Finance", datetime.now().strftime("%Y-%m-%d")],
+    ]
+    out["nota_normalizacion"] = bool(nota_norm)
+    out["alertas"] = list(motor.get("alertas") or [])[:6]
+    out["vetos"] = list(motor.get("vetos") or [])
+    return out
+
+
 def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
-    """
-    PDF ejecutivo v2 — dashboard para comité (sin narrativa HTML larga).
-    Secciones: decisión, KPIs, escenarios, auditoría, sector, (opcional) extracto comité IA.
-    """
+    """Informe de valoración v3 (pestaña 7): perfil, resumen, cálculo, rango de valor, modelo vs mercado,
+    datos y fuentes, gráficos y dictamen del comité IA."""
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        Image, HRFlowable,
-    )
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, HRFlowable, KeepTogether
     from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
-    import numpy as np
 
-    doc = SimpleDocTemplate(
-        ruta_pdf, pagesize=letter,
-        leftMargin=0.7 * inch, rightMargin=0.7 * inch,
-        topMargin=0.55 * inch, bottomMargin=0.55 * inch,
-    )
-    styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(
-        name="TituloMain", parent=styles["Heading1"],
-        fontSize=16, textColor=colors.HexColor("#0A2540"),
-        spaceAfter=4, alignment=TA_CENTER,
-    ))
-    styles.add(ParagraphStyle(
-        name="Subtitulo", parent=styles["Heading2"],
-        fontSize=12, textColor=colors.HexColor("#0F766E"),
-        spaceBefore=12, spaceAfter=5,
-    ))
-    styles.add(ParagraphStyle(
-        name="Cuerpo", parent=styles["Normal"],
-        fontSize=9.5, textColor=colors.HexColor("#1E293B"),
-        leading=13, alignment=TA_JUSTIFY,
-    ))
-    styles.add(ParagraphStyle(
-        name="Simple", parent=styles["Normal"],
-        fontSize=9.5, textColor=colors.HexColor("#065F46"),
-        backColor=colors.HexColor("#ECFDF5"),
-        leading=12, spaceBefore=3, spaceAfter=5,
-        leftIndent=3, rightIndent=3,
-    ))
-    styles.add(ParagraphStyle(
-        name="Decision", parent=styles["Heading2"],
-        fontSize=13, textColor=colors.HexColor(datos.get("decision_color") or "#0A2540"),
-        alignment=TA_CENTER, spaceBefore=6, spaceAfter=6,
-    ))
-    styles.add(ParagraphStyle(
-        name="Pie", parent=styles["Normal"],
-        fontSize=8, textColor=colors.HexColor("#64748B"),
-        alignment=TA_CENTER,
-    ))
-    styles.add(ParagraphStyle(
-        name="KPI", parent=styles["Normal"],
-        fontSize=8.5, textColor=colors.HexColor("#0F172A"), leading=11,
-    ))
-    styles.add(ParagraphStyle(
-        name="KPIHeader", parent=styles["Normal"],
-        fontSize=8.5, textColor=colors.white, leading=11,
-    ))
-    styles.add(ParagraphStyle(
-        name="Badge", parent=styles["Normal"],
-        fontSize=9, textColor=colors.HexColor("#0F766E"),
-        alignment=TA_CENTER, spaceAfter=6,
-    ))
+    AZUL, VERDE, GRIS, TEXTO = "#0A2540", "#0F766E", "#64748B", "#1E293B"
+    doc = SimpleDocTemplate(ruta_pdf, pagesize=letter, leftMargin=0.7 * inch, rightMargin=0.7 * inch,
+                            topMargin=0.55 * inch, bottomMargin=0.6 * inch,
+                            title=f"Informe de valoración · {nombre_empresa}", author="Modelación Financiera")
+    st_ = getSampleStyleSheet()
+    def estilo(nombre, padre="Normal", **kw):
+        st_.add(ParagraphStyle(name=nombre, parent=st_[padre], **kw))
+    estilo("T1", "Heading1", fontSize=17, textColor=colors.HexColor(AZUL), alignment=TA_CENTER, spaceAfter=2)
+    estilo("T2", "Heading2", fontSize=12.5, textColor=colors.HexColor(VERDE), spaceBefore=11, spaceAfter=5)
+    estilo("Cuerpo", fontSize=9.3, textColor=colors.HexColor(TEXTO), leading=12.5, alignment=TA_JUSTIFY)
+    estilo("Nota", fontSize=8, textColor=colors.HexColor(GRIS), leading=10)
+    estilo("Centro", fontSize=8.5, textColor=colors.HexColor(GRIS), alignment=TA_CENTER)
+    estilo("Simple", fontSize=9.2, textColor=colors.HexColor("#065F46"), backColor=colors.HexColor("#ECFDF5"),
+           leading=12, spaceBefore=3, spaceAfter=5, leftIndent=3, rightIndent=3)
+    estilo("Decision", "Heading2", fontSize=13, alignment=TA_CENTER, spaceBefore=4, spaceAfter=4,
+           textColor=colors.HexColor(datos.get("decision_color") or AZUL))
+    estilo("Celda", fontSize=8.4, textColor=colors.HexColor("#0F172A"), leading=10.5)
+    estilo("CeldaDer", fontSize=8.4, textColor=colors.HexColor("#0F172A"), leading=10.5, alignment=2)
+    estilo("Cab", fontSize=8.4, textColor=colors.white, leading=10.5, fontName="Helvetica-Bold")
+    estilo("CabDer", fontSize=8.4, textColor=colors.white, leading=10.5, fontName="Helvetica-Bold", alignment=2)
 
-    def _esc(s):
-        return (
-            str(s or "")
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
+    def e(x):
+        return str("" if x is None else x).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    def _tbl(data, col_widths):
+    def tabla(filas, anchos, der=(), cabecera=True, negrita_ultima=False):
         flow = []
-        for ri, row in enumerate(data):
-            flow.append([
-                Paragraph(_esc(c), styles["KPIHeader"] if ri == 0 else styles["KPI"])
-                for c in row
-            ])
-        t = Table(flow, colWidths=col_widths)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F766E")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 5),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1F5F9")]),
-        ]))
+        for ri, fila in enumerate(filas):
+            cab = cabecera and ri == 0
+            flow.append([Paragraph(e(c), st_[("CabDer" if ci in der else "Cab") if cab else ("CeldaDer" if ci in der else "Celda")])
+                         for ci, c in enumerate(fila)])
+        t = Table(flow, colWidths=anchos, repeatRows=1 if cabecera else 0)
+        estilo_t = [("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("ROWBACKGROUNDS", (0, 1 if cabecera else 0), (-1, -1), [colors.white, colors.HexColor("#F1F5F9")])]
+        if cabecera:
+            estilo_t.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(VERDE)))
+        if negrita_ultima:
+            estilo_t += [("LINEABOVE", (0, -1), (-1, -1), 1.2, colors.HexColor(VERDE)),
+                         ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#ECFDF5"))]
+        t.setStyle(TableStyle(estilo_t))
         return t
 
+    W = 7.1 * inch
     story = []
-    # —— Portada corta ——
-    story.append(Paragraph("Informe Ejecutivo · Dashboard para Comité", styles["TituloMain"]))
-    story.append(Paragraph(f"<b>{_esc(nombre_empresa)}</b>", styles["TituloMain"]))
-    story.append(Paragraph(
-        f"<b>Versión PDF 2.1</b> · {_esc(datos.get('fecha', ''))} · "
-        f"Horizonte {datos.get('horizonte', '—')} años · Drivers + identidad FCFF · "
-        f"Sin narrativa HTML completa",
-        styles["Badge"],
-    ))
-    story.append(Paragraph(
-        "Documento pedagógico de apoyo a decisión. No es asesoría de inversión ni orden de compra/venta.",
-        styles["Pie"],
-    ))
-    story.append(Spacer(1, 6))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#0F766E")))
+    perfil = datos.get("perfil") or {}
+    val = datos.get("valor") or {}
+    mon, mon_px = val.get("mon_vps") or datos.get("moneda") or "", val.get("mon_precio") or ""
 
-    # 1. Decisión
-    story.append(Paragraph("1. Decisión del modelo (cuantitativa)", styles["Subtitulo"]))
-    story.append(Paragraph(_esc(datos.get("decision", "—")), styles["Decision"]))
-    if datos.get("decision_just"):
-        story.append(Paragraph(_esc(datos["decision_just"]), styles["Cuerpo"]))
-    if datos.get("decision_simple"):
-        story.append(Paragraph(
-            f"<b>En palabras simples:</b> {_esc(datos['decision_simple'])}",
-            styles["Simple"],
-        ))
-    score = datos.get("score", "—")
-    razones = datos.get("razones") or []
-    story.append(Paragraph(
-        f"Puntaje de viabilidad: <b>{_esc(score)}/7</b>"
-        + (f". Razones: {_esc('; '.join(razones))}." if razones else "."),
-        styles["Cuerpo"],
-    ))
+    # —— Portada ——
+    story.append(Paragraph("Informe de valoración", st_["T1"]))
+    story.append(Paragraph(f"<b>{e(nombre_empresa)}</b>", st_["T1"]))
+    story.append(Paragraph(f"{e(datos.get('fecha', ''))} · flujo de caja descontado a {e(datos.get('horizonte', '—'))} años · "
+                           "apoyo a la decisión, no es asesoría de inversión ni una orden de compra o venta", st_["Centro"]))
+    story.append(Spacer(1, 4))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor(VERDE)))
 
-    # 2. KPIs
-    story.append(Paragraph("2. Números clave", styles["Subtitulo"]))
-    vps = datos.get("vps")
-    up = datos.get("upside_pct")
-    px = datos.get("precio_mercado")
-    vps_s = f"{vps:,.2f}" if vps is not None else "N/D"
+    # 1. Perfil
+    story.append(Paragraph("1. La empresa", st_["T2"]))
+    hechos = []
+    if perfil.get("ticker"):
+        hechos.append(["Cotiza en", f"{perfil.get('bolsa') or 'Bolsa'} · {perfil['ticker']}"])
+    hechos.append(["Sector", perfil.get("sector") + (f" · {perfil['industria']}" if perfil.get("industria") else "")])
+    origen = ", ".join(x for x in (perfil.get("ciudad"), perfil.get("pais")) if x)
+    if origen:
+        hechos.append(["Sede", origen])
+    if perfil.get("empleados"):
+        hechos.append(["Empleados", f"{int(perfil['empleados']):,}"])
+    if perfil.get("web"):
+        hechos.append(["Sitio web", perfil["web"]])
+    mon_eeff = perfil.get("moneda_eeff") or mon
+    hechos.append(["Moneda", f"Estados financieros en {mon_eeff}" + (f" · cotiza en {perfil.get('moneda_precio')}" if perfil.get("moneda_precio") and perfil.get("moneda_precio") != mon_eeff else "")])
+    story.append(tabla(hechos, [1.4 * inch, W - 1.4 * inch], cabecera=False))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(e(perfil.get("descripcion") or "Sin descripción disponible."), st_["Cuerpo"]))
+    if perfil.get("nota"):
+        story.append(Paragraph(e(perfil["nota"]), st_["Nota"]))
+
+    # 2. Resumen
+    story.append(Paragraph("2. Resumen", st_["T2"]))
+    story.append(Paragraph(e(datos.get("decision", "—")), st_["Decision"]))
+    vps_t = f"{_fmt_precio(val.get('vps'))} {mon}"
+    if val.get("vps_en_precio"):
+        vps_t += f" (≈ {_fmt_precio(val['vps_en_precio'])} {mon_px})"
+    px_t = f"{_fmt_precio(val.get('precio'))} {mon_px}" if val.get("precio") is not None else "N/D"
+    if val.get("precio_en_modelo"):
+        px_t += f" (≈ {_fmt_precio(val['precio_en_modelo'])} {mon})"
+    if val.get("fecha_precio"):
+        px_t += f" · {str(val['fecha_precio'])[:10]}"
+    up = val.get("upside")
     try:
-        up_s = f"{float(up):+.1f}%" if up is not None and np.isfinite(float(up)) else "N/D"
+        up_t = f"{float(up):+.1f} %" if up is not None and np.isfinite(float(up)) else "N/D"
     except Exception:
-        up_s = "N/D"
-    px_s = f"{px:,.2f}" if px is not None else "N/D"
-    mon = datos.get("moneda") or ""
-    kpi_data = [
-        ["Indicador", "Valor", "Qué significa"],
-        ["WACC", f"{float(datos.get('wacc') or 0)*100:.2f}%", "Costo promedio del capital"],
-        ["g terminal", f"{float(datos.get('g') or 0)*100:.2f}%", "Crecimiento de largo plazo"],
-        ["ROIC", (f"{float(datos.get('roic'))*100:.2f}%" if _finite_or_none(datos.get('roic')) is not None else "N/D"), "Retorno del capital invertido"],
-        ["D/E", f"{float(datos.get('de_ratio') or 0):.2f}", "Apalancamiento"],
-        ["EV base", f"{float(datos.get('ev_base') or 0):,.0f}", f"Valor del negocio (miles M {mon})"],
-        ["Equity base", f"{float(datos.get('equity_base') or 0):,.0f}", "Valor para los dueños"],
-        ["VPS modelo", vps_s, "Valor por acción del DCF"],
-        ["Precio mercado", px_s, "Última cotización (si hay)"],
-        ["Upside %", up_s, "VPS vs precio (solo si misma moneda)"],
-        ["VPN proyecto", f"{datos.get('vpn', '—')}", "Valor presente del proyecto"],
-        ["TIR / Payback", f"{datos.get('tir', '—')} / {datos.get('payback', '—')}", "Rentabilidad y años de recupero"],
-    ]
-    story.append(_tbl(kpi_data, [1.5 * inch, 1.4 * inch, 3.3 * inch]))
-    story.append(Paragraph(
-        "<b>Lectura rápida:</b> si ROIC &gt; WACC el negocio crea valor con estos supuestos; "
-        "VPN &gt; 0 y TIR &gt; WACC apuntan a que el proyecto aporta valor en pesos de hoy.",
-        styles["Simple"],
-    ))
+        up_t = "N/D"
+    resumen = [["Valor por acción del modelo", vps_t], ["Precio de mercado", px_t],
+               ["Diferencia (valor vs precio)", up_t]]
+    conc = datos.get("conciliacion") or {}
+    if conc:
+        resumen.append(["Causa de la diferencia", conc.get("descripcion") or conc.get("causa")])
+    com = datos.get("comite") or {}
+    if com.get("recomendacion"):
+        po = com.get("precio_objetivo")
+        resumen.append(["Comité IA", f"{com['recomendacion']} · precio objetivo 12 meses {_fmt_precio(po)} {mon_px} · convicción {com.get('conviccion')}/10"
+                        if po is not None else f"{com['recomendacion']} · convicción {com.get('conviccion')}/10"])
+    story.append(tabla(resumen, [2.1 * inch, W - 2.1 * inch], cabecera=False))
+    story.append(Spacer(1, 4))
+    if datos.get("decision_just"):
+        story.append(Paragraph(e(datos["decision_just"]), st_["Cuerpo"]))
+    if datos.get("decision_simple"):
+        story.append(Paragraph(f"<b>En palabras simples:</b> {e(datos['decision_simple'])}", st_["Simple"]))
+    if datos.get("vetos"):
+        story.append(Paragraph("<b>Vetos de calidad:</b> " + e("; ".join(datos["vetos"])), st_["Cuerpo"]))
 
-    # 3. Calidad de datos (corto)
-    story.append(Paragraph("3. Calidad de datos", styles["Subtitulo"]))
-    story.append(Paragraph(
-        _esc(datos.get("nota_normalizacion_texto") or "Sin nota de normalización en esta corrida."),
-        styles["Cuerpo"],
-    ))
+    # 3. Cómo se llegó al valor
+    story.append(Paragraph("3. Cómo se llegó al valor", st_["T2"]))
+    if datos.get("supuestos"):
+        story.append(tabla([["Supuesto", "Valor", "Fuente o regla"]] + datos["supuestos"],
+                           [2.35 * inch, 1.35 * inch, W - 3.7 * inch], der=(1,)))
+    if datos.get("proyeccion"):
+        story.append(Spacer(1, 4))
+        story.append(Paragraph("<b>Proyección:</b> " + e(datos["proyeccion"]), st_["Cuerpo"]))
+    if datos.get("puente"):
+        story.append(Spacer(1, 5))
+        story.append(Paragraph(f"<b>Del valor de la empresa al valor por acción</b> (miles de millones de {e(mon)})", st_["Cuerpo"]))
+        story.append(Spacer(1, 2))
+        story.append(tabla(datos["puente"], [3.4 * inch, 1.6 * inch], der=(1,), cabecera=False, negrita_ultima=True))
 
-    # 4. Gráficos (si hay)
-    imgs = datos.get("imagenes") or []
-    if imgs:
-        story.append(Paragraph("4. Gráficos", styles["Subtitulo"]))
-        for titulo, ruta, explicacion in imgs:
-            if ruta and os.path.exists(ruta):
-                story.append(Paragraph(_esc(titulo), styles["Cuerpo"]))
-                try:
-                    h = 3.6 * inch if "normalizacion" in str(ruta).lower() or "atipic" in str(titulo).lower() else 2.6 * inch
-                    story.append(Image(ruta, width=6.2 * inch, height=h))
-                except Exception:
-                    story.append(Paragraph("(No se pudo insertar la imagen)", styles["Pie"]))
-                if explicacion:
-                    story.append(Paragraph(f"<b>Cómo leerlo:</b> {_esc(explicacion)}", styles["Simple"]))
-                story.append(Spacer(1, 4))
-
-    # 5. Escenarios
-    story.append(Paragraph("5. Escenarios de valoración", styles["Subtitulo"]))
-    esc_data = [["Escenario", "WACC %", "g %", "EV", "Equity"]]
-    for row in datos.get("escenarios") or []:
-        esc_data.append([("—" if x is None or str(x).strip() == "" else str(x)) for x in row])
-    if len(esc_data) > 1:
-        story.append(_tbl(esc_data, [1.3 * inch, 1.0 * inch, 0.9 * inch, 1.5 * inch, 1.5 * inch]))
-    story.append(Paragraph(
-        "Pesimista = peores flujos / capital más caro; optimista = lo contrario. "
-        "Si solo el optimista se ve bien, la tesis es frágil.",
-        styles["Simple"],
-    ))
-
-    # 6. Auditoría
-    story.append(Paragraph("6. Coherencia de supuestos", styles["Subtitulo"]))
-    for prueba, interp in (datos.get("pruebas") or []):
-        story.append(Paragraph(f"• <b>{_esc(prueba)}</b>: {_esc(interp)}", styles["Cuerpo"]))
-    if not datos.get("pruebas"):
-        story.append(Paragraph("Sin pruebas de auditoría en esta corrida.", styles["Cuerpo"]))
-
-    # 7. Sector
-    story.append(Paragraph("7. Posición sectorial", styles["Subtitulo"]))
-    story.append(Paragraph(
-        _esc(datos.get("sector_texto") or "Sin comparación sectorial en esta corrida."),
-        styles["Cuerpo"],
-    ))
-
-    # 8. Cierre corto (sin veredicto de mercado largo tipo contraste)
-    story.append(Paragraph("8. Uso del resultado", styles["Subtitulo"]))
-    compra_simple = datos.get("compra_simple") or (
-        "Apoyo a discusión de comité; no es una orden de compra o venta."
-    )
-    story.append(Paragraph(_esc(compra_simple), styles["Simple"]))
-    # No incluir el bloque largo de veredicto_mercado / contraste en el PDF v2
-
-    # 9. Extracto Comité IA (estructurado)
-    comite_struct = datos.get("comite_ia_struct") or {}
-    comite_txt = (datos.get("comite_ia_resumen") or "").strip()
-    if not comite_struct and comite_txt:
-        try:
-            comite_struct = extraer_resumen_comite_ia(comite_txt)
-        except Exception:
-            comite_struct = {}
-    _ct_up = (comite_txt or "").upper().replace("Ó", "O")
-    _parece_prompt = (
-        "ACTUA COMO UN COMITE" in _ct_up
-        or "CONTEXTO DE ENTRADA" in _ct_up
-        or ("INSTRUCCIONES Y FORMATO DE SALIDA" in _ct_up and "[...]" in (comite_txt or ""))
-    )
-    if (not _parece_prompt) and (
-        comite_struct.get("ok")
-        or (comite_txt and (comite_struct.get("recomendacion") or comite_struct.get("puntaje")))
-    ):
-        story.append(Paragraph("9. Extracto Comité interdisciplinario (IA)", styles["Subtitulo"]))
-        story.append(Paragraph(
-            "Solo recomendación, puntaje y hasta 3 puntos de monitoreo. "
-            "Complemento narrativo; no sustituye el DCF.",
-            styles["Cuerpo"],
-        ))
-        if comite_struct.get("recomendacion"):
-            story.append(Paragraph(
-                f"<b>Recomendación final:</b> {_esc(comite_struct['recomendacion'])}",
-                styles["Simple"],
-            ))
-        if comite_struct.get("puntaje"):
-            story.append(Paragraph(
-                f"<b>Puntaje de viabilidad:</b> {_esc(comite_struct['puntaje'])}",
-                styles["Simple"],
-            ))
-        mons = comite_struct.get("monitoreo") or []
-        if mons:
-            story.append(Paragraph("<b>Puntos de monitoreo:</b>", styles["Cuerpo"]))
-            for i, p in enumerate(mons[:3], 1):
-                story.append(Paragraph(f"{i}. {_esc(p)}", styles["Cuerpo"]))
+    # 4. Rango de valor
+    story.append(Paragraph("4. Rango de valor", st_["T2"]))
+    anc = datos.get("anclas") or {}
+    if anc.get("filas"):
+        px_val = val.get("precio")
+        filas = [["Id", "Método", f"Valor ({e(anc.get('moneda') or mon_px)})", "vs precio", "Cálculo"]]
+        for aid, nombre, v_txt, metodo in anc["filas"]:
+            v = (anc.get("valores") or {}).get(aid)
+            dif = f"{(float(v) / float(px_val) - 1) * 100:+.0f} %" if (v and px_val) else "—"
+            filas.append([aid, nombre, v_txt, dif, metodo])
+        for aid, nombre, v_txt, motivo in anc.get("descartadas") or []:
+            filas.append([aid, f"{nombre} (descartada)", v_txt, "—", motivo])
+        story.append(tabla(filas, [0.4 * inch, 1.9 * inch, 0.95 * inch, 0.7 * inch, W - 3.95 * inch], der=(2, 3)))
+        if anc.get("rango"):
+            story.append(Paragraph(f"Rango de las anclas utilizables: {_fmt_precio(anc['rango'][0])} – {_fmt_precio(anc['rango'][1])} "
+                                   f"{e(anc.get('moneda') or mon_px)}.", st_["Nota"]))
     else:
-        story.append(Paragraph("9. Extracto Comité interdisciplinario (IA)", styles["Subtitulo"]))
-        story.append(Paragraph(
-            "No hay deliberación IA en esta sesión. "
-            "Ejecuta el comité en la pestaña 4 y vuelve a generar el informe (pestaña 7) para incluir el extracto.",
-            styles["Pie"],
-        ))
+        story.append(Paragraph("Rango por método no disponible: ejecuta la pestaña 4 antes de generar el informe.", st_["Nota"]))
+    if datos.get("escenarios_v3"):
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("<b>Escenarios</b> (los mismos de la pestaña 2)", st_["Cuerpo"]))
+        story.append(Spacer(1, 2))
+        story.append(tabla([["Escenario", "WACC", "g", f"EV ({e(mon)})", "Patrimonio", f"Valor por acción ({e(mon)})"]] + datos["escenarios_v3"],
+                           [1.1 * inch, 0.9 * inch, 0.8 * inch, 1.3 * inch, 1.3 * inch, W - 5.4 * inch], der=(1, 2, 3, 4, 5)))
+        story.append(Paragraph("Pesimista: menos crecimiento y margen, más CAPEX y capital de trabajo, WACC +1,5 pp y g −1 pp. "
+                               "Optimista: lo contrario. Si solo el optimista se ve bien, la tesis es frágil.", st_["Nota"]))
 
-    story.append(Spacer(1, 12))
+    # 5. Modelo vs mercado
+    if conc:
+        story.append(Paragraph("5. Modelo frente al mercado", st_["T2"]))
+        story.append(Paragraph(f"<b>{e(conc.get('descripcion'))}</b> ({e(conc.get('causa'))}).", st_["Cuerpo"]))
+        pal = conc.get("palancas") or []
+        if pal:
+            def _v(p_):
+                if p_["palanca"] == "WACC":
+                    return _pct_txt(p_["modelo"]), _pct_txt(p_["exigido"])
+                if p_["palanca"].startswith("Flujos"):
+                    return "1,00×", f"{p_['exigido']:.2f}×"
+                return _pct_txt(p_["modelo"], 1), _pct_txt(p_["exigido"], 1)
+            story.append(Spacer(1, 3))
+            story.append(tabla([["Qué exige el precio", "Modelo", "Precio", "Juicio"]]
+                               + [[p_["palanca"], *_v(p_), "razonable" if p_["razonable"] else "exigente"] for p_ in pal],
+                               [3.0 * inch, 1.2 * inch, 1.2 * inch, W - 5.4 * inch], der=(1, 2)))
+        story.append(Paragraph("Supuesto que iguala modelo y precio: " + e(conc.get("supuesto_que_iguala")), st_["Nota"]))
+        if conc.get("advertencias_datos"):
+            story.append(Paragraph("Advertencias: " + e("; ".join(conc["advertencias_datos"])), st_["Nota"]))
+        cm_ = (com.get("conciliacion_mercado") or {}) if com else {}
+        if cm_.get("explicacion"):
+            story.append(Paragraph("<b>Lectura del comité IA:</b> " + e(cm_["explicacion"]), st_["Simple"]))
+
+    # 6. Creación de valor y coherencia
+    story.append(Paragraph("6. Creación de valor y coherencia", st_["T2"]))
+    firma = datos.get("firma") or {}
+    roic = datos.get("roic")
+    filas = [["Indicador", "Valor", "Lectura"],
+             ["ROIC vs WACC", f"{_pct_txt(roic)} vs {_pct_txt(datos.get('wacc'))}", "Si el ROIC supera al WACC, el negocio crea valor"],
+             ["Valor creado sobre el capital (EV − capital invertido)", f"{_fmt_monto(firma.get('mva'))} {e(mon)}", "Positivo: el mercado del modelo paga más que lo invertido"],
+             ["Rentabilidad implícita de la empresa", _pct_txt(firma.get("tir")), "Tasa que iguala el capital invertido con flujos y valor terminal"],
+             ["Puntaje auxiliar del modelo", f"{e(datos.get('score'))}/7", "; ".join(datos.get("razones") or [])]]
+    story.append(tabla(filas, [2.6 * inch, 1.5 * inch, W - 4.1 * inch]))
+    for prueba, interp in (datos.get("pruebas") or []):
+        story.append(Paragraph(f"• <b>{e(prueba)}</b>: {e(interp)}", st_["Cuerpo"]))
+    if datos.get("sector_texto"):
+        story.append(Paragraph("<b>Posición en el sector:</b> " + e(str(datos["sector_texto"]).replace("..", ".")), st_["Cuerpo"]))
+
+    # 7. Datos y fuentes
+    story.append(Paragraph("7. Datos y fuentes", st_["T2"]))
+    cal = datos.get("calidad") or {}
+    if cal:
+        story.append(Paragraph(f"<b>Calidad de datos: {e(cal.get('nivel'))}</b> — {e(cal.get('fuente'))}. {e(cal.get('mercado'))}.", st_["Cuerpo"]))
+    for a in datos.get("ajustes") or []:
+        story.append(Paragraph("• " + e(a), st_["Cuerpo"]))
+    story.append(Paragraph(e(datos.get("nota_normalizacion_texto") or ""), st_["Nota"]))
+    if datos.get("fuentes"):
+        story.append(Spacer(1, 3))
+        story.append(tabla([["Dato", "Fuente", "Fecha"]] + datos["fuentes"], [1.9 * inch, W - 3.1 * inch, 1.2 * inch]))
+    if datos.get("alertas"):
+        story.append(Spacer(1, 3))
+        story.append(Paragraph("<b>Alertas del modelo:</b> " + e(" · ".join(datos["alertas"])), st_["Nota"]))
+
+    # 8. Gráficos
+    imgs = [x for x in (datos.get("imagenes") or []) if x[1] and os.path.exists(x[1])]
+    if imgs:
+        story.append(Paragraph("8. Gráficos", st_["T2"]))
+        for titulo, ruta, explicacion in imgs:
+            alto = 3.6 * inch if "normalizacion" in str(ruta).lower() else 2.6 * inch
+            bloque = [Paragraph(f"<b>{e(titulo)}</b>", st_["Cuerpo"]), Image(ruta, width=6.6 * inch, height=alto)]
+            if explicacion:
+                bloque.append(Paragraph(f"<b>Cómo leerlo:</b> {e(explicacion)}", st_["Simple"]))
+            story.append(KeepTogether(bloque))
+            story.append(Spacer(1, 4))
+
+    # 9. Comité IA
+    story.append(Paragraph("9. Dictamen del comité IA", st_["T2"]))
+    if com.get("recomendacion"):
+        po = com.get("precio_objetivo")
+        story.append(Paragraph(f"<b>{e(com['recomendacion'])}</b>" + (f" · precio objetivo 12 meses {_fmt_precio(po)} {e(mon_px)}" if po is not None else "")
+                               + f" · convicción {e(com.get('conviccion'))}/10", st_["Simple"]))
+        if com.get("metodo_precio_objetivo"):
+            story.append(Paragraph("<b>Precio objetivo:</b> " + e(com["metodo_precio_objetivo"]), st_["Cuerpo"]))
+        for t_ in (com.get("tesis") or [])[:4]:
+            story.append(Paragraph("• " + e(t_), st_["Cuerpo"]))
+        riesgos = [r for r in com.get("riesgos") or [] if isinstance(r, dict)][:4]
+        if riesgos:
+            story.append(Paragraph("<b>Riesgos y cómo vigilarlos:</b>", st_["Cuerpo"]))
+            for r in riesgos:
+                story.append(Paragraph(f"• {e(r.get('riesgo'))} — indicador: {e(r.get('indicador'))}", st_["Cuerpo"]))
+        cats = [c for c in com.get("catalizadores") or [] if isinstance(c, dict)][:3]
+        if cats:
+            story.append(Paragraph("<b>Catalizadores:</b> " + e("; ".join(f"{c.get('catalizador')} ({c.get('ventana')})" for c in cats)), st_["Cuerpo"]))
+        cambia = (com.get("cambiaria_la_recomendacion") or [])[:3]
+        if cambia:
+            story.append(Paragraph("<b>Cambiaría la recomendación:</b> " + e("; ".join(map(str, cambia))), st_["Cuerpo"]))
+        story.append(Paragraph("Dictamen generado con IA a partir del modelo y de hechos con fuente; complementa, no sustituye, el análisis.", st_["Nota"]))
+    else:
+        story.append(Paragraph("No hay dictamen del comité IA en esta sesión. Genéralo en la pestaña 4 y vuelve a crear el informe para incluirlo.", st_["Nota"]))
+
+    story.append(Spacer(1, 10))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#94A3B8")))
-    story.append(Paragraph(
-        "PDF v2.1 · Dashboard ejecutivo · Generado automáticamente · "
-        "Escala típica: miles de millones en la moneda del emisor · "
-        "No constituye recomendación de inversión.",
-        styles["Pie"],
-    ))
+    story.append(Paragraph(f"Montos en miles de millones de {e(mon) or 'la moneda del emisor'} salvo valores por acción. "
+                           "Documento generado automáticamente. No constituye recomendación de inversión.", st_["Centro"]))
 
-    doc.build(story)
+    def pie(canvas, doc_):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(colors.HexColor(GRIS))
+        canvas.drawString(0.7 * inch, 0.35 * inch, f"Informe de valoración · {nombre_empresa}"[:90])
+        canvas.drawRightString(letter[0] - 0.7 * inch, 0.35 * inch, f"Página {doc_.page}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=pie, onLaterPages=pie)
     return ruta_pdf
 
+
+_PAISES_ES = {"United States": "Estados Unidos", "Colombia": "Colombia", "Brazil": "Brasil", "Mexico": "México",
+              "Chile": "Chile", "Peru": "Perú", "United Kingdom": "Reino Unido", "Canada": "Canadá", "Spain": "España",
+              "Germany": "Alemania", "France": "Francia", "Netherlands": "Países Bajos", "Switzerland": "Suiza",
+              "Ireland": "Irlanda", "Japan": "Japón", "China": "China", "Taiwan": "Taiwán"}
+
+
+def _traducir_descripcion(texto, api_key=None):
+    """Traduce al español la descripción de Yahoo (inglés) con el proveedor de IA configurado; None si no hay."""
+    if not texto:
+        return None
+    try:
+        cache = _almacen_estado().setdefault("_traducciones", {})
+        k = hashlib.sha1(texto.encode("utf-8")).hexdigest()
+        if k in cache:
+            return cache[k]
+        clave = api_key or _almacen_estado().get("clave_ia")
+        if not clave and not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+            return None
+        out = _llamar_ia_redaccion(
+            "Eres traductor financiero. Traduce al español neutro, fiel y conciso; no agregues información.",
+            "Traduce esta descripción de una empresa (máximo 120 palabras; resume si es más larga):\n\n" + texto[:2500],
+            temperature=0.1, api_key=clave, proveedor="gemini" if clave or os.environ.get("GEMINI_API_KEY") else "auto")
+        out = (out or "").strip() or None
+        if out:
+            cache[k] = out
+        return out
+    except Exception:
+        return None
+
+
+def perfil_empresa(nombre_empresa, traducir=True):
+    """Descripción de la empresa para el inicio del informe: a qué se dedica, sector, de dónde es, dónde cotiza."""
+    emp = resolver_empresa(nombre_empresa) or {}
+    p = emp.get("params") or {}
+    sector = str(emp.get("sector") or "No clasificado")
+    sec, _, ind = sector.partition(" / ")
+    tk = emp.get("ticker_yf") or (ticker_yf_empresa(nombre_empresa) if nombre_empresa else None) or emp.get("ticker_bvc")
+    pais_en = emp.get("pais") or ""
+    if not pais_en and (str(tk or "").upper().endswith(".CL") or nombre_empresa in EMPRESAS):
+        pais_en = "Colombia"
+    pais = _PAISES_ES.get(pais_en, pais_en)
+    desc = (emp.get("descripcion_completa") or emp.get("descripcion") or "").strip()
+    # El catálogo trae una descripción curada en español: preferirla si existe.
+    cat = (EMPRESAS.get(nombre_empresa) or {}).get("descripcion") if nombre_empresa in EMPRESAS else None
+    idioma, nota = "es", None
+    if cat and not _texto_parece_ingles(cat):
+        desc_es = cat
+        if desc and _texto_parece_ingles(desc) and len(desc) > len(cat) * 1.5 and traducir:
+            desc_es = _traducir_descripcion(desc) or cat
+    elif desc and _texto_parece_ingles(desc):
+        desc_es = _traducir_descripcion(desc) if traducir else None
+        if desc_es:
+            nota = "Descripción de Yahoo Finance traducida automáticamente."
+        else:
+            desc_es, idioma = desc[:900] + ("…" if len(desc) > 900 else ""), "en"
+            nota = "Descripción original de Yahoo Finance (en inglés)."
+    else:
+        desc_es = desc or "Sin descripción disponible."
+    bolsa = emp.get("bolsa") or ("Bolsa de Valores de Colombia (BVC)" if str(tk or "").upper().endswith(".CL") else "")
+    return {
+        "nombre": nombre_empresa, "ticker": tk, "bolsa": bolsa, "sector": (sec or sector).strip(),
+        "industria": (emp.get("industria") or ind or "").strip(), "pais": pais, "ciudad": emp.get("ciudad") or "",
+        "web": emp.get("web") or "", "empleados": emp.get("empleados"),
+        "moneda_eeff": emp.get("moneda") or p.get("moneda") or "", "moneda_precio": emp.get("moneda_precio") or "",
+        "descripcion": desc_es, "idioma": idioma, "nota": nota, "fuente": emp.get("fuente") or "catálogo",
+    }
 
 
 def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
@@ -10882,8 +11086,8 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         horizonte = int(horizonte)
         capex_extra = float(capex_extra or 0)
         df_hist, mensaje_datos = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
-        df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
-        df_proj = recalcular_fcff(df_proj, tax=tax, capex_extra=capex_extra)
+        df_proj, meta_proj7 = proyectar_variables_con_meta(df_hist, horizonte, tax=tax)
+        df_proj = recalcular_fcff(df_proj.copy(), tax=tax, capex_extra=capex_extra)
 
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
@@ -10909,8 +11113,13 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             ("Base", 1.00, float(g), wacc),
             ("Optimista", 1.25, g_opt, max(wacc - 0.01, 0.06)),
         ]:
-            ebitda_out = float(df_proj["EBITDA"].iloc[-1]) * fac if "EBITDA" in df_proj.columns else None
-            val = valorar_con_bridge(_escalar_fcff(df_proj["FCFF"].values, fac), w_adj, g_e, bp, ebitda_salida=ebitda_out, precio_mercado=precio, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj, fac))
+            # Mismos escenarios que la pestaña 2 (shocks de drivers); el base es la proyección de la pestaña 4.
+            if nombre == "Base":
+                fc_e, nop_e = df_proj["FCFF"].values, _nopat_final(df_proj)
+                ebitda_out = float(df_proj["EBITDA"].iloc[-1]) if "EBITDA" in df_proj.columns else None
+            else:
+                fc_e, nop_e, ebitda_out = insumos_escenario(df_proj, nombre, tax=tax)
+            val = valorar_con_bridge(fc_e, w_adj, g_e, bp, ebitda_salida=ebitda_out, precio_mercado=precio, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=nop_e)
             escenarios[nombre] = val
             escenarios[nombre]["g"] = float(val.get("g_used", g_e))
             escenarios[nombre]["WACC"] = w_adj
@@ -11226,11 +11435,8 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         fig3.tight_layout()
         fig3.savefig(p3, dpi=120, facecolor="white")
         plt.close(fig3)
-        img_paths.append((
-            "Gráfico C — Recuperación del proyecto",
-            p3,
-            "Empieza negativo (inversión). Cuando cruza cero, el proyecto ya recuperó el valor en pesos de hoy."
-        ))
+        # El gráfico C (VPN acumulado de un «proyecto» con inversión ilustrativa) ya no va al PDF: al valorar una
+        # empresa completa confundía; se reemplaza por el valor creado sobre el capital invertido (MVA).
 
         # Sector bars
         fig4, ax = plt.subplots(figsize=(9, 4))
@@ -11240,7 +11446,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         fig4.savefig(p4, dpi=120, facecolor="white")
         plt.close(fig4)
         img_paths.append((
-            "Gráfico D — Ranking del sector",
+            "Gráfico C — Ranking del sector",
             p4,
             "Combina margen, retorno, costo de capital, crecimiento y múltiplo. La barra verde es la empresa analizada. Es una foto relativa, no una orden de compra."
         ))
@@ -11254,7 +11460,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             fig_norm.savefig(p_norm, dpi=120, facecolor="white", bbox_inches="tight")
             plt.close(fig_norm)
             img_paths.append((
-                "Gráfico E — Normalización de atípicos (original vs tratado)",
+                "Gráfico D — Normalización de atípicos (original vs tratado)",
                 p_norm,
                 "Izquierda: serie original del driver (atípicos marcados). Derecha: tras Hampel "
                 "(mediana ± 3,5·MAD) con winsorización. Se aplica para que un año extremo no sesgue "
@@ -11262,6 +11468,20 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             ))
         else:
             nota_norm = ""
+
+        # ---- Contenido nuevo del informe (v3) ----
+        extras_pdf = {}
+        try:
+            extras_pdf = _datos_informe_v3(
+                nombre_empresa, df_hist=df_hist, df_proj=df_proj, meta_proj=meta_proj7, val_base=val_base,
+                escenarios=escenarios, wacc=wacc, ke=ke, beta_l=beta_l, rf=rf, erp=erp, crp=crp, kd=kd, tax=tax,
+                de_ratio=de_ratio, we=we, wd=wd, beta_u=beta_u, g=g, horizonte=horizonte, precio=precio, bp=bp,
+                mon_modelo=mon_modelo, mon_precio=mon_precio, capital_invertido=capital_invertido, prov=prov,
+                mensaje_datos=mensaje_datos, motor=motor, mid_year=mid_year, g_max_macro=g_max_macro,
+                vpn_firma=vpn_firma, tir_firma=tir_firma, nota_norm=bool(nota_norm),
+            )
+        except Exception as _e_v3:
+            extras_pdf = {"error_v3": str(_e_v3)}
 
         # PDF
         _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -11310,8 +11530,8 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             "imagenes": img_paths,
             "hubo_normalizacion": bool(nota_norm),
             "nota_normalizacion_texto": (
-                "Se detectaron y trataron valores atípicos en drivers del histórico "
-                "(Hampel + winsorización). Ver gráfico E y la nota en el informe HTML."
+                "Se detectaron y trataron valores atípicos en los drivers del histórico "
+                "(Hampel + winsorización) para que un año extremo no sesgue la proyección. Ver gráfico D."
                 if nota_norm else
                 "No se requirió normalización de atípicos en los drivers del histórico usado."
             ),
@@ -11328,6 +11548,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
                 else None
             ),
         }
+        datos_pdf.update(extras_pdf)
         try:
             generar_pdf_informe(pdf_path, nombre_empresa, datos_pdf)
             pdf_ok = True
@@ -11358,15 +11579,15 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 <ul style="color:#E8EEF7;line-height:1.6">
 <li><b>WACC:</b> {wacc*100:.2f}% · <b>g:</b> {g*100:.2f}% · <b>ROIC:</b> {(f"{roic*100:.2f}%" if np.isfinite(roic) else "N/D")}</li>
 <li><b>EV base:</b> {val_base['EV']:,.0f} · <b>Equity base:</b> {val_base['Equity_Value']:,.0f} (miles M · moneda del emisor)</li>
-<li><b>VPN proyecto:</b> {vpn:,.1f} · <b>TIR:</b> {tir_str} · <b>Payback:</b> {payback_str}</li>
+<li><b>Valor creado sobre el capital invertido (EV − capital):</b> {_fmt_monto(vpn_firma)} · <b>Rentabilidad implícita de la empresa:</b> {_pct_txt(tir_firma)}</li>
 <li><b>FCFF promedio proyectado:</b> {df_proj['FCFF'].mean():,.0f}</li>
 <li><b>Método de proyección:</b> Drivers + identidad FCFF (el mismo de las pestañas 2 a 5; el selector de la pestaña 1 solo aplica a esa pestaña)</li>
 <li><b>Datos:</b> {mensaje_datos}</li>
 </ul>
 </div>
 {result_note("Cómo leer estos números",
-    "Si ROIC > WACC la empresa crea valor. Si VPN > 0 y TIR > WACC el proyecto aporta valor en pesos de hoy. "
-    "El payback solo dice cuándo se recupera la plata, no si el proyecto es bueno por sí solo.")}
+    "Si ROIC > WACC la empresa crea valor. Si el valor de la empresa supera el capital invertido y su rentabilidad "
+    "implícita supera el WACC, el modelo ve creación de valor con estos supuestos.")}
 <div class="section-card">
 <b>Auditoría rápida</b>
 <ul style="color:#E8EEF7">{''.join(f'<li><b>{p}</b> — {i}</li>' for p,i in pruebas)}</ul>
@@ -11376,7 +11597,8 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
 <p style="color:#E8EEF7;margin:0">{sector_texto}</p>
 </div>
 {tip("Los gráficos de abajo resumen la historia: (A) caja libre proyectada, (B) valor en tres futuros, "
-     "(C) cuándo el proyecto recupera valor y (D) ranking sectorial. El PDF incluye el mismo contenido listo para compartir.")}
+     "(C) valor por acción de cada escenario frente al precio y (D) ranking sectorial. El PDF agrega el perfil de la empresa, "
+     "los supuestos, el rango de valor por método, la comparación con el mercado, las fuentes y el dictamen del comité IA.")}
 <p style="color:#E8EEF7;font-weight:600">{pdf_msg}</p>
 """
         # Figura combinada para la UI
@@ -11398,10 +11620,14 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         axes[1].legend(fontsize=8)
         axes[1].spines["top"].set_visible(False)
         axes[1].spines["right"].set_visible(False)
-        # C
-        axes[2].plot(range(len(vpn_acum)), vpn_acum, "o-", color=COLOR_PRIMARY)
-        axes[2].axhline(0, color="#94A3B8", ls="--")
-        axes[2].set_title("C) VPN acumulado")
+        # C: valor por acción de cada escenario frente al precio
+        _vps_esc = [escenarios[k].get("value_per_share") or 0.0 for k in ("Pesimista", "Base", "Optimista")]
+        axes[2].bar(["Pesim.", "Base", "Optim."], _vps_esc, color=[COLOR_DANGER, COLOR_PRIMARY, COLOR_SUCCESS])
+        _px_ref = val_base.get("precio_moneda_modelo") if val_base.get("fx_aplicado") else precio
+        if _px_ref:
+            axes[2].axhline(float(_px_ref), color="#F59E0B", ls="--", label="Precio")
+            axes[2].legend(fontsize=8)
+        axes[2].set_title("C) Valor por acción vs precio")
         axes[2].spines["top"].set_visible(False)
         axes[2].spines["right"].set_visible(False)
         # D
