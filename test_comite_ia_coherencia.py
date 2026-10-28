@@ -67,7 +67,7 @@ Revisar los supuestos.
         {"decision_modelo": "NEUTRAL / MONITOREAR", "control_calidad_modelo": False},
     )
     assert not audit["ok"]
-    assert any("DIVERGENCIA FRENTE AL MOTOR CUANTITATIVO" in e for e in audit["errors"])
+    assert any("difiere del motor cuantitativo" in e.lower() for e in audit["errors"])
 
 
 def test_divergencia_de_motor_se_acepta_si_se_declara():
