@@ -552,6 +552,19 @@ def _texto_hechos(hechos):
     )
 
 
+def _txt_proyeccion(m):
+    h = m.get("horizonte")
+    if m.get("tres_etapas"):
+        c = (m.get("consenso_ingresos") or {}).get("g") or []
+        txt = (f"tres etapas a {h or 10} años — consenso de analistas de ingresos {', '.join(_pct(x) for x in c)}, "
+               f"convergencia lineal (desde máx. {_pct(L.CRECIMIENTO_MAX_ETAPA2)}) y perpetuidad")
+    else:
+        txt = f"drivers robustos a {h or 5} años con convergencia al crecimiento de largo plazo"
+    if m.get("beta_industria_u") is not None:
+        txt += f" · beta desapalancada de la industria (Damodaran, referencia) {_fmt(m.get('beta_industria_u'), 2)}"
+    return txt
+
+
 def construir_prompt_dictamen(m, anclas, hechos, contexto_mercado=None):
     mon, mon_px = m.get("moneda") or "", m.get("moneda_precio") or m.get("moneda") or ""
     veto, favorable, prudente = _motor(m)
@@ -569,6 +582,7 @@ A. RESULTADOS DEL MODELO (pestañas 1–4)
 - WACC modelo {_pct(m.get('wacc_calc'))} · WACC por paridad USD {_pct(m.get('wacc_paridad_usd'))} · WACC implícito en el precio {_pct(m.get('wacc_implicito_mercado'))} · Ke {_pct(m.get('ke_calc'))}
 - g terminal {_pct(m.get('g_usada') if m.get('g_usada') is not None else m.get('g'))} · % del EV en valor terminal {_pct(m.get('tv_pct_ev'))} · ROIC {_pct(m.get('roic_calc'))} (observado {_pct(m.get('roic_observado'))}) · retorno de la nueva inversión en perpetuidad (RONIC) {_pct(m.get('ronic_terminal'))} · D/E {_fmt(m.get('de_ratio'))}
 - Margen EBITDA proyectado {_pct(m.get('margen_ebitda_proy'))} · crecimiento histórico de ingresos {_pct(m.get('g_ingresos_historico'))}
+- Proyección: {_txt_proyeccion(m)}
 - EV/EBITDA: modelo {_fmt(cm.get('ev_ebitda_modelo'), 1, 'x')} vs mercado {_fmt(cm.get('ev_ebitda_mercado'), 1, 'x')} · pares observados: {t_par}
 - Emisor de materias primas: {'sí' if m.get('emisor_ciclico') else 'no'} · crecimiento fuera de dominio del motor: {'sí' if m.get('fuera_de_dominio_crecimiento') else 'no'}
 - Motor cuantitativo: {m.get('decision_modelo') or 'N/D'} · veto de calidad: {'SÍ' if veto else 'no'}

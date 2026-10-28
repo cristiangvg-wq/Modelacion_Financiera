@@ -1065,6 +1065,16 @@ def buscar_y_descargar_empresa(query, peers_tickers="", nombre_display=None):
                 info["_balance_sheet"] = bs
         except Exception:
             pass
+        # Consenso de analistas de ingresos (año en curso y siguiente): base de la etapa 1 del
+        # modelo de tres etapas para empresas de EE. UU.
+        if _mercado_desde_pais(info.get("country")) == "US":
+            try:
+                re_ = getattr(t_obj, "revenue_estimate", None)
+                if re_ is not None and not getattr(re_, "empty", True):
+                    info = dict(info)
+                    info["_revenue_estimate"] = re_
+            except Exception:
+                pass
         params = derivar_params_desde_cero(df_mm, info=info, ticker_yf=used_ticker)
     except Exception as e:
         # No registrar una empresa con parámetros vacíos: podría producir una valoración aparentemente válida.
@@ -2058,12 +2068,17 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         eq_row = _series_from_yf_row(_yf_pick_row(fin, ["Earnings From Equity Interest"]), fac)
         otros_no_op = _series_from_yf_row(_yf_pick_row(fin, ["Other Non Operating Income Expenses"]), fac)
         especiales = _series_from_yf_row(_yf_pick_row(fin, ["Special Income Charges"]), fac)
+        # EE. UU.: el residuo EBIT − utilidad operativa incluye los intereses que rinde la caja (MSFT ≈ 9 mil
+        # millones USD). La caja ya se suma en el puente; capitalizar también sus intereses la contaría dos veces.
+        intereses_caja = (_series_from_yf_row(_yf_pick_row(fin, ["Interest Income Non Operating", "Interest Income"]), fac)
+                          if _mercado_desde_pais(info.get("country")) == "US" else {})
         ingreso_participadas = {}
         for y in ebit:
             if y in eq_row:
                 ingreso_participadas[y] = eq_row[y]
             elif y in ebit_yf and ebit is not ebit_yf:
-                ingreso_participadas[y] = ebit_yf[y] - ebit[y] - otros_no_op.get(y, 0.0) - especiales.get(y, 0.0)
+                ingreso_participadas[y] = (ebit_yf[y] - ebit[y] - otros_no_op.get(y, 0.0) - especiales.get(y, 0.0)
+                                           - intereses_caja.get(y, 0.0))
 
         capex = {}
         if cf is not None and not cf.empty:
@@ -2935,6 +2950,31 @@ def damodaran_multiplo(sector="", industry="", mercado=None, explicita=None):
     return out
 
 
+def damodaran_beta(sector="", industry="", mercado="US", explicita=None):
+    """Beta «bottom-up» de Damodaran: beta desapalancada de la industria corregida por caja.
+
+    Es la beta del NEGOCIO (sin el efecto de la caja, cuya beta es ≈ 0), que es lo coherente con
+    un DCF que suma la caja aparte en el puente. Promedia decenas de empresas, por lo que tiene
+    mucho menos error estándar que la regresión de una sola acción. Solo hay tabla de EE. UU.
+    """
+    if not DAMODARAN or str(mercado or "").upper() != "US":
+        return None
+    bloque = (DAMODARAN.get("betas") or {}).get("US") or {}
+    ind = industria_damodaran(sector, industry, explicita)
+    fila = (bloque.get("industrias") or {}).get(ind) if ind else None
+    if not fila:
+        return None
+    b = fila.get("beta_u_caja") or fila.get("beta_u")
+    try:
+        b = float(b)
+    except (TypeError, ValueError):
+        return None
+    if not (0.2 <= b <= 3.0):
+        return None
+    return {"industria": ind, "beta_u": b, "beta_u_sin_corregir": fila.get("beta_u"), "n_firmas": fila.get("n_firmas"),
+            "fecha": bloque.get("fecha"), "fuente": f"Damodaran {bloque.get('archivo')} ({bloque.get('fecha')})"}
+
+
 def _aplicar_damodaran_a_capm():
     """Primas de Damodaran sobre las anclas CAPM.
 
@@ -3625,6 +3665,84 @@ def capital_invertido_operativo_yahoo(info):
     return round(capital / 1e9, 4)
 
 
+CONSENSO_G_LIMITES = (-0.30, 1.00)   # crecimiento anual de ingresos aceptado del consenso
+HORIZONTE_TRES_ETAPAS = 10
+
+
+def consenso_ingresos_yahoo(revenue_estimate, ingresos_ultimo_cierre):
+    """Crecimiento de ingresos esperado por los analistas para los próximos ejercicios.
+
+    `revenue_estimate` es la tabla de Yahoo (filas 0y = ejercicio en curso, +1y = siguiente; columnas
+    avg, yearAgoRevenue, numberOfAnalysts). Se alinea con el último ejercicio CERRADO del histórico
+    (`ingresos_ultimo_cierre`, en unidades): si el «año anterior» del 0y coincide con ese cierre, el 0y
+    es el año 1 de la proyección; si ya coincide el del +1y (el 0y ya se reportó), el año 1 es el +1y.
+    Devuelve {"g": [g1, g2?], "n_analistas": [...], "fuente": ...} o None.
+    """
+    try:
+        df = revenue_estimate
+        if df is None or getattr(df, "empty", True) or not ingresos_ultimo_cierre:
+            return None
+        ult = float(ingresos_ultimo_cierre)
+
+        def fila(k):
+            if k not in df.index:
+                return None
+            r = df.loc[k]
+            avg, prev = _safe_float(r.get("avg")), _safe_float(r.get("yearAgoRevenue"))
+            n = _safe_float(r.get("numberOfAnalysts"))
+            return (avg, prev, n) if (avg and prev and avg > 0 and prev > 0) else None
+
+        f0, f1 = fila("0y"), fila("+1y")
+        cerca = lambda a, b: abs(a / b - 1.0) < 0.03
+        if f0 and cerca(f0[1], ult):
+            filas = [f0] + ([f1] if f1 and cerca(f1[1], f0[0]) else [])
+        elif f1 and cerca(f1[1], ult):
+            filas = [f1]
+        else:
+            return None
+        g = [f[0] / f[1] - 1.0 for f in filas]
+        if not all(CONSENSO_G_LIMITES[0] <= x <= CONSENSO_G_LIMITES[1] for x in g):
+            return None
+        return {"g": [round(x, 4) for x in g], "n_analistas": [int(f[2] or 0) for f in filas],
+                "fuente": "Yahoo Finance — consenso de analistas (revenue_estimate)",
+                "fecha": datetime.now().date().isoformat()}
+    except Exception:
+        return None
+
+
+CRECIMIENTO_MAX_ETAPA2 = 0.20
+
+
+def ruta_crecimiento_tres_etapas(g_consenso, g_terminal, horizonte):
+    """Etapa 1: consenso de analistas; etapa 2: convergencia lineal hasta g terminal en el último año
+    del horizonte; etapa 3 (perpetuidad): g terminal en el valor terminal.
+
+    La etapa 2 arranca como máximo en CRECIMIENTO_MAX_ETAPA2 (20 %): el consenso de 1–2 años de una
+    empresa en hipercrecimiento (NVDA +68 %) no se puede extrapolar 8 años más; las tasas base de
+    crecimiento muestran que muy pocas empresas grandes sostienen más de 20 % anual por una década.
+    """
+    H = int(horizonte)
+    g1 = [float(x) for x in (g_consenso or [])][:max(H - 1, 1)]
+    k = len(g1)
+    if k == 0:
+        return None
+    resto = H - k
+    if resto <= 0:
+        return np.array(g1[:H])
+    ultimo = min(g1[-1], CRECIMIENTO_MAX_ETAPA2)
+    fase2 = [ultimo + (float(g_terminal) - ultimo) * i / resto for i in range(1, resto + 1)]
+    return np.array(g1 + fase2)
+
+
+def horizonte_recomendado(nombre_empresa):
+    """10 años cuando la empresa usa el modelo de tres etapas (consenso de EE. UU.); 5 en el resto."""
+    try:
+        p = params_empresa(nombre_empresa) or {}
+        return HORIZONTE_TRES_ETAPAS if (p.get("consenso_ingresos") and not empresa_es_ciclica(nombre_empresa)) else 5
+    except Exception:
+        return 5
+
+
 def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     """
     Construye TODOS los parámetros de modelación solo a partir de:
@@ -3797,8 +3915,26 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
                 "Investmentin AssociatedampAffiliatedCompanies",
                 "Investments in Associates",
             ])
+            # Inversiones financieras de largo plazo (valores negociables no corrientes: AAPL ≈ 78 mil
+            # millones USD). No son operativas ni están en totalCash: se suman en el puente como activo
+            # no operativo. Yahoo suele incluirlas en «Investments And Advances»; si no, se suman aquí.
+            inv_fin = _bs_first([
+                "Investmentin Financial Assets",
+                "Available For Sale Securities",
+                "Held To Maturity Securities",
+            ])
+            if inv_fin is not None and inv_fin > 0:
+                p["inversiones_financieras_lp"] = round(float(inv_fin) / 1e9, 4)
+            if (inv is not None and _bs_first(["Investments And Advances"]) is None and inv_fin
+                    and _mercado_desde_pais(country) == "US"):
+                inv = float(inv) + float(inv_fin)
+            elif inv is None and inv_fin and _mercado_desde_pais(country) == "US":
+                inv = float(inv_fin)
             if inv is not None and asociados_val is None:
                 asociados_val = inv
+                if p.get("inversiones_financieras_lp"):
+                    p["asociados_fuente"] = (f"balance Yahoo: participadas + inversiones financieras de largo plazo "
+                                             f"({p['inversiones_financieras_lp']:,.1f} en valores negociables no corrientes)")
         except Exception:
             pass
     if nci_val is not None:
@@ -3899,6 +4035,17 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     else:
         p["beta_u"] = 1.0
         p["beta_fuente"] = "proxy_mercado_1.0"
+    # Empresas de EE. UU.: beta «bottom-up» de la industria (Damodaran, corregida por caja).
+    # Se deja como REFERENCIA, no como valor por defecto: el promedio simple de la industria lo dominan
+    # empresas pequeñas y volátiles (Computers/Peripherals 1,32 frente a 1,03 de Apple), mientras que la
+    # regresión de una empresa muy grande y líquida es precisa y Blume ya la encoge hacia 1.
+    if merc == "US" and _mercado_desde_pais(country) == "US":
+        _bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", "US")
+        if _bd:
+            p["beta_industria_u"] = round(float(_bd["beta_u"]), 4)
+            p["industria_beta"] = _bd["industria"]
+            p["beta_fuente"] = (f"{p['beta_fuente']}; referencia bottom-up {_bd['fuente']}: {_bd['industria']} "
+                                f"{p['beta_industria_u']:.2f} ({int(_bd['n_firmas'] or 0)} empresas, corregida por caja)")
 
     # Asociadas / negocios conjuntos: el valor contable puede quedarse muy corto frente a lo que
     # rinden (GEB recibe ≈ 2,3 billones COP/año de participadas). Como sus resultados ya no entran
@@ -3927,6 +4074,11 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     if ltm_ing and ltm_ebitda and ltm_ing > 0:
         p["ltm_ingresos"] = round(ltm_ing / 1e9, 4)
         p["ltm_ebitda"] = round(ltm_ebitda / 1e9, 4)
+
+    if _mercado_desde_pais(country) == "US" and df_hist is not None and "Ingresos" in getattr(df_hist, "columns", []):
+        _cons = consenso_ingresos_yahoo(info.get("_revenue_estimate"), float(df_hist["Ingresos"].iloc[-1]) * 1e9)
+        if _cons:
+            p["consenso_ingresos"] = _cons
 
     if enterprise_to_ebitda is not None and 1 <= enterprise_to_ebitda <= 50:
         p["exit_multiple"] = round(float(enterprise_to_ebitda), 2)
@@ -4132,6 +4284,10 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
                 _p = params_empresa(nombre_empresa) or {}
                 if _p.get("ltm_ingresos") and _p.get("ltm_ebitda"):
                     df.attrs["ltm"] = {"Ingresos": float(_p["ltm_ingresos"]), "EBITDA": float(_p["ltm_ebitda"])}
+            else:
+                _cons = (params_empresa(nombre_empresa) or {}).get("consenso_ingresos")
+                if _cons and _cons.get("g"):
+                    df.attrs["consenso_ingresos"] = dict(_cons)
         except Exception:
             pass
     return df, msg
@@ -4646,7 +4802,14 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
         # Materias primas: precio de ciclo medio → ingresos crecen al nominal de largo plazo.
         g0 = float(g_conv)
         info_g = dict(info_g, estimador="ciclo medio (no se extrapola la tendencia de precios)")
-    if H > 1:
+    consenso = getattr(df_hist, "attrs", {}).get("consenso_ingresos") if not ciclico else None
+    g_path = ruta_crecimiento_tres_etapas(consenso.get("g"), g_conv, H) if consenso else None
+    if g_path is not None:
+        # Tres etapas (empresas de EE. UU. con consenso): analistas → convergencia → perpetuidad.
+        g0 = float(g_path[0])
+        info_g = dict(info_g, estimador=(f"tres etapas: consenso de analistas {', '.join(f'{x:.1%}' for x in consenso['g'])} "
+                                         f"→ convergencia lineal a {g_conv:.1%} en el año {H}"))
+    elif H > 1:
         g_path = np.array([g0 + (g_conv - g0) * i / (H - 1) for i in range(H)])
     else:
         g_path = np.array([g0])
@@ -4719,6 +4882,9 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
             f"margen EBITDA representativo {m_ebitda:.1%} ({info_m['ebitda'].get('estimador')}) × ingresos "
             f"{'del último periodo' if not ciclico else 'del último ejercicio'}"),
         "g_ingresos_historico": g_hist,
+        "tres_etapas": bool(consenso),
+        "consenso_ingresos": dict(consenso) if consenso else None,
+        "g_ingresos_ruta": [float(x) for x in g_path],
         # Fuera de dominio: crecimiento observado muy por encima del techo del motor (12 %).
         # Un DCF de 5 años con convergencia rápida subestima sistemáticamente a estos emisores.
         "fuera_de_dominio_crecimiento": bool(g_hist is not None and not ciclico and g_hist > 0.25),
@@ -8927,6 +9093,10 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "ebitda_ultimo_hist": _finite_or_none(float(df_hist["EBITDA"].iloc[-1])) if (df_hist is not None and "EBITDA" in df_hist.columns and len(df_hist)) else None,
                     "ebitda_normalizado": _finite_or_none(meta_proj.get("ebitda_normalizado")),
                     "ebitda_normalizado_metodo": meta_proj.get("ebitda_normalizado_metodo"),
+                    "tres_etapas": bool(meta_proj.get("tres_etapas")),
+                    "consenso_ingresos": meta_proj.get("consenso_ingresos"),
+                    "horizonte": int(horizonte),
+                    "beta_industria_u": _finite_or_none((params_empresa(nombre_empresa) or {}).get("beta_industria_u")),
                     "bridge": dict(bp),
                 },
             })

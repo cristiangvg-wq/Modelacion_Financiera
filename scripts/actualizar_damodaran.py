@@ -9,6 +9,8 @@ Fuentes (https://pages.stern.nyu.edu/~adamodar/pc/datasets/):
     por país, calificación, spread por calificación, CDS neto y CRP/ERP.
   - vebitda.xls (EE. UU.), vebitdaemerg.xls (emergentes), vebitdaGlobal.xls (global):
     EV/EBITDA y EV/EBIT por industria (firmas con EBITDA positivo).
+  - betas.xls (EE. UU.): beta desapalancada por industria corregida por caja (beta del negocio,
+    base de la beta «bottom-up» de las empresas de EE. UU.).
 Damodaran actualiza en enero (todo) y en julio (riesgo país). Requiere xlrd para .xls.
 """
 from __future__ import annotations
@@ -117,6 +119,45 @@ def leer_multiplos(raw, archivo):
     raise ValueError(f"{archivo}: no se encontró la tabla de industrias")
 
 
+def leer_betas(raw, archivo):
+    """Beta desapalancada corregida por caja (beta del negocio) por industria."""
+    if archivo.endswith(".csv"):
+        hojas = {"Industry Averages": pd.read_csv(io.BytesIO(raw), header=None)}
+    else:
+        hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+    for nombre_hoja, df in hojas.items():
+        filas = df.index[df.apply(lambda r: r.astype(str).str.strip().eq("Industry Name").any(), axis=1)]
+        if len(filas) == 0:
+            continue
+        h = filas[0]
+        cab = [str(x).strip().lower() for x in df.iloc[h].tolist()]
+        try:
+            c_ind = cab.index("industry name")
+            c_n = next(i for i, x in enumerate(cab) if x.startswith("number of firms"))
+            c_bu = cab.index("unlevered beta")
+            c_bc = cab.index("unlevered beta corrected for cash")
+            c_de = cab.index("d/e ratio")
+        except (ValueError, StopIteration):
+            continue
+        industrias = {}
+        for _, r in df.iloc[h + 1:].iterrows():
+            ind = r.iloc[c_ind]
+            if not isinstance(ind, str) or not ind.strip():
+                continue
+            industrias[ind.strip()] = {"n_firmas": _f(r.iloc[c_n]), "beta_u": _f(r.iloc[c_bu]),
+                                       "beta_u_caja": _f(r.iloc[c_bc]), "de": _f(r.iloc[c_de])}
+        if industrias:
+            fecha = None
+            for i in range(min(h, 6)):
+                if "date updated" in str(df.iat[i, 0]).lower():
+                    try:
+                        fecha = str(pd.Timestamp(df.iat[i, 1]).date())
+                    except Exception:
+                        fecha = None
+            return {"archivo": archivo, "hoja": nombre_hoja, "fecha": fecha, "industrias": industrias}
+    raise ValueError(f"{archivo}: no se encontró la tabla de betas")
+
+
 # Emisores no financieros de la BVC para medir cuánto paga la bolsa colombiana por cada peso de EBITDA
 # frente al total de mercados emergentes (método del modelo del curso, hoja 7_Multiplos).
 TICKERS_BVC = ["ISA.CL", "GEB.CL", "ECOPETROL.CL", "CELSIA.CL", "PROMIGAS.CL", "CEMARGOS.CL", "EXITO.CL",
@@ -178,6 +219,16 @@ def construir(carpeta=None):
             raw = _bajar(archivo, carpeta)
         if raw:
             out["multiplos"][region] = leer_multiplos(raw, archivo)
+    for nombre, region in {"betas.xls": "US"}.items():
+        raw, archivo = _bajar(nombre, carpeta), nombre
+        if not raw and carpeta:
+            archivo = nombre.replace(".xls", ".csv")
+            raw = _bajar(archivo, carpeta)
+        if raw:
+            try:
+                out.setdefault("betas", {})[region] = leer_betas(raw, archivo)
+            except ValueError:
+                pass
     if out["riesgo_pais"] is None or not out["multiplos"]:
         raise SystemExit("No se pudieron leer las tablas de Damodaran.")
     aj = ajuste_colombia(out["multiplos"])
@@ -197,3 +248,4 @@ if __name__ == "__main__":
     rp = datos["riesgo_pais"]["meta"]
     print(f"Riesgo país {rp}; múltiplos: " + ", ".join(f"{k} ({len(v['industrias'])} industrias)" for k, v in datos["multiplos"].items()))
     print(f"Ajuste Colombia: {datos.get('ajuste_pais')}")
+    print("Betas: " + ", ".join(f"{k} ({len(v['industrias'])} industrias)" for k, v in (datos.get("betas") or {}).items()))
