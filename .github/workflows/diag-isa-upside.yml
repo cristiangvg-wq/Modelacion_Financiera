@@ -18,7 +18,7 @@ jobs:
           mkdir -p out/ui
           streamlit run streamlit_app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > out/ui/streamlit.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8501/_stcore/health && break; sleep 2; done
-          timeout 900 python diag/upside_isa.py http://127.0.0.1:8501 out/ui
+          python diag/sens_isa.py > out/sens.txt 2>&1
           cp Plantilla_EEFF_Modelacion_Financiera.xlsx out/ 2>/dev/null
           cd out && git init -q && git checkout -q -b diag/isa-upside-resultados
           git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
