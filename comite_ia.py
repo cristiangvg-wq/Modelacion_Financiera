@@ -271,6 +271,22 @@ def calcular_anclas(nombre_empresa, m, contexto_mercado=None):
         agregar("A6", "Múltiplo EV/EBITDA de pares", f"Mediana {mult:.1f}x de {len(pares)} pares × EBITDA último",
                 _vps_desde_equity(eq, acc))
 
+    # Múltiplo de la industria según Damodaran (agregado anual, región del emisor)
+    dm = m.get("damodaran_multiplo")  # False = desactivado explícitamente
+    if dm is None:
+        try:
+            dm = L.damodaran_empresa(nombre_empresa).get("multiplo")
+        except Exception:
+            dm = None
+    if dm and eb and eb > 0 and acc:
+        eq = float(dm["ev_ebitda"]) * eb - float(bp.get("deuda_neta") or 0) - float(bp.get("nci") or 0) \
+            - float(bp.get("otros_claims") or 0) + float(bp.get("asociados") or 0)
+        if bp.get("deuda_es_bruta"):
+            eq += float(bp.get("caja") or 0)
+        agregar("A8", "Múltiplo de industria (Damodaran)",
+                f"{dm['ev_ebitda']:.1f}x «{dm['industria']}» {dm['region']} ({int(dm.get('n_firmas') or 0)} firmas, {dm.get('fecha')}) × EBITDA último",
+                _vps_desde_equity(eq, acc))
+
     # Consenso de analistas (ya en moneda de cotización)
     cm = contexto_mercado or {}
     obj = _num(cm.get("objetivo_analistas"))
@@ -368,8 +384,18 @@ def _hechos_instantanea(cm, m):
         add("macro", "Rendimiento del Tesoro de EE. UU. a 10 años", _pct(mac["ust10"]), asof, "Constantes del modelo (CAPM_POR_MERCADO)")
     if _num(mac.get("tes10")) is not None:
         add("macro", "Rendimiento TES a 10 años (Colombia)", _pct(mac["tes10"]), asof, "Constantes del modelo (CAPM_POR_MERCADO)")
-    if _num(mac.get("cds_co")) is not None:
+    dco, dus = mac.get("damodaran_co") or {}, mac.get("damodaran_us") or {}
+    if dco.get("crp") is not None:
+        add("macro", f"Prima de riesgo país de Colombia (calificación {dco.get('rating')})",
+            f"{dco['crp'] * 100:.2f} % (ERP total {dco['erp_total'] * 100:.2f} %)", dco.get("fecha"), "Damodaran, NYU Stern")
+    elif _num(mac.get("cds_co")) is not None:
         add("macro", "CDS de Colombia a 5 años", _fmt(mac["cds_co"] * 1e4, 0, " pb"), asof, "Constantes del modelo (RIESGO_PAIS_CDS)")
+    if dus.get("erp_us") is not None:
+        add("macro", "Prima de riesgo de mercado de EE. UU. (implícita)", f"{dus['erp_us'] * 100:.2f} %", dus.get("fecha"), "Damodaran, NYU Stern")
+    dm = cm.get("damodaran_multiplo") or m.get("damodaran_multiplo")
+    if dm:
+        add("mercado", f"EV/EBITDA de la industria «{dm['industria']}» ({dm['region']}, {int(dm.get('n_firmas') or 0)} firmas)",
+            f"{dm['ev_ebitda']:.1f}x", dm.get("fecha"), "Damodaran, NYU Stern")
     if _num(mac.get("inflacion_lp_co")) is not None:
         add("macro", "Inflación implícita de largo plazo en Colombia", _pct(mac["inflacion_lp_co"]), asof, "Constantes del modelo (INFLACION_LP)")
     return hechos

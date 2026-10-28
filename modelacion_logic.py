@@ -223,6 +223,7 @@ def _construir_catalogo(datos):
             "otros_claims": pu.get("otros_claims"), "asociados": pu.get("asociados"),
             "acciones": pu.get("acciones"), "moneda": datos.get("moneda", "COP"),
             "ciclico": c.get("ciclico"),
+            "industria_damodaran": c.get("industria_damodaran"),
         }
         emp = {
             "ticker_bvc": c.get("ticker_bvc"), "ticker_yf": c.get("ticker_yf"),
@@ -2800,6 +2801,138 @@ CAPM_AS_OF = "2026-10"  # US rf~5.0% (UST10 4,99 % 27-oct-2026) / ERP~5%; CO rf~
 # incorpora el riesgo soberano y sumarlo otra vez sería doble conteo.
 RIESGO_PAIS_CDS = {"CO": 0.0160, "BR": 0.0117, "MX": 0.0095, "PE": 0.0067, "CL": 0.0054}
 MULT_CRP_EQUITY = 1.5   # σ(acciones)/σ(bonos) típico en emergentes: CRP equity ≈ 1,5 × CDS
+# Las dos constantes anteriores son RESPALDO: si existe datos_damodaran.json (tablas de
+# Aswath Damodaran, NYU Stern, versionadas en el repositorio) se usan sus primas.
+
+# ---------------------------------------------------------------------------
+# Damodaran: prima de mercado, riesgo país y múltiplos por industria
+# ---------------------------------------------------------------------------
+_RUTA_DAMODARAN = Path(__file__).with_name("datos_damodaran.json")
+NOMBRE_PAIS_DAMODARAN = {"CO": "Colombia", "US": "United States", "BR": "Brazil", "MX": "Mexico",
+                         "CL": "Chile", "PE": "Peru", "GB": "United Kingdom"}
+REGION_MULTIPLOS = {"US": "US", "CO": "Emergentes", "BR": "Emergentes", "MX": "Emergentes",
+                    "CL": "Emergentes", "PE": "Emergentes"}
+DAMODARAN_VIGENCIA_MESES = 13
+
+
+def _leer_damodaran(ruta=None):
+    try:
+        with open(ruta or _RUTA_DAMODARAN, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if (d.get("riesgo_pais") and d.get("multiplos")) else {}
+    except Exception:
+        return {}
+
+
+DAMODARAN = _leer_damodaran()
+
+
+def _meses_desde(fecha_iso, hoy=None):
+    try:
+        f = datetime.strptime(str(fecha_iso)[:10], "%Y-%m-%d")
+        hoy = hoy or datetime.now()
+        return (hoy.year - f.year) * 12 + (hoy.month - f.month)
+    except Exception:
+        return None
+
+
+def damodaran_vigencia(hoy=None):
+    """{"riesgo_pais": fecha, "multiplos": fecha, "vencido": bool, "aviso": str|None}."""
+    if not DAMODARAN:
+        return {"riesgo_pais": None, "multiplos": None, "vencido": True,
+                "aviso": "Sin datos de Damodaran: se usan las constantes de respaldo del código."}
+    f_rp = (DAMODARAN["riesgo_pais"].get("meta") or {}).get("fecha")
+    f_mu = next((m.get("fecha") for m in DAMODARAN["multiplos"].values() if m.get("fecha")), None)
+    edades = [x for x in (_meses_desde(f_rp, hoy), _meses_desde(f_mu, hoy)) if x is not None]
+    vencido = bool(edades) and max(edades) > DAMODARAN_VIGENCIA_MESES
+    aviso = (f"Tablas de Damodaran con más de {DAMODARAN_VIGENCIA_MESES} meses (riesgo país {f_rp}, múltiplos {f_mu}): "
+             "ejecuta scripts/actualizar_damodaran.py o el flujo «Actualizar datos de Damodaran».") if vencido else None
+    return {"riesgo_pais": f_rp, "multiplos": f_mu, "vencido": vencido, "aviso": aviso}
+
+
+def damodaran_riesgo_pais(mercado):
+    """Primas de Damodaran para un código de mercado (CO, US, …) o None.
+
+    erp_madura: prima de un mercado maduro sin riesgo soberano; crp: prima de riesgo país
+    para el patrimonio (spread por calificación × volatilidad relativa acciones/bonos);
+    spread: spread de default por calificación (para el costo de la deuda en moneda dura);
+    erp_total = erp_madura + crp; crp_cds: alternativa con el CDS soberano.
+    """
+    if not DAMODARAN:
+        return None
+    rp = DAMODARAN["riesgo_pais"]
+    meta = rp.get("meta") or {}
+    datos = (rp.get("paises") or {}).get(NOMBRE_PAIS_DAMODARAN.get(str(mercado or "").upper(), ""))
+    if not datos:
+        return None
+    return {"pais": NOMBRE_PAIS_DAMODARAN.get(str(mercado).upper()), "rating": datos.get("rating"),
+            "erp_madura": meta.get("erp_madura"), "erp_us": meta.get("erp_us"),
+            "multiplicador": meta.get("multiplicador_volatilidad"),
+            "crp": datos.get("crp_rating"), "spread": datos.get("spread_rating"), "erp_total": datos.get("erp_rating"),
+            "crp_cds": datos.get("crp_cds"), "cds_neto": datos.get("cds_neto"), "fecha": meta.get("fecha"),
+            "fuente": f"Damodaran ({meta.get('archivo')}, {meta.get('fecha')})"}
+
+
+# Industria de Damodaran por palabras clave del sector/industria (Yahoo o catálogo).
+# El orden importa: lo más específico primero. Sin coincidencia → sin ancla (no se usa el total del mercado).
+INDUSTRIA_DAMODARAN_REGLAS = (
+    (("gold", "oro", "precious", "silver", "plata"), "Precious Metals"),
+    (("oil & gas integrated", "petróleo, gas", "petroleo, gas", "integrated oil"), "Oil/Gas (Integrated)"),
+    (("oil & gas e&p", "exploration & production", "exploración y producción"), "Oil/Gas (Production and Exploration)"),
+    (("oil & gas midstream", "gas distribution", "distribución de gas", "gas natural"), "Oil/Gas Distribution"),
+    (("copper", "cobre", "industrial metals", "metals & mining", "minería", "mineria", "coal", "carbón"), "Metals & Mining"),
+    (("renewable", "renovable"), "Green & Renewable Energy"),
+    (("water", "acueducto", "agua"), "Utility (Water)"),
+    (("utilities - regulated electric", "utilities - diversified", "transmisión", "transmision",
+      "distribución eléctrica", "distribucion electrica", "energía", "energia", "electric", "power"), "Power"),
+    (("software - infrastructure", "software - application", "software"), "Software (System & Application)"),
+    (("consumer electronics", "computer hardware"), "Computers/Peripherals"),
+    (("semiconductor",), "Semiconductor"),
+    (("banks - regional", "banks - diversified", "banco"), None),   # EV/EBITDA no aplica a bancos
+    (("food", "alimentos", "packaged foods"), "Food Processing"),
+    (("telecom",), "Telecom. Services"),
+    (("cement", "cemento", "building materials"), "Building Materials"),
+    (("exchange", "bolsa de valores", "capital markets", "servicios financieros"), None),  # sin equivalente claro
+)
+
+
+def industria_damodaran(sector="", industry="", explicita=None):
+    if explicita:
+        return explicita
+    texto = f" {sector or ''} {industry or ''} ".lower()
+    for claves, industria in INDUSTRIA_DAMODARAN_REGLAS:
+        if any(k in texto for k in claves):
+            return industria
+    return None
+
+
+def damodaran_multiplo(sector="", industry="", mercado=None, explicita=None):
+    """EV/EBITDA agregado de la industria en la región del emisor (EE. UU., emergentes o global)."""
+    if not DAMODARAN:
+        return None
+    ind = industria_damodaran(sector, industry, explicita)
+    if not ind:
+        return None
+    region = REGION_MULTIPLOS.get(str(mercado or "").upper(), "Global")
+    bloque = DAMODARAN["multiplos"].get(region) or DAMODARAN["multiplos"].get("Global") or {}
+    fila = (bloque.get("industrias") or {}).get(ind)
+    if not fila or not fila.get("ev_ebitda") or not (1.0 <= float(fila["ev_ebitda"]) <= 50.0):
+        return None
+    return {"industria": ind, "region": region, "ev_ebitda": float(fila["ev_ebitda"]),
+            "ev_ebit": fila.get("ev_ebit"), "n_firmas": fila.get("n_firmas"), "fecha": bloque.get("fecha"),
+            "fuente": f"Damodaran {bloque.get('archivo')} ({bloque.get('fecha')})"}
+
+
+def _aplicar_damodaran_a_capm():
+    """Prima de mercado de EE. UU. desde Damodaran (antes 5 % fijo). Las tasas locales en COP no cambian."""
+    rp_us = damodaran_riesgo_pais("US")
+    if rp_us and rp_us.get("erp_us"):
+        for k in ("US", "DEFAULT"):
+            CAPM_POR_MERCADO[k]["erp"] = round(float(rp_us["erp_us"]), 4)
+            CAPM_POR_MERCADO[k]["erp_fuente"] = rp_us["fuente"]
+
+
+_aplicar_damodaran_a_capm()
 # Inflación de largo plazo implícita en el mercado (para Fisher / paridad):
 #   CO: breakeven TES COP vs UVR 10 años 6,15 % (BanRep, 21-ago-2026)
 #   US: UST10 5,22 % − tasa real 10 años 2,87 % = 2,35 % (9-oct-2026)
@@ -2836,15 +2969,25 @@ def capm_coherente_con_moneda(country=None, moneda_flujos=None, ticker_yf=None):
     if merc not in CAPM_POR_MERCADO:
         merc = "DEFAULT"
     base = dict(CAPM_POR_MERCADO[merc])
-    cds = 0.0
+    crp_eq, crp_deuda, fuente = 0.0, 0.0, None
     if merc_moneda and merc_pais and merc_pais != merc_moneda:
-        cds = float(RIESGO_PAIS_CDS.get(merc_pais, 0.0))
+        dam = damodaran_riesgo_pais(merc_pais) if merc_moneda == "US" else None
+        if dam and dam.get("crp") is not None:
+            # Damodaran: ERP del país = ERP madura + CRP; deuda en USD = rf + spread por calificación.
+            base["erp"] = float(dam["erp_madura"])
+            crp_eq, crp_deuda = float(dam["crp"]), float(dam["spread"] or 0.0)
+            fuente = f"{dam['fuente']} · {dam['pais']} {dam['rating']}"
+        else:
+            cds = float(RIESGO_PAIS_CDS.get(merc_pais, 0.0))
+            crp_eq, crp_deuda = MULT_CRP_EQUITY * cds, cds
+            fuente = "constantes del código (CDS × 1,5)" if cds else None
     base.update({
-        "crp": round(float(base.get("crp", 0.0)) + MULT_CRP_EQUITY * cds, 4),
-        "crp_deuda": round(cds, 4),
+        "crp": round(float(base.get("crp", 0.0)) + crp_eq, 4),
+        "crp_deuda": round(crp_deuda, 4),
         "mercado": merc,
         "mercado_pais": merc_pais,
-        "cruce_moneda": bool(cds),
+        "cruce_moneda": bool(crp_eq or crp_deuda),
+        "riesgo_pais_fuente": fuente,
     })
     return base
 
@@ -2866,17 +3009,24 @@ def wacc_paridad_usd(beta_u, de_ratio, tax, kd_spread=0.01, pais="CO"):
     """
     try:
         us = CAPM_POR_MERCADO["US"]
-        cds = float(RIESGO_PAIS_CDS.get(pais, 0.0))
+        dam = damodaran_riesgo_pais(pais)
+        if dam and dam.get("crp") is not None:
+            erp, crp, spread = float(dam["erp_madura"]), float(dam["crp"]), float(dam["spread"] or 0.0)
+            fuente_rp = f"{dam['fuente']} ({dam['pais']} {dam['rating']}: CRP {crp:.2%}, spread {spread:.2%})"
+        else:
+            cds = float(RIESGO_PAIS_CDS.get(pais, 0.0))
+            erp, crp, spread = us["erp"], MULT_CRP_EQUITY * cds, cds
+            fuente_rp = f"CDS {pais} {cds:.2%} × {MULT_CRP_EQUITY}"
         bl = beta_apalancado(float(beta_u), float(de_ratio), float(tax))
-        ke_usd = us["rf"] + bl * us["erp"] + MULT_CRP_EQUITY * cds
-        kd_usd = us["rf"] + float(kd_spread) + cds
+        ke_usd = us["rf"] + bl * erp + crp
+        kd_usd = us["rf"] + float(kd_spread) + spread
         wacc_usd, _, _ = calcular_wacc(float(de_ratio), kd_usd, ke_usd, float(tax))
         fisher = (1 + INFLACION_LP.get(pais, INFLACION_LP["US"])) / (1 + INFLACION_LP["US"])
         return {
             "ke_usd": ke_usd, "kd_usd": kd_usd, "wacc_usd": wacc_usd,
             "wacc_local_fisher": (1 + wacc_usd) * fisher - 1,
             "ke_local_fisher": (1 + ke_usd) * fisher - 1,
-            "fuente": f"UST10 {us['rf']:.2%} + CDS {pais} {cds:.2%} · π {pais} {INFLACION_LP.get(pais, 0):.2%} vs π US {INFLACION_LP['US']:.2%}",
+            "fuente": f"UST10 {us['rf']:.2%} + ERP {erp:.2%} + riesgo país: {fuente_rp} · π {pais} {INFLACION_LP.get(pais, 0):.2%} vs π US {INFLACION_LP['US']:.2%}",
         }
     except Exception:
         return None
@@ -3661,10 +3811,14 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     p["crp"] = capm["crp"]
     p["g_max_macro"] = capm["g_max_macro"]
     p["mercado_capm"] = merc
+    p["mercado_pais"] = capm.get("mercado_pais")
+    if capm.get("erp_fuente"):
+        p["erp_fuente"] = capm["erp_fuente"]
     if capm.get("cruce_moneda"):
         p["capm_fuente"] = (
-            f"flujos en {fin_cur_p} → rf {merc} {capm['rf']:.2%} + riesgo país {capm['mercado_pais']} "
-            f"(CDS {capm['crp_deuda']:.2%}; CRP equity {capm['crp']:.2%})"
+            f"flujos en {fin_cur_p} → rf {merc} {capm['rf']:.2%} + ERP {capm['erp']:.2%} + riesgo país "
+            f"{capm['mercado_pais']} (spread deuda {capm['crp_deuda']:.2%}; CRP patrimonio {capm['crp']:.2%}; "
+            f"{capm.get('riesgo_pais_fuente') or 's/f'})"
         )
 
     # Tasa de impuestos de PERPETUIDAD: una tasa efectiva muy inferior a la estatutaria
@@ -3870,6 +4024,33 @@ def g_convergencia_empresa(nombre_empresa):
     """Crecimiento nominal de largo plazo hacia el que converge la proyección explícita."""
     m = CAPM_POR_MERCADO.get(mercado_empresa(nombre_empresa), CAPM_POR_MERCADO["DEFAULT"])
     return float(m.get("g_lp", G_CONVERGENCIA))
+
+
+def mercado_pais_empresa(nombre_empresa):
+    """País del emisor (no la moneda de los flujos): CO para .CL y catálogo, US para AAPL, etc."""
+    try:
+        emp = resolver_empresa(nombre_empresa) or {}
+        p = emp.get("params") or {}
+        if p.get("mercado_pais"):
+            return p["mercado_pais"]
+        tk = str(emp.get("ticker_yf") or "")
+        if nombre_empresa in EMPRESAS or tk.upper().endswith(".CL"):
+            return "CO"
+        return _mercado_desde_pais(emp.get("pais")) or mercado_empresa(nombre_empresa)
+    except Exception:
+        return None
+
+
+def damodaran_empresa(nombre_empresa):
+    """Múltiplo de industria y riesgo país de Damodaran aplicables a la empresa."""
+    emp = resolver_empresa(nombre_empresa) or {}
+    p = emp.get("params") or {}
+    sector = str(emp.get("sector") or "")
+    sec, _, ind = sector.partition(" / ")
+    pais = mercado_pais_empresa(nombre_empresa)
+    return {"multiplo": damodaran_multiplo(sec, ind or emp.get("industry") or "", pais, p.get("industria_damodaran")),
+            "riesgo_pais": damodaran_riesgo_pais(pais) if pais else None,
+            "mercado_pais": pais, "vigencia": damodaran_vigencia()}
 
 
 def empresa_es_ciclica(nombre_empresa):
@@ -7842,7 +8023,10 @@ def contexto_mercado_comite(nombre_empresa, metricas=None, ttl_seg=900):
         "cds_co": mac.get("cds_co", RIESGO_PAIS_CDS.get("CO")),
         "inflacion_lp_co": mac.get("inflacion_lp_co", INFLACION_LP.get("CO")),
         "inflacion_lp_us": mac.get("inflacion_lp_us", INFLACION_LP.get("US")),
+        "damodaran_co": mac.get("damodaran_co") or damodaran_riesgo_pais("CO"),
+        "damodaran_us": mac.get("damodaran_us") or damodaran_riesgo_pais("US"),
     }
+    base["damodaran_multiplo"] = m.get("damodaran_multiplo")
     return base
 
 
@@ -7864,6 +8048,16 @@ def _texto_contexto_mercado(cm, mon_px=""):
         f"- Consenso de analistas (Yahoo): objetivo medio {n(cm.get('objetivo_analistas'))} {mon_px} · rango {n(ob[0]) + ' – ' + n(ob[1]) if ob else 'N/D'} · recomendación {cm.get('recomendacion_analistas') or 'N/D'} · n={n(cm.get('n_analistas'), 0)}",
         f"- Macro ({mac.get('as_of', 'N/D')}): UST10 {n((mac.get('ust10') or 0) * 100 if mac.get('ust10') is not None else None, 2, ' %')} · TES 10a {n((mac.get('tes10') or 0) * 100 if mac.get('tes10') is not None else None, 2, ' %')} · CDS Colombia 5a {n((mac.get('cds_co') or 0) * 1e4 if mac.get('cds_co') is not None else None, 0, ' pb')} · inflación implícita LP CO {n((mac.get('inflacion_lp_co') or 0) * 100 if mac.get('inflacion_lp_co') is not None else None, 2, ' %')} / US {n((mac.get('inflacion_lp_us') or 0) * 100 if mac.get('inflacion_lp_us') is not None else None, 2, ' %')}",
     ]
+    dco, dus, dm = mac.get("damodaran_co") or {}, mac.get("damodaran_us") or {}, cm.get("damodaran_multiplo") or {}
+    if dco or dus:
+        lineas.append(
+            f"- Damodaran ({dco.get('fecha') or dus.get('fecha') or 'N/D'}): ERP EE. UU. {n((dus.get('erp_us') or 0) * 100 if dus.get('erp_us') else None, 2, ' %')}"
+            f" · ERP madura {n((dco.get('erp_madura') or 0) * 100 if dco.get('erp_madura') else None, 2, ' %')}"
+            f" · Colombia {dco.get('rating') or 'N/D'}: prima de riesgo país {n((dco.get('crp') or 0) * 100 if dco.get('crp') is not None else None, 2, ' %')}"
+            f", ERP total {n((dco.get('erp_total') or 0) * 100 if dco.get('erp_total') is not None else None, 2, ' %')}")
+    if dm:
+        lineas.append(f"- EV/EBITDA de la industria (Damodaran, {dm.get('industria')}, {dm.get('region')}, {dm.get('fecha')}, "
+                      f"{n(dm.get('n_firmas'), 0)} firmas): {n(dm.get('ev_ebitda'), 1, 'x')}")
     tit = cm.get("titulares") or []
     lineas.append("- Titulares recientes (Yahoo): " + (" | ".join(tit[:5]) if tit else "N/D"))
     return "\n".join(lineas)
@@ -8446,6 +8640,12 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         except Exception:
             pass
         _wp = wacc_paridad_usd(beta_u, de_ratio, tax, pais="CO") if str(mon_modelo or "").upper() == "COP" else None
+        try:
+            _dam = damodaran_empresa(nombre_empresa)
+        except Exception:
+            _dam = {"multiplo": None, "riesgo_pais": None, "vigencia": damodaran_vigencia()}
+        if (_dam.get("vigencia") or {}).get("aviso"):
+            motor.setdefault("alertas", []).append(_dam["vigencia"]["aviso"])
 
         _px_modelo = val_base.get("precio_moneda_modelo") if val_base.get("fx_aplicado") else (
             precio_p if (mon_modelo and mon_modelo == mon_precio) else None)
@@ -8572,7 +8772,11 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                         "rf_us": CAPM_POR_MERCADO["US"]["rf"], "rf_co": CAPM_POR_MERCADO["CO"]["rf"],
                         "erp": float(erp), "cds_co": RIESGO_PAIS_CDS.get("CO"),
                         "inflacion_lp_co": INFLACION_LP.get("CO"), "inflacion_lp_us": INFLACION_LP.get("US"),
+                        "damodaran_co": damodaran_riesgo_pais("CO"),
+                        "damodaran_us": damodaran_riesgo_pais("US"),
                     },
+                    "damodaran_multiplo": _dam.get("multiplo"),
+                    "damodaran_riesgo_pais": _dam.get("riesgo_pais"),
                     "ke_calc": _finite_or_none(ke),
                     "roic_calc": _finite_or_none(roic),
                     "roic_fuente": "NOPAT medio proyectado / capital invertido (pestaña 4)",
@@ -9169,6 +9373,37 @@ def graficar_ranking_sectorial(ax, df_rank, short, titulo):
     anotar_grafico(ax, "Ordenado por Score (mayor arriba)\nBarra resaltada = empresa en análisis", loc="lower right")
 
 
+def _html_referencia_damodaran(nombre_empresa, df=None):
+    """Bloque de referencia: EV/EBITDA de la industria según Damodaran frente al del emisor y sus pares."""
+    try:
+        dm = damodaran_empresa(nombre_empresa).get("multiplo")
+    except Exception:
+        dm = None
+    if not dm:
+        return ""
+    propio = mediana = None
+    try:
+        if df is not None and "EV/EBITDA (x)" in df.columns:
+            focal = _nombre_corto(nombre_empresa).upper()
+            fila = df[df["Empresa"].astype(str).str.upper() == focal]
+            propio = float(fila["EV/EBITDA (x)"].iloc[0]) if len(fila) else None
+            otros = df[df["Empresa"].astype(str).str.upper() != focal]["EV/EBITDA (x)"].astype(float)
+            mediana = float(otros.median()) if len(otros) else None
+    except Exception:
+        pass
+    partes = [f"<b>{dm['ev_ebitda']:.1f}x</b> para «{dm['industria']}» ({dm['region']}, {int(dm['n_firmas'] or 0)} firmas, "
+              f"datos de {dm['fecha']})"]
+    if propio:
+        partes.append(f"el emisor cotiza a {propio:.1f}x")
+    if mediana:
+        partes.append(f"la mediana de la tabla es {mediana:.1f}x")
+    return result_note(
+        "Referencia de industria (Damodaran)",
+        "EV/EBITDA agregado de la industria: " + "; ".join(partes) + ". Es una referencia anual de contraste, "
+        "no un par directo: agrega muchos países y se actualiza en enero.",
+    )
+
+
 def tab6_comparacion_sectorial(nombre_empresa):
     try:
         df_raw, notas, resumen_fuentes = construir_tabla_sectorial_live(nombre_empresa_focal=nombre_empresa)
@@ -9229,6 +9464,7 @@ def tab6_comparacion_sectorial(nombre_empresa):
 {result_note("Cómo leer el ranking",
     "El <b>Score</b> combina margen, retorno del capital, costo de capital, crecimiento y múltiplo de mercado. "
     "No es una recomendación de inversión: es una foto comparativa para discutir posiciones relativas entre empresas del sector.")}
+{_html_referencia_damodaran(nombre_empresa, df)}
 {result_note("Fuentes de esta pestaña (ya no es solo tabla fija)", resumen_fuentes)}
 <div class="section-card">
 <b>Origen del múltiplo EV/EBITDA por empresa</b>
@@ -9239,7 +9475,12 @@ def tab6_comparacion_sectorial(nombre_empresa):
         tabla = df.drop(columns=["Fuente múltiplo"], errors="ignore").copy()
         try:
             _focal = _nombre_corto(nombre_empresa).upper()
+            try:
+                _dm6 = damodaran_empresa(nombre_empresa).get("multiplo")
+            except Exception:
+                _dm6 = None
             guardar_resultado_tab("6", nombre_empresa, {
+                "damodaran_multiplo": _dm6,
                 "texto": _html_a_texto(html, 2000),
                 "ranking": _df_a_registros(tabla, 12),
                 # Múltiplos de pares con su procedencia: el comité solo usa los observados en mercado.
