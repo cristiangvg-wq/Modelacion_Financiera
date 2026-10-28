@@ -5595,6 +5595,10 @@ def aplicar_shocks_drivers_proyeccion(df_proj, tax=0.35, shock=None):
         return df_proj
     shock = shock or {}
     d = df_proj.copy()
+    ingresos_originales = (
+        pd.to_numeric(d["Ingresos"], errors="coerce").astype(float).copy()
+        if "Ingresos" in d.columns else None
+    )
     g_fac = float(shock.get("g_ingresos", 1.0) or 1.0)
     m_fac = float(shock.get("margen_ebitda", 1.0) or 1.0)
     cx_fac = float(shock.get("capex_factor", 1.0) or 1.0)
@@ -5617,8 +5621,8 @@ def aplicar_shocks_drivers_proyeccion(df_proj, tax=0.35, shock=None):
         # Para shock base, EBITDA y EBIT quedan exactamente iguales al caso base;
         # para otros escenarios, el cambio de EBITDA se traslada incrementalmente al EBIT.
         ebitda_old = pd.to_numeric(d["EBITDA"], errors="coerce").fillna(0.0).astype(float)
-        ing_series = pd.to_numeric(d["Ingresos"], errors="coerce").replace(0, np.nan).astype(float)
-        margen = (ebitda_old / ing_series).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        ing_base = pd.to_numeric(ingresos_originales, errors="coerce").replace(0, np.nan).astype(float)
+        margen = (ebitda_old / ing_base).replace([np.inf, -np.inf], np.nan).fillna(0.0)
         margen_nuevo = (margen * m_fac).clip(-0.5, 0.85)
         ebitda_nuevo = pd.to_numeric(d["Ingresos"], errors="coerce").fillna(0.0).astype(float) * margen_nuevo
         ebitda_delta = ebitda_nuevo - ebitda_old
