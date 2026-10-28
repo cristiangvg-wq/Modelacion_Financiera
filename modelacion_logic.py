@@ -2068,12 +2068,17 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         eq_row = _series_from_yf_row(_yf_pick_row(fin, ["Earnings From Equity Interest"]), fac)
         otros_no_op = _series_from_yf_row(_yf_pick_row(fin, ["Other Non Operating Income Expenses"]), fac)
         especiales = _series_from_yf_row(_yf_pick_row(fin, ["Special Income Charges"]), fac)
+        # EE. UU.: el residuo EBIT − utilidad operativa incluye los intereses que rinde la caja (MSFT ≈ 9 mil
+        # millones USD). La caja ya se suma en el puente; capitalizar también sus intereses la contaría dos veces.
+        intereses_caja = (_series_from_yf_row(_yf_pick_row(fin, ["Interest Income Non Operating", "Interest Income"]), fac)
+                          if _mercado_desde_pais(info.get("country")) == "US" else {})
         ingreso_participadas = {}
         for y in ebit:
             if y in eq_row:
                 ingreso_participadas[y] = eq_row[y]
             elif y in ebit_yf and ebit is not ebit_yf:
-                ingreso_participadas[y] = ebit_yf[y] - ebit[y] - otros_no_op.get(y, 0.0) - especiales.get(y, 0.0)
+                ingreso_participadas[y] = (ebit_yf[y] - ebit[y] - otros_no_op.get(y, 0.0) - especiales.get(y, 0.0)
+                                           - intereses_caja.get(y, 0.0))
 
         capex = {}
         if cf is not None and not cf.empty:
@@ -3705,9 +3710,17 @@ def consenso_ingresos_yahoo(revenue_estimate, ingresos_ultimo_cierre):
         return None
 
 
+CRECIMIENTO_MAX_ETAPA2 = 0.20
+
+
 def ruta_crecimiento_tres_etapas(g_consenso, g_terminal, horizonte):
     """Etapa 1: consenso de analistas; etapa 2: convergencia lineal hasta g terminal en el último año
-    del horizonte; etapa 3 (perpetuidad): g terminal en el valor terminal."""
+    del horizonte; etapa 3 (perpetuidad): g terminal en el valor terminal.
+
+    La etapa 2 arranca como máximo en CRECIMIENTO_MAX_ETAPA2 (20 %): el consenso de 1–2 años de una
+    empresa en hipercrecimiento (NVDA +68 %) no se puede extrapolar 8 años más; las tasas base de
+    crecimiento muestran que muy pocas empresas grandes sostienen más de 20 % anual por una década.
+    """
     H = int(horizonte)
     g1 = [float(x) for x in (g_consenso or [])][:max(H - 1, 1)]
     k = len(g1)
@@ -3716,7 +3729,7 @@ def ruta_crecimiento_tres_etapas(g_consenso, g_terminal, horizonte):
     resto = H - k
     if resto <= 0:
         return np.array(g1[:H])
-    ultimo = g1[-1]
+    ultimo = min(g1[-1], CRECIMIENTO_MAX_ETAPA2)
     fase2 = [ultimo + (float(g_terminal) - ultimo) * i / resto for i in range(1, resto + 1)]
     return np.array(g1 + fase2)
 
@@ -4022,17 +4035,17 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     else:
         p["beta_u"] = 1.0
         p["beta_fuente"] = "proxy_mercado_1.0"
-    # Empresas de EE. UU.: beta «bottom-up» de la industria (Damodaran, corregida por caja). La regresión
-    # de una sola acción tiene un error estándar de ±0,2–0,3; el promedio de la industria es más estable.
-    # La regresión queda como referencia.
+    # Empresas de EE. UU.: beta «bottom-up» de la industria (Damodaran, corregida por caja).
+    # Se deja como REFERENCIA, no como valor por defecto: el promedio simple de la industria lo dominan
+    # empresas pequeñas y volátiles (Computers/Peripherals 1,32 frente a 1,03 de Apple), mientras que la
+    # regresión de una empresa muy grande y líquida es precisa y Blume ya la encoge hacia 1.
     if merc == "US" and _mercado_desde_pais(country) == "US":
         _bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", "US")
         if _bd:
-            p["beta_regresion_u"] = p["beta_u"]
-            p["beta_u"] = round(float(_bd["beta_u"]), 4)
-            p["beta_fuente"] = (f"bottom-up {_bd['fuente']}: {_bd['industria']} ({int(_bd['n_firmas'] or 0)} empresas, "
-                                f"desapalancada y corregida por caja); regresión Yahoo {p['beta_regresion_u']:.2f}")
+            p["beta_industria_u"] = round(float(_bd["beta_u"]), 4)
             p["industria_beta"] = _bd["industria"]
+            p["beta_fuente"] = (f"{p['beta_fuente']}; referencia bottom-up {_bd['fuente']}: {_bd['industria']} "
+                                f"{p['beta_industria_u']:.2f} ({int(_bd['n_firmas'] or 0)} empresas, corregida por caja)")
 
     # Asociadas / negocios conjuntos: el valor contable puede quedarse muy corto frente a lo que
     # rinden (GEB recibe ≈ 2,3 billones COP/año de participadas). Como sus resultados ya no entran

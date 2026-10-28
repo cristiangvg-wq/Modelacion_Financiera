@@ -13,9 +13,9 @@ res = {}
 for tk in sys.argv[1:] or ["AAPL", "MSFT", "PLTR", "KO", "NVDA", "MINEROS.CL"]:
     out = {}
     try:
-        for var in ["base", "tres_etapas", "tres_etapas+beta"]:
+        for var in ["base", "nuevo"]:
             L.vincular_estado_sesion({})
-            L.damodaran_beta = orig_beta if var == "tres_etapas+beta" else (lambda *a, **k: None)
+            pass
             L.consenso_ingresos_yahoo = (lambda *a, **k: None) if var == "base" else orig_cons
             ok, html, nombre, _ = L.buscar_y_descargar_empresa(tk)
             if not ok:
@@ -27,7 +27,7 @@ for tk in sys.argv[1:] or ["AAPL", "MSFT", "PLTR", "KO", "NVDA", "MINEROS.CL"]:
             out[var].update({"beta_u": p.get("beta_u"), "beta_fuente": p.get("beta_fuente"), "beta_reg": p.get("beta_regresion_u"),
                              "consenso": p.get("consenso_ingresos"), "H": L.horizonte_recomendado(nombre),
                              "asociados": p.get("asociados"), "asociados_fuente": p.get("asociados_fuente"),
-                             "inv_fin": p.get("inversiones_financieras_lp"), "deuda_neta": p.get("deuda_neta"),
+                             "inv_fin": p.get("inversiones_financieras_lp"), "beta_ind": p.get("beta_industria_u"), "deuda_neta": p.get("deuda_neta"),
                              "caja": p.get("caja"), "acciones": p.get("acciones")})
             meta = (L.RESULTADOS_SESION.get("tabs", {}).get("4") or {}).get("metricas") or {}
             out[var]["fcff_proy"] = m.get("fcff_proy")
