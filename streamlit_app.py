@@ -3343,8 +3343,23 @@ def main():
 
             st.markdown("**CAPM**")
             rf = st.slider("rf", 0.02, 0.16, float(st.session_state.get("rf", 0.12)), 0.005, key=f"rf_{ek}")
-            erp = st.slider("ERP", 0.03, 0.10, float(st.session_state.get("erp", 0.055)), 0.005, key=f"erp_{ek}")
-            crp = st.slider("CRP", 0.0, 0.05, float(st.session_state.get("crp", 0.0)), 0.005, key=f"crp_{ek}")
+            # Paso 0,0005: las primas de Damodaran (p. ej. 4,42 %) no son múltiplos de 0,5 pp.
+            erp = st.slider("ERP", 0.03, 0.10, float(st.session_state.get("erp", 0.055)), 0.0005, format="%.4f", key=f"erp_{ek}")
+            crp = st.slider("CRP", 0.0, 0.08, float(st.session_state.get("crp", 0.0)), 0.0005, format="%.4f", key=f"crp_{ek}")
+            try:
+                _dam_ui = L.damodaran_empresa(empresa) if hasattr(L, "damodaran_empresa") else {}
+                _rp_ui = (_dam_ui or {}).get("riesgo_pais") or {}
+                _vig_ui = (_dam_ui or {}).get("vigencia") or {}
+                if _rp_ui:
+                    st.caption(
+                        f"Referencia Damodaran ({_rp_ui.get('fecha')}): ERP madura {_rp_ui['erp_madura']:.2%} · "
+                        f"{_rp_ui['pais']} {_rp_ui.get('rating')}: CRP {_rp_ui['crp']:.2%}, ERP total {_rp_ui['erp_total']:.2%}. "
+                        "Con rf en TES (COP) el CRP va en 0: el TES ya incluye el riesgo soberano."
+                    )
+                if _vig_ui.get("aviso"):
+                    st.caption("⚠ " + _vig_ui["aviso"])
+            except Exception:
+                pass
 
             st.markdown("**Puente a equity**")
             capital_invertido = st.number_input(

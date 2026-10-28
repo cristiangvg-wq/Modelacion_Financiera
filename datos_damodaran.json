@@ -1,0 +1,3048 @@
+{
+ "fuente": "Aswath Damodaran, NYU Stern — https://pages.stern.nyu.edu/~adamodar/",
+ "descargado": "2026-10-28",
+ "riesgo_pais": {
+  "meta": {
+   "fecha": "2026-07-01",
+   "erp_madura": 0.042,
+   "erp_us": 0.0442,
+   "multiplicador_volatilidad": 1.554495526258941,
+   "archivo": "ctrypremJuly26.xlsx"
+  },
+  "paises": {
+   "Abu Dhabi": {
+    "region": "Middle East",
+    "rating": "Aa2",
+    "spread_rating": 0.003930214513416281,
+    "erp_rating": 0.04810950087834357,
+    "crp_rating": 0.00610950087834357,
+    "cds_neto": 0.0052,
+    "erp_cds": 0.050083376736546496,
+    "crp_cds": 0.008083376736546494
+   },
+   "Albania": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Andorra (Principality of)": {
+    "region": "Western Europe",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Angola": {
+    "region": "Africa",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": 0.048999999999999995,
+    "erp_cds": 0.11817028078668812,
+    "crp_cds": 0.07617028078668811
+   },
+   "Argentina": {
+    "region": "Central and South America",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Armenia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Aruba": {
+    "region": "Caribbean",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Australia": {
+    "region": "Australia & New Zealand",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0007000000000000001,
+    "erp_cds": 0.043088146868381264,
+    "crp_cds": 0.001088146868381259
+   },
+   "Austria": {
+    "region": "Western Europe",
+    "rating": "Aa1",
+    "spread_rating": 0.002186353678194708,
+    "erp_rating": 0.045398677011573456,
+    "crp_rating": 0.003398677011573454,
+    "cds_neto": 0.0015,
+    "erp_cds": 0.044331743289388416,
+    "crp_cds": 0.0023317432893884115
+   },
+   "Azerbaijan": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Bahamas": {
+    "region": "Caribbean",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Bahrain": {
+    "region": "Middle East",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": 0.0286,
+    "erp_cds": 0.08645857205100571,
+    "crp_cds": 0.044458572051005715
+   },
+   "Bangladesh": {
+    "region": "Asia",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Barbados": {
+    "region": "Caribbean",
+    "rating": "C",
+    "spread_rating": 0.175,
+    "erp_rating": 0.31403671709531467,
+    "crp_rating": 0.2720367170953147,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Belarus": {
+    "region": "Eastern Europe & Russia",
+    "rating": "C",
+    "spread_rating": 0.175,
+    "erp_rating": 0.31403671709531467,
+    "crp_rating": 0.2720367170953147,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Belgium": {
+    "region": "Western Europe",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": 0.0027,
+    "erp_cds": 0.04619713792089914,
+    "crp_cds": 0.004197137920899141
+   },
+   "Belize": {
+    "region": "Central and South America",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Benin": {
+    "region": "Africa",
+    "rating": "B1",
+    "spread_rating": 0.03583981330091514,
+    "erp_rating": 0.09771282943822827,
+    "crp_rating": 0.05571282943822827,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Bermuda": {
+    "region": "Caribbean",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Bolivia": {
+    "region": "Central and South America",
+    "rating": "Caa3",
+    "spread_rating": 0.07963363216469657,
+    "erp_rating": 0.16579012493977094,
+    "crp_rating": 0.12379012493977093,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Bosnia and Herzegovina": {
+    "region": "Eastern Europe & Russia",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Botswana": {
+    "region": "Africa",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Brazil": {
+    "region": "Central and South America",
+    "rating": "Ba1",
+    "spread_rating": 0.019931802175182575,
+    "erp_rating": 0.07298389731159954,
+    "crp_rating": 0.030983897311599545,
+    "cds_neto": 0.020800000000000003,
+    "erp_cds": 0.07433350694618598,
+    "crp_cds": 0.032333506946185975
+   },
+   "Bulgaria": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": 0.0065,
+    "erp_cds": 0.05210422092068312,
+    "crp_cds": 0.010104220920683117
+   },
+   "Burkina Faso": {
+    "region": "Africa",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Cambodia": {
+    "region": "Asia",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Cameroon": {
+    "region": "Africa",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": 0.0572,
+    "erp_cds": 0.13091714410201144,
+    "crp_cds": 0.08891714410201143
+   },
+   "Canada": {
+    "region": "North America",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0015999999999999999,
+    "erp_cds": 0.04448719284201431,
+    "crp_cds": 0.0024871928420143056
+   },
+   "Cape Verde": {
+    "region": "Africa",
+    "rating": "B1",
+    "spread_rating": 0.03583981330091514,
+    "erp_rating": 0.09771282943822827,
+    "crp_rating": 0.05571282943822827,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Cayman Islands": {
+    "region": "Caribbean",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Chile": {
+    "region": "Central and South America",
+    "rating": "A2",
+    "spread_rating": 0.006737510594427911,
+    "erp_rating": 0.052473430077160405,
+    "crp_rating": 0.010473430077160405,
+    "cds_neto": 0.0067,
+    "erp_cds": 0.05241512002593491,
+    "crp_cds": 0.010415120025934905
+   },
+   "China": {
+    "region": "Asia",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": 0.0039,
+    "erp_cds": 0.04806253255240987,
+    "crp_cds": 0.006062532552409869
+   },
+   "Colombia": {
+    "region": "Central and South America",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": 0.0238,
+    "erp_cds": 0.07899699352496281,
+    "crp_cds": 0.0369969935249628
+   },
+   "Congo (Democratic Republic of)": {
+    "region": "Africa",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Congo (Republic of)": {
+    "region": "Africa",
+    "rating": "Caa2",
+    "spread_rating": 0.07167962660183028,
+    "erp_rating": 0.15342565887645654,
+    "crp_rating": 0.11142565887645654,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Cook Islands": {
+    "region": "Australia & New Zealand",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Costa Rica": {
+    "region": "Central and South America",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": 0.017,
+    "erp_cds": 0.068426423946402,
+    "crp_cds": 0.026426423946402
+   },
+   "Côte d'Ivoire": {
+    "region": "Africa",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Croatia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": 0.0078000000000000005,
+    "erp_cds": 0.05412506510481974,
+    "crp_cds": 0.01212506510481974
+   },
+   "Cuba": {
+    "region": "Caribbean",
+    "rating": "Ca",
+    "spread_rating": 0.09554164329042913,
+    "erp_rating": 0.19051905706639968,
+    "crp_rating": 0.14851905706639967,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Curacao": {
+    "region": "Caribbean",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Cyprus": {
+    "region": "Western Europe",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": 0.0049,
+    "erp_cds": 0.049617028078668815,
+    "crp_cds": 0.007617028078668811
+   },
+   "Czech Republic": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": 0.004,
+    "erp_cds": 0.048217982105035764,
+    "crp_cds": 0.006217982105035764
+   },
+   "Denmark": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0006000000000000001,
+    "erp_cds": 0.042932697315755365,
+    "crp_cds": 0.0009326973157553647
+   },
+   "Dominican Republic": {
+    "region": "Caribbean",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Ecuador": {
+    "region": "Central and South America",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": 0.044899999999999995,
+    "erp_cds": 0.11179684912902646,
+    "crp_cds": 0.06979684912902645
+   },
+   "Egypt": {
+    "region": "Africa",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": 0.034199999999999994,
+    "erp_cds": 0.09516374699805577,
+    "crp_cds": 0.053163746998055775
+   },
+   "El Salvador": {
+    "region": "Central and South America",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": 0.0336,
+    "erp_cds": 0.09423104968230042,
+    "crp_cds": 0.05223104968230042
+   },
+   "Estonia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": 0.0064,
+    "erp_cds": 0.05194877136805723,
+    "crp_cds": 0.009948771368057224
+   },
+   "Ethiopia": {
+    "region": "Africa",
+    "rating": "Caa3",
+    "spread_rating": 0.07963363216469657,
+    "erp_rating": 0.16579012493977094,
+    "crp_rating": 0.12379012493977093,
+    "cds_neto": 0.33059999999999995,
+    "erp_cds": 0.5559162209812059,
+    "crp_cds": 0.5139162209812058
+   },
+   "Fiji": {
+    "region": "Asia",
+    "rating": "B1",
+    "spread_rating": 0.03583981330091514,
+    "erp_rating": 0.09771282943822827,
+    "crp_rating": 0.05571282943822827,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Finland": {
+    "region": "Western Europe",
+    "rating": "Aa1",
+    "spread_rating": 0.002186353678194708,
+    "erp_rating": 0.045398677011573456,
+    "crp_rating": 0.003398677011573454,
+    "cds_neto": 0.0010999999999999998,
+    "erp_cds": 0.043709945078884836,
+    "crp_cds": 0.001709945078884835
+   },
+   "France": {
+    "region": "Western Europe",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": 0.0046,
+    "erp_cds": 0.049150679420791134,
+    "crp_cds": 0.007150679420791129
+   },
+   "Gabon": {
+    "region": "Africa",
+    "rating": "Caa2",
+    "spread_rating": 0.07167962660183028,
+    "erp_rating": 0.15342565887645654,
+    "crp_rating": 0.11142565887645654,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Georgia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Germany": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0006000000000000001,
+    "erp_cds": 0.042932697315755365,
+    "crp_cds": 0.0009326973157553647
+   },
+   "Ghana": {
+    "region": "Africa",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Greece": {
+    "region": "Western Europe",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": 0.005,
+    "erp_cds": 0.049772477631294706,
+    "crp_cds": 0.007772477631294706
+   },
+   "Guatemala": {
+    "region": "Central and South America",
+    "rating": "Ba1",
+    "spread_rating": 0.019931802175182575,
+    "erp_rating": 0.07298389731159954,
+    "crp_rating": 0.030983897311599545,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Guernsey (States of)": {
+    "region": "Western Europe",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Honduras": {
+    "region": "Central and South America",
+    "rating": "B1",
+    "spread_rating": 0.03583981330091514,
+    "erp_rating": 0.09771282943822827,
+    "crp_rating": 0.05571282943822827,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Hong Kong": {
+    "region": "Asia",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": 0.0025,
+    "erp_cds": 0.04588623881564736,
+    "crp_cds": 0.003886238815647353
+   },
+   "Hungary": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Baa2",
+    "spread_rating": 0.015159398837462803,
+    "erp_rating": 0.06556521767361093,
+    "crp_rating": 0.02356521767361092,
+    "cds_neto": 0.010700000000000001,
+    "erp_cds": 0.05863310213097067,
+    "crp_cds": 0.016633102130970672
+   },
+   "Iceland": {
+    "region": "Western Europe",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": 0.0046,
+    "erp_cds": 0.049150679420791134,
+    "crp_cds": 0.007150679420791129
+   },
+   "India": {
+    "region": "Asia",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": 0.007200000000000001,
+    "erp_cds": 0.05319236778906438,
+    "crp_cds": 0.011192367789064376
+   },
+   "Indonesia": {
+    "region": "Asia",
+    "rating": "Baa2",
+    "spread_rating": 0.015159398837462803,
+    "erp_rating": 0.06556521767361093,
+    "crp_rating": 0.02356521767361092,
+    "cds_neto": 0.013000000000000001,
+    "erp_cds": 0.06220844184136624,
+    "crp_cds": 0.020208441841366234
+   },
+   "Iraq": {
+    "region": "Middle East",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": 0.0373,
+    "erp_cds": 0.0999826831294585,
+    "crp_cds": 0.0579826831294585
+   },
+   "Ireland": {
+    "region": "Western Europe",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": 0.0018,
+    "erp_cds": 0.0447980919472661,
+    "crp_cds": 0.0027980919472660936
+   },
+   "Isle of Man": {
+    "region": "Western Europe",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Israel": {
+    "region": "Middle East",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": 0.0086,
+    "erp_cds": 0.055368661525826895,
+    "crp_cds": 0.013368661525826893
+   },
+   "Italy": {
+    "region": "Western Europe",
+    "rating": "Baa2",
+    "spread_rating": 0.015159398837462803,
+    "erp_rating": 0.06556521767361093,
+    "crp_rating": 0.02356521767361092,
+    "cds_neto": 0.0048000000000000004,
+    "erp_cds": 0.049461578526042924,
+    "crp_cds": 0.0074615785260429175
+   },
+   "Jamaica": {
+    "region": "Caribbean",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Japan": {
+    "region": "Asia",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": 0.0036,
+    "erp_cds": 0.04759618389453219,
+    "crp_cds": 0.005596183894532187
+   },
+   "Jersey (States of)": {
+    "region": "Western Europe",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Jordan": {
+    "region": "Middle East",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Kazakhstan": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": 0.0109,
+    "erp_cds": 0.05894400123622246,
+    "crp_cds": 0.01694400123622246
+   },
+   "Kenya": {
+    "region": "Africa",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": 0.040799999999999996,
+    "erp_cds": 0.1054234174713648,
+    "crp_cds": 0.06342341747136479
+   },
+   "Korea": {
+    "region": "Asia",
+    "rating": "Aa2",
+    "spread_rating": 0.003930214513416281,
+    "erp_rating": 0.04810950087834357,
+    "crp_rating": 0.00610950087834357,
+    "cds_neto": 0.0029,
+    "erp_cds": 0.04650803702615093,
+    "crp_cds": 0.004508037026150929
+   },
+   "Kuwait": {
+    "region": "Middle East",
+    "rating": "A1",
+    "spread_rating": 0.005614592162023261,
+    "erp_rating": 0.05072785839763368,
+    "crp_rating": 0.008727858397633674,
+    "cds_neto": 0.007699999999999999,
+    "erp_cds": 0.053969615552193845,
+    "crp_cds": 0.011969615552193846
+   },
+   "Kyrgyzstan": {
+    "region": "Eastern Europe & Russia",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Laos": {
+    "region": "Asia",
+    "rating": "Caa2",
+    "spread_rating": 0.07167962660183028,
+    "erp_rating": 0.15342565887645654,
+    "crp_rating": 0.11142565887645654,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Latvia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": 0.0070999999999999995,
+    "erp_cds": 0.05303691823643848,
+    "crp_cds": 0.011036918236438481
+   },
+   "Lebanon": {
+    "region": "Middle East",
+    "rating": "C",
+    "spread_rating": 0.175,
+    "erp_rating": 0.31403671709531467,
+    "crp_rating": 0.2720367170953147,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Liechtenstein": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Lithuania": {
+    "region": "Eastern Europe & Russia",
+    "rating": "A2",
+    "spread_rating": 0.006737510594427911,
+    "erp_rating": 0.052473430077160405,
+    "crp_rating": 0.010473430077160405,
+    "cds_neto": 0.007,
+    "erp_cds": 0.05288146868381259,
+    "crp_cds": 0.010881468683812588
+   },
+   "Luxembourg": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Macao": {
+    "region": "Asia",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Macedonia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Malaysia": {
+    "region": "Asia",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": 0.0055,
+    "erp_cds": 0.05054972539442418,
+    "crp_cds": 0.008549725394424175
+   },
+   "Maldives": {
+    "region": "Asia",
+    "rating": "Caa2",
+    "spread_rating": 0.07167962660183028,
+    "erp_rating": 0.15342565887645654,
+    "crp_rating": 0.11142565887645654,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Mali": {
+    "region": "Africa",
+    "rating": "Caa2",
+    "spread_rating": 0.07167962660183028,
+    "erp_rating": 0.15342565887645654,
+    "crp_rating": 0.11142565887645654,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Malta": {
+    "region": "Western Europe",
+    "rating": "A2",
+    "spread_rating": 0.006737510594427911,
+    "erp_rating": 0.052473430077160405,
+    "crp_rating": 0.010473430077160405,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Mauritius": {
+    "region": "Africa",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Mexico": {
+    "region": "Central and South America",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": 0.014600000000000002,
+    "erp_cds": 0.06469563468338055,
+    "crp_cds": 0.022695634683380542
+   },
+   "Moldova": {
+    "region": "Eastern Europe & Russia",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Mongolia": {
+    "region": "Asia",
+    "rating": "B1",
+    "spread_rating": 0.03583981330091514,
+    "erp_rating": 0.09771282943822827,
+    "crp_rating": 0.05571282943822827,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Montenegro": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Montserrat": {
+    "region": "Caribbean",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Morocco": {
+    "region": "Africa",
+    "rating": "Ba1",
+    "spread_rating": 0.019931802175182575,
+    "erp_rating": 0.07298389731159954,
+    "crp_rating": 0.030983897311599545,
+    "cds_neto": 0.0116,
+    "erp_cds": 0.06003214810460372,
+    "crp_cds": 0.018032148104603716
+   },
+   "Mozambique": {
+    "region": "Africa",
+    "rating": "Caa2",
+    "spread_rating": 0.07167962660183028,
+    "erp_rating": 0.15342565887645654,
+    "crp_rating": 0.11142565887645654,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Namibia": {
+    "region": "Africa",
+    "rating": "B1",
+    "spread_rating": 0.03583981330091514,
+    "erp_rating": 0.09771282943822827,
+    "crp_rating": 0.05571282943822827,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Nepal": {
+    "region": "Asia",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Netherlands": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0007000000000000001,
+    "erp_cds": 0.043088146868381264,
+    "crp_cds": 0.001088146868381259
+   },
+   "New Zealand": {
+    "region": "Australia & New Zealand",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0013,
+    "erp_cds": 0.044020844184136626,
+    "crp_cds": 0.0020208441841366234
+   },
+   "Nicaragua": {
+    "region": "Central and South America",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": 0.051699999999999996,
+    "erp_cds": 0.12236741870758724,
+    "crp_cds": 0.08036741870758725
+   },
+   "Niger": {
+    "region": "Africa",
+    "rating": "Caa3",
+    "spread_rating": 0.07963363216469657,
+    "erp_rating": 0.16579012493977094,
+    "crp_rating": 0.12379012493977093,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Nigeria": {
+    "region": "Africa",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": 0.0326,
+    "erp_cds": 0.09267655415604148,
+    "crp_cds": 0.05067655415604148
+   },
+   "Norway": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0002000000000000001,
+    "erp_cds": 0.04231089910525179,
+    "crp_cds": 0.00031089910525178836
+   },
+   "Oman": {
+    "region": "Middle East",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": 0.0109,
+    "erp_cds": 0.05894400123622246,
+    "crp_cds": 0.01694400123622246
+   },
+   "Pakistan": {
+    "region": "Asia",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": 0.0474,
+    "erp_cds": 0.1156830879446738,
+    "crp_cds": 0.0736830879446738
+   },
+   "Panama": {
+    "region": "Central and South America",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": 0.015200000000000002,
+    "erp_cds": 0.06562833199913591,
+    "crp_cds": 0.023628331999135905
+   },
+   "Papua New Guinea": {
+    "region": "Asia",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Paraguay": {
+    "region": "Central and South America",
+    "rating": "Ba1",
+    "spread_rating": 0.019931802175182575,
+    "erp_rating": 0.07298389731159954,
+    "crp_rating": 0.030983897311599545,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Peru": {
+    "region": "Central and South America",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": 0.009999999999999998,
+    "erp_cds": 0.05754495526258941,
+    "crp_cds": 0.015544955262589408
+   },
+   "Philippines": {
+    "region": "Asia",
+    "rating": "Baa2",
+    "spread_rating": 0.015159398837462803,
+    "erp_rating": 0.06556521767361093,
+    "crp_rating": 0.02356521767361092,
+    "cds_neto": 0.008900000000000002,
+    "erp_cds": 0.055835010183704584,
+    "crp_cds": 0.013835010183704578
+   },
+   "Poland": {
+    "region": "Eastern Europe & Russia",
+    "rating": "A2",
+    "spread_rating": 0.006737510594427911,
+    "erp_rating": 0.052473430077160405,
+    "crp_rating": 0.010473430077160405,
+    "cds_neto": 0.0081,
+    "erp_cds": 0.054591413762697424,
+    "crp_cds": 0.012591413762697422
+   },
+   "Portugal": {
+    "region": "Western Europe",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": 0.0024000000000000002,
+    "erp_cds": 0.04573078926302146,
+    "crp_cds": 0.0037307892630214588
+   },
+   "Qatar": {
+    "region": "Middle East",
+    "rating": "Aa2",
+    "spread_rating": 0.003930214513416281,
+    "erp_rating": 0.04810950087834357,
+    "crp_rating": 0.00610950087834357,
+    "cds_neto": 0.0045,
+    "erp_cds": 0.048995229868165235,
+    "crp_cds": 0.0069952298681652345
+   },
+   "Ras Al Khaimah (Emirate of)": {
+    "region": "Middle East",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Romania": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Baa3",
+    "spread_rating": 0.01749881223830583,
+    "erp_rating": 0.06920182533929162,
+    "crp_rating": 0.027201825339291618,
+    "cds_neto": 0.0212,
+    "erp_cds": 0.07495530515668955,
+    "crp_cds": 0.03295530515668955
+   },
+   "Rwanda": {
+    "region": "Africa",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": 0.028300000000000002,
+    "erp_cds": 0.08599222339312804,
+    "crp_cds": 0.043992223393128034
+   },
+   "Saudi Arabia": {
+    "region": "Middle East",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": 0.008400000000000001,
+    "erp_cds": 0.05505776242057511,
+    "crp_cds": 0.013057762420575107
+   },
+   "Senegal": {
+    "region": "Africa",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": 0.09920000000000001,
+    "erp_cds": 0.19620595620488698,
+    "crp_cds": 0.15420595620488697
+   },
+   "Serbia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": 0.018600000000000002,
+    "erp_cds": 0.07091361678841632,
+    "crp_cds": 0.028913616788416308
+   },
+   "Sharjah": {
+    "region": "Middle East",
+    "rating": "Ba1",
+    "spread_rating": 0.019931802175182575,
+    "erp_rating": 0.07298389731159954,
+    "crp_rating": 0.030983897311599545,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Singapore": {
+    "region": "Asia",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Slovakia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": 0.0051,
+    "erp_cds": 0.049927927183920605,
+    "crp_cds": 0.0079279271839206
+   },
+   "Slovenia": {
+    "region": "Eastern Europe & Russia",
+    "rating": "A2",
+    "spread_rating": 0.006737510594427911,
+    "erp_rating": 0.052473430077160405,
+    "crp_rating": 0.010473430077160405,
+    "cds_neto": 0.006600000000000001,
+    "erp_cds": 0.05225967047330901,
+    "crp_cds": 0.010259670473309012
+   },
+   "Solomon Islands": {
+    "region": "Asia",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "South Africa": {
+    "region": "Africa",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": 0.0207,
+    "erp_cds": 0.07417805739356008,
+    "crp_cds": 0.032178057393560076
+   },
+   "Spain": {
+    "region": "Western Europe",
+    "rating": "A3",
+    "spread_rating": 0.00954480667543954,
+    "erp_rating": 0.056837359275977245,
+    "crp_rating": 0.014837359275977242,
+    "cds_neto": 0.0023,
+    "erp_cds": 0.04557533971039557,
+    "crp_cds": 0.0035753397103955643
+   },
+   "Sri Lanka": {
+    "region": "Asia",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "St. Maarten": {
+    "region": "Caribbean",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "St. Vincent & the Grenadines": {
+    "region": "Caribbean",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Suriname": {
+    "region": "Central and South America",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Swaziland": {
+    "region": "Africa",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Sweden": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0005,
+    "erp_cds": 0.042777247763129474,
+    "crp_cds": 0.0007772477631294705
+   },
+   "Switzerland": {
+    "region": "Western Europe",
+    "rating": "Aaa",
+    "spread_rating": 0.0,
+    "erp_rating": 0.042,
+    "crp_rating": 0.0,
+    "cds_neto": 0.0,
+    "erp_cds": 0.042,
+    "crp_cds": 0.0
+   },
+   "Taiwan": {
+    "region": "Asia",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Tajikistan": {
+    "region": "Eastern Europe & Russia",
+    "rating": "B2",
+    "spread_rating": 0.04379381886378142,
+    "erp_rating": 0.11007729550154263,
+    "crp_rating": 0.06807729550154264,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Tanzania": {
+    "region": "Africa",
+    "rating": "B1",
+    "spread_rating": 0.03583981330091514,
+    "erp_rating": 0.09771282943822827,
+    "crp_rating": 0.05571282943822827,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Thailand": {
+    "region": "Asia",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": 0.0054,
+    "erp_cds": 0.050394275841798286,
+    "crp_cds": 0.008394275841798282
+   },
+   "Togo": {
+    "region": "Africa",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Trinidad and Tobago": {
+    "region": "Caribbean",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Tunisia": {
+    "region": "Africa",
+    "rating": "Caa1",
+    "spread_rating": 0.05970182998951399,
+    "erp_rating": 0.13480622762817138,
+    "crp_rating": 0.09280622762817138,
+    "cds_neto": 0.0694,
+    "erp_cds": 0.14988198952237053,
+    "crp_cds": 0.10788198952237052
+   },
+   "Turkey": {
+    "region": "Western Europe",
+    "rating": "Ba3",
+    "spread_rating": 0.02863442002631862,
+    "erp_rating": 0.08651207782793173,
+    "crp_rating": 0.04451207782793173,
+    "cds_neto": 0.027,
+    "erp_cds": 0.08397137920899142,
+    "crp_cds": 0.04197137920899141
+   },
+   "Turks and Caicos Islands": {
+    "region": "Caribbean",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Uganda": {
+    "region": "Africa",
+    "rating": "B3",
+    "spread_rating": 0.05174782442664771,
+    "erp_rating": 0.122441761564857,
+    "crp_rating": 0.08044176156485701,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Ukraine": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ca",
+    "spread_rating": 0.09554164329042913,
+    "erp_rating": 0.19051905706639968,
+    "crp_rating": 0.14851905706639967,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "United Arab Emirates": {
+    "region": "Middle East",
+    "rating": "Aa2",
+    "spread_rating": 0.003930214513416281,
+    "erp_rating": 0.04810950087834357,
+    "crp_rating": 0.00610950087834357,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "United Kingdom": {
+    "region": "Western Europe",
+    "rating": "Aa3",
+    "spread_rating": 0.00477240333771977,
+    "erp_rating": 0.04941867963798863,
+    "crp_rating": 0.007418679637988621,
+    "cds_neto": 0.0025,
+    "erp_cds": 0.04588623881564736,
+    "crp_cds": 0.003886238815647353
+   },
+   "United States": {
+    "region": "North America",
+    "rating": "Aa1",
+    "spread_rating": 0.002186353678194708,
+    "erp_rating": 0.0442,
+    "crp_rating": 0.002186353678194708,
+    "cds_neto": 0.0043,
+    "erp_cds": 0.04868433076291345,
+    "crp_cds": 0.0066843307629134464
+   },
+   "Uruguay": {
+    "region": "Central and South America",
+    "rating": "Baa1",
+    "spread_rating": 0.012726408900586053,
+    "erp_rating": 0.06178314570130299,
+    "crp_rating": 0.01978314570130299,
+    "cds_neto": 0.006600000000000001,
+    "erp_cds": 0.05225967047330901,
+    "crp_cds": 0.010259670473309012
+   },
+   "Uzbekistan": {
+    "region": "Eastern Europe & Russia",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Venezuela": {
+    "region": "Central and South America",
+    "rating": "Caa3",
+    "spread_rating": 0.07963363216469657,
+    "erp_rating": 0.16579012493977094,
+    "crp_rating": 0.12379012493977093,
+    "cds_neto": null,
+    "erp_cds": null,
+    "crp_cds": null
+   },
+   "Vietnam": {
+    "region": "Asia",
+    "rating": "Ba2",
+    "spread_rating": 0.023955593224632577,
+    "erp_rating": 0.07923886249657033,
+    "crp_rating": 0.03723886249657034,
+    "cds_neto": 0.0126,
+    "erp_cds": 0.061586643630862664,
+    "crp_cds": 0.019586643630862658
+   },
+   "Zambia": {
+    "region": "Africa",
+    "rating": "Caa2",
+    "spread_rating": 0.07167962660183028,
+    "erp_rating": 0.15342565887645654,
+    "crp_rating": 0.11142565887645654,
+    "cds_neto": 0.029,
+    "erp_cds": 0.0870803702615093,
+    "crp_cds": 0.045080370261509295
+   }
+  }
+ },
+ "multiplos": {
+  "US": {
+   "archivo": "vebitda.csv",
+   "hoja": "Industry Averages",
+   "fecha": "2026-01-05",
+   "industrias": {
+    "Advertising": {
+     "n_firmas": 52.0,
+     "ev_ebitda": 11.998645075035455,
+     "ev_ebit": 20.908715533874364
+    },
+    "Aerospace/Defense": {
+     "n_firmas": 79.0,
+     "ev_ebitda": 21.583912765181378,
+     "ev_ebit": 34.78792620620136
+    },
+    "Air Transport": {
+     "n_firmas": 23.0,
+     "ev_ebitda": 7.57525768425806,
+     "ev_ebit": 19.31868974315794
+    },
+    "Apparel": {
+     "n_firmas": 35.0,
+     "ev_ebitda": 10.304886321816396,
+     "ev_ebit": 16.086521568825084
+    },
+    "Auto & Truck": {
+     "n_firmas": 33.0,
+     "ev_ebitda": 47.755842428808094,
+     "ev_ebit": 160.31625531932139
+    },
+    "Auto Parts": {
+     "n_firmas": 35.0,
+     "ev_ebitda": 6.428093985050202,
+     "ev_ebit": 12.382869040734903
+    },
+    "Bank (Money Center)": {
+     "n_firmas": 15.0,
+     "ev_ebitda": null,
+     "ev_ebit": null
+    },
+    "Banks (Regional)": {
+     "n_firmas": 568.0,
+     "ev_ebitda": null,
+     "ev_ebit": null
+    },
+    "Beverage (Alcoholic)": {
+     "n_firmas": 14.0,
+     "ev_ebitda": 8.60547949225314,
+     "ev_ebit": 10.752355231085623
+    },
+    "Beverage (Soft)": {
+     "n_firmas": 27.0,
+     "ev_ebitda": 16.90424497023079,
+     "ev_ebit": 20.14057031238029
+    },
+    "Broadcasting": {
+     "n_firmas": 24.0,
+     "ev_ebitda": 7.84701463710848,
+     "ev_ebit": 11.15839660891767
+    },
+    "Brokerage & Investment Banking": {
+     "n_firmas": 32.0,
+     "ev_ebitda": null,
+     "ev_ebit": null
+    },
+    "Building Materials": {
+     "n_firmas": 41.0,
+     "ev_ebitda": 11.607041141993484,
+     "ev_ebit": 15.974601047170596
+    },
+    "Business & Consumer Services": {
+     "n_firmas": 155.0,
+     "ev_ebitda": 14.257163978296907,
+     "ev_ebit": 20.14557296198789
+    },
+    "Cable TV": {
+     "n_firmas": 9.0,
+     "ev_ebitda": 6.2077663815507576,
+     "ev_ebit": 11.267462566320914
+    },
+    "Chemical (Basic)": {
+     "n_firmas": 29.0,
+     "ev_ebitda": 8.56734060962358,
+     "ev_ebit": 28.976525915260947
+    },
+    "Chemical (Diversified)": {
+     "n_firmas": 4.0,
+     "ev_ebitda": 8.385060138547514,
+     "ev_ebit": 24.686651750693933
+    },
+    "Chemical (Specialty)": {
+     "n_firmas": 59.0,
+     "ev_ebitda": 13.359261031056754,
+     "ev_ebit": 21.30004179169416
+    },
+    "Coal & Related Energy": {
+     "n_firmas": 16.0,
+     "ev_ebitda": 10.368996250268257,
+     "ev_ebit": null
+    },
+    "Computer Services": {
+     "n_firmas": 64.0,
+     "ev_ebitda": 14.095049694774538,
+     "ev_ebit": 19.251985478998566
+    },
+    "Computers/Peripherals": {
+     "n_firmas": 36.0,
+     "ev_ebitda": 25.424491644255795,
+     "ev_ebit": 29.358881300093113
+    },
+    "Construction Supplies": {
+     "n_firmas": 40.0,
+     "ev_ebitda": 16.81867012821988,
+     "ev_ebit": 21.145401988791974
+    },
+    "Diversified": {
+     "n_firmas": 20.0,
+     "ev_ebitda": 11.415462094849877,
+     "ev_ebit": 13.486470588876516
+    },
+    "Drugs (Biotechnology)": {
+     "n_firmas": 496.0,
+     "ev_ebitda": 15.778971602812438,
+     "ev_ebit": 68.97132135165363
+    },
+    "Drugs (Pharmaceutical)": {
+     "n_firmas": 228.0,
+     "ev_ebitda": 15.247996808426507,
+     "ev_ebit": 20.323167412087336
+    },
+    "Education": {
+     "n_firmas": 32.0,
+     "ev_ebitda": 9.26128390279208,
+     "ev_ebit": 14.486877977037272
+    },
+    "Electrical Equipment": {
+     "n_firmas": 112.0,
+     "ev_ebitda": 24.586304133467152,
+     "ev_ebit": 43.193318228584296
+    },
+    "Electronics (Consumer & Office)": {
+     "n_firmas": 8.0,
+     "ev_ebitda": 30.69739733032995,
+     "ev_ebit": null
+    },
+    "Electronics (General)": {
+     "n_firmas": 114.0,
+     "ev_ebitda": 19.991142489797852,
+     "ev_ebit": 29.75669159380908
+    },
+    "Engineering/Construction": {
+     "n_firmas": 48.0,
+     "ev_ebitda": 17.179436268509424,
+     "ev_ebit": 25.17122209401257
+    },
+    "Entertainment": {
+     "n_firmas": 92.0,
+     "ev_ebitda": 19.41126270013048,
+     "ev_ebit": 38.91956102277865
+    },
+    "Environmental & Waste Services": {
+     "n_firmas": 53.0,
+     "ev_ebitda": 15.613078673514586,
+     "ev_ebit": 24.826655138317854
+    },
+    "Farming/Agriculture": {
+     "n_firmas": 35.0,
+     "ev_ebitda": 16.037699474903555,
+     "ev_ebit": 23.73567634647184
+    },
+    "Financial Svcs. (Non-bank & Insurance)": {
+     "n_firmas": 176.0,
+     "ev_ebitda": 57.52355973366111,
+     "ev_ebit": 69.3963708178762
+    },
+    "Food Processing": {
+     "n_firmas": 78.0,
+     "ev_ebitda": 10.01197493847315,
+     "ev_ebit": 13.605211290558298
+    },
+    "Food Wholesalers": {
+     "n_firmas": 13.0,
+     "ev_ebitda": 11.075252232041779,
+     "ev_ebit": 17.944483002972046
+    },
+    "Furn/Home Furnishings": {
+     "n_firmas": 27.0,
+     "ev_ebitda": 11.273819550114272,
+     "ev_ebit": 19.14514049519137
+    },
+    "Green & Renewable Energy": {
+     "n_firmas": 15.0,
+     "ev_ebitda": 13.443716808217077,
+     "ev_ebit": 42.625568373279656
+    },
+    "Healthcare Products": {
+     "n_firmas": 204.0,
+     "ev_ebitda": 19.778036576870928,
+     "ev_ebit": 29.989275458843494
+    },
+    "Healthcare Support Services": {
+     "n_firmas": 104.0,
+     "ev_ebitda": 11.16882502236794,
+     "ev_ebit": 15.022049555900349
+    },
+    "Heathcare Information and Technology": {
+     "n_firmas": 115.0,
+     "ev_ebitda": 21.272127158112443,
+     "ev_ebit": 34.7621607960374
+    },
+    "Homebuilding": {
+     "n_firmas": 30.0,
+     "ev_ebitda": 8.918125636141264,
+     "ev_ebit": 9.431920504743353
+    },
+    "Hospitals/Healthcare Facilities": {
+     "n_firmas": 31.0,
+     "ev_ebitda": 8.864021416745029,
+     "ev_ebit": 13.11546361352196
+    },
+    "Hotel/Gaming": {
+     "n_firmas": 63.0,
+     "ev_ebitda": 14.932670744376049,
+     "ev_ebit": 25.710681771598953
+    },
+    "Household Products": {
+     "n_firmas": 110.0,
+     "ev_ebitda": 13.173520164126762,
+     "ev_ebit": 16.25491325421328
+    },
+    "Information Services": {
+     "n_firmas": 15.0,
+     "ev_ebitda": 11.498322009159963,
+     "ev_ebit": 17.766516582087498
+    },
+    "Insurance (General)": {
+     "n_firmas": 21.0,
+     "ev_ebitda": 15.757904857302774,
+     "ev_ebit": 20.09990608407696
+    },
+    "Insurance (Life)": {
+     "n_firmas": 20.0,
+     "ev_ebitda": 12.522466672718679,
+     "ev_ebit": 11.695609541397138
+    },
+    "Insurance (Prop/Cas.)": {
+     "n_firmas": 57.0,
+     "ev_ebitda": 8.4356789458995,
+     "ev_ebit": 9.639962545096123
+    },
+    "Investments & Asset Management": {
+     "n_firmas": 283.0,
+     "ev_ebitda": 38.02880057904406,
+     "ev_ebit": 20.399919490559814
+    },
+    "Machinery": {
+     "n_firmas": 105.0,
+     "ev_ebitda": 16.217470562270965,
+     "ev_ebit": 21.036330264618158
+    },
+    "Metals & Mining": {
+     "n_firmas": 73.0,
+     "ev_ebitda": 11.3906369554613,
+     "ev_ebit": 15.721898982280555
+    },
+    "Office Equipment & Services": {
+     "n_firmas": 14.0,
+     "ev_ebitda": 8.594854468833645,
+     "ev_ebit": 13.026288799224101
+    },
+    "Oil/Gas (Integrated)": {
+     "n_firmas": 4.0,
+     "ev_ebitda": 8.163021611107265,
+     "ev_ebit": 15.156703973353256
+    },
+    "Oil/Gas (Production and Exploration)": {
+     "n_firmas": 142.0,
+     "ev_ebitda": 5.14585933864515,
+     "ev_ebit": 10.277443744334771
+    },
+    "Oil/Gas Distribution": {
+     "n_firmas": 23.0,
+     "ev_ebitda": 11.562396589541736,
+     "ev_ebit": 16.480576799916097
+    },
+    "Oilfield Svcs/Equip.": {
+     "n_firmas": 97.0,
+     "ev_ebitda": 8.629760666747599,
+     "ev_ebit": 14.904129004234006
+    },
+    "Packaging & Container": {
+     "n_firmas": 19.0,
+     "ev_ebitda": 9.709567233288313,
+     "ev_ebit": 15.778450350932102
+    },
+    "Paper/Forest Products": {
+     "n_firmas": 6.0,
+     "ev_ebitda": 8.183282663311115,
+     "ev_ebit": 15.510405513934987
+    },
+    "Power": {
+     "n_firmas": 46.0,
+     "ev_ebitda": 12.381410319081745,
+     "ev_ebit": 21.85908592325744
+    },
+    "Precious Metals": {
+     "n_firmas": 56.0,
+     "ev_ebitda": 10.676341144431332,
+     "ev_ebit": 14.28466837764744
+    },
+    "Publishing & Newspapers": {
+     "n_firmas": 19.0,
+     "ev_ebitda": 11.237817589409497,
+     "ev_ebit": 17.16106357418429
+    },
+    "R.E.I.T.": {
+     "n_firmas": 190.0,
+     "ev_ebitda": 19.871176003410046,
+     "ev_ebit": 42.72529234608724
+    },
+    "Real Estate (Development)": {
+     "n_firmas": 14.0,
+     "ev_ebitda": 10.23049851021993,
+     "ev_ebit": 13.491460902121418
+    },
+    "Real Estate (General/Diversified)": {
+     "n_firmas": 12.0,
+     "ev_ebitda": 17.286870078907647,
+     "ev_ebit": 26.873684093715536
+    },
+    "Real Estate (Operations & Services)": {
+     "n_firmas": 54.0,
+     "ev_ebitda": 21.95100173629954,
+     "ev_ebit": 49.592274969808194
+    },
+    "Recreation": {
+     "n_firmas": 49.0,
+     "ev_ebitda": 10.390872319428379,
+     "ev_ebit": 23.957324617946625
+    },
+    "Reinsurance": {
+     "n_firmas": 1.0,
+     "ev_ebitda": 8.670902949469651,
+     "ev_ebit": 9.021948392609385
+    },
+    "Restaurant/Dining": {
+     "n_firmas": 64.0,
+     "ev_ebitda": 17.494296052782147,
+     "ev_ebit": 30.151189707954675
+    },
+    "Retail (Automotive)": {
+     "n_firmas": 34.0,
+     "ev_ebitda": 14.787289857638292,
+     "ev_ebit": 21.72632852434372
+    },
+    "Retail (Building Supply)": {
+     "n_firmas": 14.0,
+     "ev_ebitda": 14.422181645255634,
+     "ev_ebit": 19.102771953139438
+    },
+    "Retail (Distributors)": {
+     "n_firmas": 62.0,
+     "ev_ebitda": 13.708307327996817,
+     "ev_ebit": 17.109089618224083
+    },
+    "Retail (General)": {
+     "n_firmas": 23.0,
+     "ev_ebitda": 17.37850333571857,
+     "ev_ebit": 32.437651793285305
+    },
+    "Retail (Grocery and Food)": {
+     "n_firmas": 15.0,
+     "ev_ebitda": 8.941596612794147,
+     "ev_ebit": 26.53328940759531
+    },
+    "Retail (REITs)": {
+     "n_firmas": 26.0,
+     "ev_ebitda": 16.726861437702844,
+     "ev_ebit": 31.16527146395935
+    },
+    "Retail (Special Lines)": {
+     "n_firmas": 94.0,
+     "ev_ebitda": 11.467549343074285,
+     "ev_ebit": 20.01779594667462
+    },
+    "Rubber& Tires": {
+     "n_firmas": 3.0,
+     "ev_ebitda": 6.744024716994881,
+     "ev_ebit": 22.841628600788916
+    },
+    "Semiconductor": {
+     "n_firmas": 66.0,
+     "ev_ebitda": 34.75309880575283,
+     "ev_ebit": 44.298630998346304
+    },
+    "Semiconductor Equip": {
+     "n_firmas": 31.0,
+     "ev_ebitda": 24.7432463754865,
+     "ev_ebit": 28.81067195233642
+    },
+    "Shipbuilding & Marine": {
+     "n_firmas": 8.0,
+     "ev_ebitda": 7.953007498779779,
+     "ev_ebit": 12.812285375545873
+    },
+    "Shoe": {
+     "n_firmas": 11.0,
+     "ev_ebitda": 16.864739523873123,
+     "ev_ebit": 22.318821685004988
+    },
+    "Software (Entertainment)": {
+     "n_firmas": 77.0,
+     "ev_ebitda": 22.01423459051252,
+     "ev_ebit": 26.97606060908115
+    },
+    "Software (Internet)": {
+     "n_firmas": 29.0,
+     "ev_ebitda": 30.26060384626827,
+     "ev_ebit": 172.98954205996642
+    },
+    "Software (System & Application)": {
+     "n_firmas": 309.0,
+     "ev_ebitda": 24.483535769825444,
+     "ev_ebit": 32.41233949136116
+    },
+    "Steel": {
+     "n_firmas": 19.0,
+     "ev_ebitda": 11.590977789930404,
+     "ev_ebit": 24.559637652919093
+    },
+    "Telecom (Wireless)": {
+     "n_firmas": 12.0,
+     "ev_ebitda": 8.974175092717237,
+     "ev_ebit": 18.830186727379285
+    },
+    "Telecom. Equipment": {
+     "n_firmas": 57.0,
+     "ev_ebitda": 24.073936204375784,
+     "ev_ebit": 30.863292873841207
+    },
+    "Telecom. Services": {
+     "n_firmas": 39.0,
+     "ev_ebitda": 6.535199474016229,
+     "ev_ebit": 12.216620378929447
+    },
+    "Tobacco": {
+     "n_firmas": 10.0,
+     "ev_ebitda": 13.460903542148296,
+     "ev_ebit": 14.631780590251608
+    },
+    "Transportation": {
+     "n_firmas": 19.0,
+     "ev_ebitda": 12.549963074582672,
+     "ev_ebit": 21.450133764458144
+    },
+    "Transportation (Railroads)": {
+     "n_firmas": 4.0,
+     "ev_ebitda": 13.48817865261892,
+     "ev_ebit": 17.806399782875044
+    },
+    "Trucking": {
+     "n_firmas": 26.0,
+     "ev_ebitda": 10.412600818449748,
+     "ev_ebit": 23.81223099936394
+    },
+    "Utility (General)": {
+     "n_firmas": 14.0,
+     "ev_ebitda": 13.72701503876966,
+     "ev_ebit": 22.630883778618987
+    },
+    "Utility (Water)": {
+     "n_firmas": 14.0,
+     "ev_ebitda": 14.1380037482983,
+     "ev_ebit": 21.084502922439725
+    },
+    "Total Market": {
+     "n_firmas": 5994.0,
+     "ev_ebitda": 19.731927657530765,
+     "ev_ebit": 29.124353529113705
+    },
+    "Total Market (without financials)": {
+     "n_firmas": 4822.0,
+     "ev_ebitda": 16.954952138077893,
+     "ev_ebit": 25.69673869799494
+    }
+   }
+  },
+  "Emergentes": {
+   "archivo": "vebitdaemerg.csv",
+   "hoja": "Industry Averages",
+   "fecha": "2026-01-05",
+   "industrias": {
+    "Advertising": {
+     "n_firmas": 184.0,
+     "ev_ebitda": 24.72043275699787,
+     "ev_ebit": 45.130020828548666
+    },
+    "Aerospace/Defense": {
+     "n_firmas": 151.0,
+     "ev_ebitda": 29.700612915537068,
+     "ev_ebit": 42.59212037792966
+    },
+    "Air Transport": {
+     "n_firmas": 79.0,
+     "ev_ebitda": 12.444075732000648,
+     "ev_ebit": 23.357914348070377
+    },
+    "Apparel": {
+     "n_firmas": 993.0,
+     "ev_ebitda": 12.927243617714975,
+     "ev_ebit": 18.304153831728268
+    },
+    "Auto & Truck": {
+     "n_firmas": 89.0,
+     "ev_ebitda": 10.610271201587762,
+     "ev_ebit": 20.9705266306958
+    },
+    "Auto Parts": {
+     "n_firmas": 592.0,
+     "ev_ebitda": 15.601056262061853,
+     "ev_ebit": 26.86785201153388
+    },
+    "Bank (Money Center)": {
+     "n_firmas": 455.0,
+     "ev_ebitda": 69.36744907821924,
+     "ev_ebit": 75.15332220794264
+    },
+    "Banks (Regional)": {
+     "n_firmas": 104.0,
+     "ev_ebitda": null,
+     "ev_ebit": null
+    },
+    "Beverage (Alcoholic)": {
+     "n_firmas": 132.0,
+     "ev_ebitda": 15.64249287393286,
+     "ev_ebit": 17.35294888579746
+    },
+    "Beverage (Soft)": {
+     "n_firmas": 40.0,
+     "ev_ebitda": 16.15500564094822,
+     "ev_ebit": 20.163713269893126
+    },
+    "Broadcasting": {
+     "n_firmas": 63.0,
+     "ev_ebitda": 10.962619406473452,
+     "ev_ebit": 23.936173673929975
+    },
+    "Brokerage & Investment Banking": {
+     "n_firmas": 468.0,
+     "ev_ebitda": 30.6918350656954,
+     "ev_ebit": 34.68234953962997
+    },
+    "Building Materials": {
+     "n_firmas": 281.0,
+     "ev_ebitda": 14.297470760008093,
+     "ev_ebit": 26.54308658080944
+    },
+    "Business & Consumer Services": {
+     "n_firmas": 379.0,
+     "ev_ebitda": 17.73152136261829,
+     "ev_ebit": 29.512247840894943
+    },
+    "Cable TV": {
+     "n_firmas": 29.0,
+     "ev_ebitda": 16.107621062215713,
+     "ev_ebit": 181.54748421105785
+    },
+    "Chemical (Basic)": {
+     "n_firmas": 741.0,
+     "ev_ebitda": 16.290575860127756,
+     "ev_ebit": 44.87790853942586
+    },
+    "Chemical (Diversified)": {
+     "n_firmas": 29.0,
+     "ev_ebitda": 10.525007292795387,
+     "ev_ebit": 15.240209777020917
+    },
+    "Chemical (Specialty)": {
+     "n_firmas": 687.0,
+     "ev_ebitda": 15.950350836678012,
+     "ev_ebit": 25.80275245539613
+    },
+    "Coal & Related Energy": {
+     "n_firmas": 96.0,
+     "ev_ebitda": 7.599110147866921,
+     "ev_ebit": 11.11123502813179
+    },
+    "Computer Services": {
+     "n_firmas": 693.0,
+     "ev_ebitda": 18.304360909022876,
+     "ev_ebit": 21.633463430594784
+    },
+    "Computers/Peripherals": {
+     "n_firmas": 244.0,
+     "ev_ebitda": 12.164229839858098,
+     "ev_ebit": 21.788285068975743
+    },
+    "Construction Supplies": {
+     "n_firmas": 580.0,
+     "ev_ebitda": 11.978783320465071,
+     "ev_ebit": 19.008712346573425
+    },
+    "Diversified": {
+     "n_firmas": 215.0,
+     "ev_ebitda": 9.366820388042868,
+     "ev_ebit": 12.352944854432957
+    },
+    "Drugs (Biotechnology)": {
+     "n_firmas": 382.0,
+     "ev_ebitda": 32.10221157969198,
+     "ev_ebit": null
+    },
+    "Drugs (Pharmaceutical)": {
+     "n_firmas": 753.0,
+     "ev_ebitda": 18.21693423086198,
+     "ev_ebit": 25.6350154890283
+    },
+    "Education": {
+     "n_firmas": 182.0,
+     "ev_ebitda": 8.365693357582016,
+     "ev_ebit": 11.211754431986382
+    },
+    "Electrical Equipment": {
+     "n_firmas": 810.0,
+     "ev_ebitda": 22.088412936962097,
+     "ev_ebit": 35.894597789502804
+    },
+    "Electronics (Consumer & Office)": {
+     "n_firmas": 81.0,
+     "ev_ebitda": 10.354566546724936,
+     "ev_ebit": 21.069147926946926
+    },
+    "Electronics (General)": {
+     "n_firmas": 1050.0,
+     "ev_ebitda": 20.05737217709881,
+     "ev_ebit": 41.87989229232563
+    },
+    "Engineering/Construction": {
+     "n_firmas": 999.0,
+     "ev_ebitda": 10.836102717792018,
+     "ev_ebit": 15.082647450352193
+    },
+    "Entertainment": {
+     "n_firmas": 343.0,
+     "ev_ebitda": 14.92009668746237,
+     "ev_ebit": 22.915201238599703
+    },
+    "Environmental & Waste Services": {
+     "n_firmas": 223.0,
+     "ev_ebitda": 14.961912472396534,
+     "ev_ebit": 26.261017703759038
+    },
+    "Farming/Agriculture": {
+     "n_firmas": 312.0,
+     "ev_ebitda": 10.550456390749627,
+     "ev_ebit": 14.974718342228197
+    },
+    "Financial Svcs. (Non-bank & Insurance)": {
+     "n_firmas": 697.0,
+     "ev_ebitda": 16.041146242841172,
+     "ev_ebit": 17.804988614202824
+    },
+    "Food Processing": {
+     "n_firmas": 1030.0,
+     "ev_ebitda": 11.052898068227101,
+     "ev_ebit": 15.865543441926127
+    },
+    "Food Wholesalers": {
+     "n_firmas": 121.0,
+     "ev_ebitda": 9.73623944475248,
+     "ev_ebit": 13.023348312056822
+    },
+    "Furn/Home Furnishings": {
+     "n_firmas": 278.0,
+     "ev_ebitda": 10.729469080021206,
+     "ev_ebit": 13.615220724786479
+    },
+    "Green & Renewable Energy": {
+     "n_firmas": 154.0,
+     "ev_ebitda": 15.182833751619286,
+     "ev_ebit": 23.234808844893294
+    },
+    "Healthcare Products": {
+     "n_firmas": 380.0,
+     "ev_ebitda": 21.05958859300884,
+     "ev_ebit": 36.95978394312243
+    },
+    "Healthcare Support Services": {
+     "n_firmas": 256.0,
+     "ev_ebitda": 11.111206504535566,
+     "ev_ebit": 15.200762979310683
+    },
+    "Heathcare Information and Technology": {
+     "n_firmas": 146.0,
+     "ev_ebitda": 25.41015392579796,
+     "ev_ebit": 38.18936118636459
+    },
+    "Homebuilding": {
+     "n_firmas": 46.0,
+     "ev_ebitda": 11.248908860390225,
+     "ev_ebit": 13.125681661336818
+    },
+    "Hospitals/Healthcare Facilities": {
+     "n_firmas": 164.0,
+     "ev_ebitda": 18.958813794079095,
+     "ev_ebit": 25.476935681331685
+    },
+    "Hotel/Gaming": {
+     "n_firmas": 427.0,
+     "ev_ebitda": 13.590456338188424,
+     "ev_ebit": 20.621456108248353
+    },
+    "Household Products": {
+     "n_firmas": 339.0,
+     "ev_ebitda": 21.987435081560637,
+     "ev_ebit": 28.403940432959452
+    },
+    "Information Services": {
+     "n_firmas": 49.0,
+     "ev_ebitda": 12.922551877929388,
+     "ev_ebit": 16.466184784003882
+    },
+    "Insurance (General)": {
+     "n_firmas": 140.0,
+     "ev_ebitda": 7.978691163380998,
+     "ev_ebit": 8.349806305721957
+    },
+    "Insurance (Life)": {
+     "n_firmas": 92.0,
+     "ev_ebitda": 7.318854334967769,
+     "ev_ebit": 7.565148636945799
+    },
+    "Insurance (Prop/Cas.)": {
+     "n_firmas": 158.0,
+     "ev_ebitda": 6.956214902000836,
+     "ev_ebit": 7.150474643566268
+    },
+    "Investments & Asset Management": {
+     "n_firmas": 486.0,
+     "ev_ebitda": 16.122830160391242,
+     "ev_ebit": 16.5272054201046
+    },
+    "Machinery": {
+     "n_firmas": 987.0,
+     "ev_ebitda": 24.978184569563158,
+     "ev_ebit": 41.73040238021817
+    },
+    "Metals & Mining": {
+     "n_firmas": 358.0,
+     "ev_ebitda": 12.100967377957275,
+     "ev_ebit": 16.171639797139722
+    },
+    "Office Equipment & Services": {
+     "n_firmas": 78.0,
+     "ev_ebitda": 16.569520241150173,
+     "ev_ebit": 25.726943563953892
+    },
+    "Oil/Gas (Integrated)": {
+     "n_firmas": 15.0,
+     "ev_ebitda": 6.474094300218456,
+     "ev_ebit": 8.52040461307079
+    },
+    "Oil/Gas (Production and Exploration)": {
+     "n_firmas": 105.0,
+     "ev_ebitda": 4.874110424423831,
+     "ev_ebit": 7.598460630873738
+    },
+    "Oil/Gas Distribution": {
+     "n_firmas": 120.0,
+     "ev_ebitda": 10.3346104919893,
+     "ev_ebit": 16.436057749291486
+    },
+    "Oilfield Svcs/Equip.": {
+     "n_firmas": 228.0,
+     "ev_ebitda": 10.323186502583887,
+     "ev_ebit": 16.05480918268978
+    },
+    "Packaging & Container": {
+     "n_firmas": 341.0,
+     "ev_ebitda": 13.332257569948094,
+     "ev_ebit": 25.842882472581664
+    },
+    "Paper/Forest Products": {
+     "n_firmas": 197.0,
+     "ev_ebitda": 10.417834572660514,
+     "ev_ebit": 29.380092340742955
+    },
+    "Power": {
+     "n_firmas": 328.0,
+     "ev_ebitda": 9.182827348900405,
+     "ev_ebit": 15.155456129994855
+    },
+    "Precious Metals": {
+     "n_firmas": 64.0,
+     "ev_ebitda": 14.608139409648267,
+     "ev_ebit": 19.498284646932646
+    },
+    "Publishing & Newspapers": {
+     "n_firmas": 171.0,
+     "ev_ebitda": 16.284827031413915,
+     "ev_ebit": 24.981738540741176
+    },
+    "R.E.I.T.": {
+     "n_firmas": 208.0,
+     "ev_ebitda": 16.849181769853256,
+     "ev_ebit": 12.459492273541528
+    },
+    "Real Estate (Development)": {
+     "n_firmas": 786.0,
+     "ev_ebitda": 14.1551644407782,
+     "ev_ebit": 43.40006860289256
+    },
+    "Real Estate (General/Diversified)": {
+     "n_firmas": 205.0,
+     "ev_ebitda": 19.33256444420348,
+     "ev_ebit": 26.743968261517264
+    },
+    "Real Estate (Operations & Services)": {
+     "n_firmas": 406.0,
+     "ev_ebitda": 14.7737983851032,
+     "ev_ebit": 16.988539738384347
+    },
+    "Recreation": {
+     "n_firmas": 158.0,
+     "ev_ebitda": 15.963849212858065,
+     "ev_ebit": 26.14338919171197
+    },
+    "Reinsurance": {
+     "n_firmas": 27.0,
+     "ev_ebitda": 8.307032090521055,
+     "ev_ebit": 7.792007290376873
+    },
+    "Restaurant/Dining": {
+     "n_firmas": 184.0,
+     "ev_ebitda": 20.69166913757583,
+     "ev_ebit": 41.05115739818426
+    },
+    "Retail (Automotive)": {
+     "n_firmas": 122.0,
+     "ev_ebitda": 8.968591668224272,
+     "ev_ebit": 12.513192034573262
+    },
+    "Retail (Building Supply)": {
+     "n_firmas": 55.0,
+     "ev_ebitda": 9.616972788830905,
+     "ev_ebit": 12.13577226940791
+    },
+    "Retail (Distributors)": {
+     "n_firmas": 731.0,
+     "ev_ebitda": 14.158554160951587,
+     "ev_ebit": 20.61579760238619
+    },
+    "Retail (General)": {
+     "n_firmas": 147.0,
+     "ev_ebitda": 14.860055402388001,
+     "ev_ebit": 21.940275047053625
+    },
+    "Retail (Grocery and Food)": {
+     "n_firmas": 97.0,
+     "ev_ebitda": 12.704911698612738,
+     "ev_ebit": 20.67487451044042
+    },
+    "Retail (REITs)": {
+     "n_firmas": 39.0,
+     "ev_ebitda": 16.561236319537485,
+     "ev_ebit": 14.670115463293694
+    },
+    "Retail (Special Lines)": {
+     "n_firmas": 282.0,
+     "ev_ebitda": 15.3189313784809,
+     "ev_ebit": 20.20809950175828
+    },
+    "Rubber& Tires": {
+     "n_firmas": 72.0,
+     "ev_ebitda": 8.613357411220406,
+     "ev_ebit": 13.796655940523499
+    },
+    "Semiconductor": {
+     "n_firmas": 546.0,
+     "ev_ebitda": 16.99834989441493,
+     "ev_ebit": 28.612226130743075
+    },
+    "Semiconductor Equip": {
+     "n_firmas": 300.0,
+     "ev_ebitda": 31.179128879987747,
+     "ev_ebit": 87.64967366876336
+    },
+    "Shipbuilding & Marine": {
+     "n_firmas": 252.0,
+     "ev_ebitda": 7.342495054645144,
+     "ev_ebit": 10.17705882432687
+    },
+    "Shoe": {
+     "n_firmas": 60.0,
+     "ev_ebitda": 8.955629492818607,
+     "ev_ebit": 12.923490430290705
+    },
+    "Software (Entertainment)": {
+     "n_firmas": 67.0,
+     "ev_ebitda": 19.36929333459793,
+     "ev_ebit": 22.312459160004636
+    },
+    "Software (Internet)": {
+     "n_firmas": 49.0,
+     "ev_ebitda": 42.38801348167097,
+     "ev_ebit": 76.12162283113493
+    },
+    "Software (System & Application)": {
+     "n_firmas": 548.0,
+     "ev_ebitda": 40.57085322391194,
+     "ev_ebit": null
+    },
+    "Steel": {
+     "n_firmas": 555.0,
+     "ev_ebitda": 9.247639086713033,
+     "ev_ebit": 18.094579548811147
+    },
+    "Telecom (Wireless)": {
+     "n_firmas": 68.0,
+     "ev_ebitda": 6.962552220958141,
+     "ev_ebit": 13.605523853819053
+    },
+    "Telecom. Equipment": {
+     "n_firmas": 296.0,
+     "ev_ebitda": 34.45762613263402,
+     "ev_ebit": 57.70468726509104
+    },
+    "Telecom. Services": {
+     "n_firmas": 142.0,
+     "ev_ebitda": 6.977871585862324,
+     "ev_ebit": 14.979084958242268
+    },
+    "Tobacco": {
+     "n_firmas": 30.0,
+     "ev_ebitda": 15.605181059249228,
+     "ev_ebit": 17.2845370126351
+    },
+    "Transportation": {
+     "n_firmas": 330.0,
+     "ev_ebitda": 9.930946961785436,
+     "ev_ebit": 15.488816561511273
+    },
+    "Transportation (Railroads)": {
+     "n_firmas": 18.0,
+     "ev_ebitda": 8.230626258881715,
+     "ev_ebit": 11.347801526816934
+    },
+    "Trucking": {
+     "n_firmas": 76.0,
+     "ev_ebitda": 7.342342065463848,
+     "ev_ebit": 11.477923861507323
+    },
+    "Utility (General)": {
+     "n_firmas": 14.0,
+     "ev_ebitda": 14.67657447099505,
+     "ev_ebit": 24.229494582612624
+    },
+    "Utility (Water)": {
+     "n_firmas": 76.0,
+     "ev_ebitda": 10.332925806250463,
+     "ev_ebit": 15.071247721587309
+    },
+    "Total Market": {
+     "n_firmas": 27360.0,
+     "ev_ebitda": 12.300108423504517,
+     "ev_ebit": 18.460865955472162
+    },
+    "Total Market (without financials)": {
+     "n_firmas": 24760.0,
+     "ev_ebitda": 12.281498961343903,
+     "ev_ebit": 19.09846649241061
+    }
+   }
+  },
+  "Global": {
+   "archivo": "vebitdaGlobal.csv",
+   "hoja": "Industry Averages",
+   "fecha": "2026-01-05",
+   "industrias": {
+    "Advertising": {
+     "n_firmas": 419.0,
+     "ev_ebitda": 11.079833641430142,
+     "ev_ebit": 16.45856942463147
+    },
+    "Aerospace/Defense": {
+     "n_firmas": 319.0,
+     "ev_ebitda": 22.398823127832127,
+     "ev_ebit": 33.084863167071894
+    },
+    "Air Transport": {
+     "n_firmas": 150.0,
+     "ev_ebitda": 9.070637277664346,
+     "ev_ebit": 16.92162740052879
+    },
+    "Apparel": {
+     "n_firmas": 1207.0,
+     "ev_ebitda": 14.048028010549844,
+     "ev_ebit": 17.703043308257335
+    },
+    "Auto & Truck": {
+     "n_firmas": 165.0,
+     "ev_ebitda": 17.287729349085854,
+     "ev_ebit": 33.70303535892507
+    },
+    "Auto Parts": {
+     "n_firmas": 797.0,
+     "ev_ebitda": 9.234581285045799,
+     "ev_ebit": 16.773404607297795
+    },
+    "Bank (Money Center)": {
+     "n_firmas": 604.0,
+     "ev_ebitda": null,
+     "ev_ebit": null
+    },
+    "Banks (Regional)": {
+     "n_firmas": 825.0,
+     "ev_ebitda": null,
+     "ev_ebit": null
+    },
+    "Beverage (Alcoholic)": {
+     "n_firmas": 217.0,
+     "ev_ebitda": 12.21587017546518,
+     "ev_ebit": 14.665541081923488
+    },
+    "Beverage (Soft)": {
+     "n_firmas": 94.0,
+     "ev_ebitda": 15.969846233550323,
+     "ev_ebit": 19.568469857833357
+    },
+    "Broadcasting": {
+     "n_firmas": 127.0,
+     "ev_ebitda": 8.470985533530179,
+     "ev_ebit": 12.461419383062184
+    },
+    "Brokerage & Investment Banking": {
+     "n_firmas": 623.0,
+     "ev_ebitda": null,
+     "ev_ebit": null
+    },
+    "Building Materials": {
+     "n_firmas": 469.0,
+     "ev_ebitda": 12.410490288236952,
+     "ev_ebit": 17.772730860599516
+    },
+    "Business & Consumer Services": {
+     "n_firmas": 994.0,
+     "ev_ebitda": 14.086673380144674,
+     "ev_ebit": 19.47730673518671
+    },
+    "Cable TV": {
+     "n_firmas": 42.0,
+     "ev_ebitda": 6.577342258822858,
+     "ev_ebit": 12.47474740791351
+    },
+    "Chemical (Basic)": {
+     "n_firmas": 909.0,
+     "ev_ebitda": 13.707313205373254,
+     "ev_ebit": 36.46457577473927
+    },
+    "Chemical (Diversified)": {
+     "n_firmas": 63.0,
+     "ev_ebitda": 8.654862706456012,
+     "ev_ebit": 16.003235204459298
+    },
+    "Chemical (Specialty)": {
+     "n_firmas": 952.0,
+     "ev_ebitda": 13.104221203667324,
+     "ev_ebit": 21.132217065343454
+    },
+    "Coal & Related Energy": {
+     "n_firmas": 212.0,
+     "ev_ebitda": 7.963502495488167,
+     "ev_ebit": 12.44827555769511
+    },
+    "Computer Services": {
+     "n_firmas": 1225.0,
+     "ev_ebitda": 14.621894105031677,
+     "ev_ebit": 18.50678978918463
+    },
+    "Computers/Peripherals": {
+     "n_firmas": 343.0,
+     "ev_ebitda": 20.176313962525622,
+     "ev_ebit": 26.728441918882766
+    },
+    "Construction Supplies": {
+     "n_firmas": 804.0,
+     "ev_ebitda": 12.309508846975056,
+     "ev_ebit": 18.06629251210746
+    },
+    "Diversified": {
+     "n_firmas": 329.0,
+     "ev_ebitda": 10.935986179692073,
+     "ev_ebit": 13.877965650418261
+    },
+    "Drugs (Biotechnology)": {
+     "n_firmas": 1193.0,
+     "ev_ebitda": 16.713925584235497,
+     "ev_ebit": 77.6872538057531
+    },
+    "Drugs (Pharmaceutical)": {
+     "n_firmas": 1260.0,
+     "ev_ebitda": 13.84795033944487,
+     "ev_ebit": 18.252498342627682
+    },
+    "Education": {
+     "n_firmas": 281.0,
+     "ev_ebitda": 8.96222721383151,
+     "ev_ebit": 12.638623410429103
+    },
+    "Electrical Equipment": {
+     "n_firmas": 1158.0,
+     "ev_ebitda": 20.85572741582318,
+     "ev_ebit": 31.704509802256045
+    },
+    "Electronics (Consumer & Office)": {
+     "n_firmas": 122.0,
+     "ev_ebitda": 10.741688959550116,
+     "ev_ebit": 16.901404128814693
+    },
+    "Electronics (General)": {
+     "n_firmas": 1481.0,
+     "ev_ebitda": 18.73319590271263,
+     "ev_ebit": 33.642287848667124
+    },
+    "Engineering/Construction": {
+     "n_firmas": 1390.0,
+     "ev_ebitda": 11.256761786655979,
+     "ev_ebit": 15.732477012202912
+    },
+    "Entertainment": {
+     "n_firmas": 733.0,
+     "ev_ebitda": 18.651096019779597,
+     "ev_ebit": 32.79646400983268
+    },
+    "Environmental & Waste Services": {
+     "n_firmas": 397.0,
+     "ev_ebitda": 14.735941956636887,
+     "ev_ebit": 24.955856451735265
+    },
+    "Farming/Agriculture": {
+     "n_firmas": 428.0,
+     "ev_ebitda": 12.908282333994162,
+     "ev_ebit": 18.578626634648224
+    },
+    "Financial Svcs. (Non-bank & Insurance)": {
+     "n_firmas": 1138.0,
+     "ev_ebitda": 43.42140928005367,
+     "ev_ebit": 52.9149409569078
+    },
+    "Food Processing": {
+     "n_firmas": 1450.0,
+     "ev_ebitda": 11.072075959562463,
+     "ev_ebit": 15.460106212089006
+    },
+    "Food Wholesalers": {
+     "n_firmas": 183.0,
+     "ev_ebitda": 10.430921814187219,
+     "ev_ebit": 16.010708077169035
+    },
+    "Furn/Home Furnishings": {
+     "n_firmas": 383.0,
+     "ev_ebitda": 10.626401957357944,
+     "ev_ebit": 14.661645402454408
+    },
+    "Green & Renewable Energy": {
+     "n_firmas": 258.0,
+     "ev_ebitda": 14.174838356803006,
+     "ev_ebit": 23.76529429542548
+    },
+    "Healthcare Products": {
+     "n_firmas": 842.0,
+     "ev_ebitda": 18.549204606694463,
+     "ev_ebit": 28.09761418039386
+    },
+    "Healthcare Support Services": {
+     "n_firmas": 478.0,
+     "ev_ebitda": 11.287496549214437,
+     "ev_ebit": 15.306775306380244
+    },
+    "Heathcare Information and Technology": {
+     "n_firmas": 430.0,
+     "ev_ebitda": 20.95699362062974,
+     "ev_ebit": 33.85826118783636
+    },
+    "Homebuilding": {
+     "n_firmas": 160.0,
+     "ev_ebitda": 9.429707449467426,
+     "ev_ebit": 11.072664966899424
+    },
+    "Hospitals/Healthcare Facilities": {
+     "n_firmas": 249.0,
+     "ev_ebitda": 11.887709487104136,
+     "ev_ebit": 17.798320930207474
+    },
+    "Hotel/Gaming": {
+     "n_firmas": 656.0,
+     "ev_ebitda": 13.86818190370077,
+     "ev_ebit": 22.122563237973843
+    },
+    "Household Products": {
+     "n_firmas": 588.0,
+     "ev_ebitda": 14.555484890232774,
+     "ev_ebit": 17.738636226195467
+    },
+    "Information Services": {
+     "n_firmas": 86.0,
+     "ev_ebitda": 10.769732154027876,
+     "ev_ebit": 15.450292918568586
+    },
+    "Insurance (General)": {
+     "n_firmas": 204.0,
+     "ev_ebitda": 9.002254770293247,
+     "ev_ebit": 8.903954847142833
+    },
+    "Insurance (Life)": {
+     "n_firmas": 143.0,
+     "ev_ebitda": 7.32719050483297,
+     "ev_ebit": 7.522962961223579
+    },
+    "Insurance (Prop/Cas.)": {
+     "n_firmas": 248.0,
+     "ev_ebitda": 7.815288923578121,
+     "ev_ebit": 8.577821890251895
+    },
+    "Investments & Asset Management": {
+     "n_firmas": 1315.0,
+     "ev_ebitda": 19.002308845120492,
+     "ev_ebit": 16.954572438751413
+    },
+    "Machinery": {
+     "n_firmas": 1553.0,
+     "ev_ebitda": 16.88408979648814,
+     "ev_ebit": 23.606058762209912
+    },
+    "Metals & Mining": {
+     "n_firmas": 1874.0,
+     "ev_ebitda": 10.69072789917057,
+     "ev_ebit": 15.978244984223554
+    },
+    "Office Equipment & Services": {
+     "n_firmas": 139.0,
+     "ev_ebitda": 9.1443038159521,
+     "ev_ebit": 13.485343836416577
+    },
+    "Oil/Gas (Integrated)": {
+     "n_firmas": 34.0,
+     "ev_ebitda": 6.1816708567061935,
+     "ev_ebit": 9.250182366422518
+    },
+    "Oil/Gas (Production and Exploration)": {
+     "n_firmas": 539.0,
+     "ev_ebitda": 4.836568561786052,
+     "ev_ebit": 8.925890687545323
+    },
+    "Oil/Gas Distribution": {
+     "n_firmas": 186.0,
+     "ev_ebitda": 11.782530005913099,
+     "ev_ebit": 17.43060399517669
+    },
+    "Oilfield Svcs/Equip.": {
+     "n_firmas": 431.0,
+     "ev_ebitda": 8.83033678983486,
+     "ev_ebit": 14.493304714400686
+    },
+    "Packaging & Container": {
+     "n_firmas": 438.0,
+     "ev_ebitda": 9.56236673989638,
+     "ev_ebit": 17.04124353827975
+    },
+    "Paper/Forest Products": {
+     "n_firmas": 271.0,
+     "ev_ebitda": 10.479050222353669,
+     "ev_ebit": 28.66267022415286
+    },
+    "Power": {
+     "n_firmas": 486.0,
+     "ev_ebitda": 10.100173928212719,
+     "ev_ebit": 16.79084763050131
+    },
+    "Precious Metals": {
+     "n_firmas": 777.0,
+     "ev_ebitda": 12.736512669240044,
+     "ev_ebit": 17.837739228253213
+    },
+    "Publishing & Newspapers": {
+     "n_firmas": 307.0,
+     "ev_ebitda": 10.231798109248684,
+     "ev_ebit": 16.492230504795497
+    },
+    "R.E.I.T.": {
+     "n_firmas": 643.0,
+     "ev_ebitda": 19.69582875946651,
+     "ev_ebit": 31.751049384797813
+    },
+    "Real Estate (Development)": {
+     "n_firmas": 895.0,
+     "ev_ebitda": 14.081809927678158,
+     "ev_ebit": 40.1909309194856
+    },
+    "Real Estate (General/Diversified)": {
+     "n_firmas": 312.0,
+     "ev_ebitda": 15.016439100015704,
+     "ev_ebit": 22.456563378408056
+    },
+    "Real Estate (Operations & Services)": {
+     "n_firmas": 752.0,
+     "ev_ebitda": 18.46448433542004,
+     "ev_ebit": 22.198187805969134
+    },
+    "Recreation": {
+     "n_firmas": 332.0,
+     "ev_ebitda": 11.441176119853257,
+     "ev_ebit": 19.905470428537026
+    },
+    "Reinsurance": {
+     "n_firmas": 32.0,
+     "ev_ebitda": 7.91825806910534,
+     "ev_ebit": 5.315568476665034
+    },
+    "Restaurant/Dining": {
+     "n_firmas": 410.0,
+     "ev_ebitda": 16.596544444347053,
+     "ev_ebit": 27.876632058383535
+    },
+    "Retail (Automotive)": {
+     "n_firmas": 212.0,
+     "ev_ebitda": 12.282330260020291,
+     "ev_ebit": 17.56290961731483
+    },
+    "Retail (Building Supply)": {
+     "n_firmas": 121.0,
+     "ev_ebitda": 13.481950418489197,
+     "ev_ebit": 18.19498298108233
+    },
+    "Retail (Distributors)": {
+     "n_firmas": 1079.0,
+     "ev_ebitda": 14.4145828448941,
+     "ev_ebit": 19.444777167355095
+    },
+    "Retail (General)": {
+     "n_firmas": 252.0,
+     "ev_ebitda": 17.096735631135832,
+     "ev_ebit": 30.665896199902637
+    },
+    "Retail (Grocery and Food)": {
+     "n_firmas": 215.0,
+     "ev_ebitda": 10.342816737252068,
+     "ev_ebit": 17.8028409483595
+    },
+    "Retail (REITs)": {
+     "n_firmas": 113.0,
+     "ev_ebitda": 16.763791528538736,
+     "ev_ebit": 21.14748926434133
+    },
+    "Retail (Special Lines)": {
+     "n_firmas": 649.0,
+     "ev_ebitda": 13.109713328023139,
+     "ev_ebit": 19.337395786161547
+    },
+    "Rubber& Tires": {
+     "n_firmas": 91.0,
+     "ev_ebitda": 6.817684759642478,
+     "ev_ebit": 12.123346855141962
+    },
+    "Semiconductor": {
+     "n_firmas": 675.0,
+     "ev_ebitda": 26.976543476676436,
+     "ev_ebit": 38.24251439073223
+    },
+    "Semiconductor Equip": {
+     "n_firmas": 391.0,
+     "ev_ebitda": 25.66213960211013,
+     "ev_ebit": 32.99726451885536
+    },
+    "Shipbuilding & Marine": {
+     "n_firmas": 359.0,
+     "ev_ebitda": 7.474116154633957,
+     "ev_ebit": 10.974488436518177
+    },
+    "Shoe": {
+     "n_firmas": 84.0,
+     "ev_ebitda": 14.66784277019671,
+     "ev_ebit": 19.56630235116958
+    },
+    "Software (Entertainment)": {
+     "n_firmas": 298.0,
+     "ev_ebitda": 21.4288117410939,
+     "ev_ebit": 26.066702546734756
+    },
+    "Software (Internet)": {
+     "n_firmas": 150.0,
+     "ev_ebitda": 40.55071889794711,
+     "ev_ebit": 104.42991508872967
+    },
+    "Software (System & Application)": {
+     "n_firmas": 1532.0,
+     "ev_ebitda": 24.639465121107065,
+     "ev_ebit": 33.19339627195448
+    },
+    "Steel": {
+     "n_firmas": 719.0,
+     "ev_ebitda": 8.99375202753227,
+     "ev_ebit": 18.369667213951505
+    },
+    "Telecom (Wireless)": {
+     "n_firmas": 101.0,
+     "ev_ebitda": 8.424129392830098,
+     "ev_ebit": 16.524688335616098
+    },
+    "Telecom. Equipment": {
+     "n_firmas": 437.0,
+     "ev_ebitda": 24.950975209490192,
+     "ev_ebit": 34.43393810986509
+    },
+    "Telecom. Services": {
+     "n_firmas": 283.0,
+     "ev_ebitda": 7.054086222833386,
+     "ev_ebit": 13.704725917404614
+    },
+    "Tobacco": {
+     "n_firmas": 48.0,
+     "ev_ebitda": 11.996607921625035,
+     "ev_ebit": 13.573941984098196
+    },
+    "Transportation": {
+     "n_firmas": 451.0,
+     "ev_ebitda": 11.1838533241064,
+     "ev_ebit": 17.935603791439455
+    },
+    "Transportation (Railroads)": {
+     "n_firmas": 54.0,
+     "ev_ebitda": 10.935332135748723,
+     "ev_ebit": 15.895816902878812
+    },
+    "Trucking": {
+     "n_firmas": 130.0,
+     "ev_ebitda": 9.612106472581209,
+     "ev_ebit": 19.425430733092426
+    },
+    "Utility (General)": {
+     "n_firmas": 52.0,
+     "ev_ebitda": 10.79665716175252,
+     "ev_ebit": 16.77322715552353
+    },
+    "Utility (Water)": {
+     "n_firmas": 106.0,
+     "ev_ebitda": 11.893866658724095,
+     "ev_ebit": 17.673806782188773
+    },
+    "Total Market": {
+     "n_firmas": 48156.0,
+     "ev_ebitda": 14.735093271131959,
+     "ev_ebit": 21.711350238108253
+    },
+    "Total Market (without financials)": {
+     "n_firmas": 43056.0,
+     "ev_ebitda": 13.697248529324332,
+     "ev_ebit": 20.826400832535036
+    }
+   }
+  }
+ }
+}
