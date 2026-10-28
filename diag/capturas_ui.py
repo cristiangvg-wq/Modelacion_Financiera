@@ -68,7 +68,7 @@ import sys as _s
 modo = _s.argv[3] if len(_s.argv) > 3 else "ambos"
 try:
     if modo in ("ambos", "escritorio"):
-        correr("escritorio", 1440, 3200, set(range(1, 10)))
+        correr("escritorio", 1440, 3600, {2, 4, 6})
     if modo in ("ambos", "movil"):
         correr("movil", 390, 4200, {1, 2, 4, 6})
 except Exception as e:

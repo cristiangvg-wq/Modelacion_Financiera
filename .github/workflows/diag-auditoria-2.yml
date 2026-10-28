@@ -13,8 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.11", cache: pip}
       - run: pip install -r requirements.txt
-      - run: mkdir -p res && echo omitido > res/valoracion.json
-      - run: bash diag/damodaran_run.sh || true
+      - run: mkdir -p res && python diag/valorar_activos.py > res/valoracion.json 2> res/valoracion.err || true
       - uses: actions/upload-artifact@v4
         with: {name: valoracion, path: res}
   versiones:
@@ -57,7 +56,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: {name: gemini, path: res}
   ui:
-    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -69,11 +67,11 @@ jobs:
           mkdir -p res/ui
           streamlit run streamlit_app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > res/ui/streamlit.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8501/_stcore/health && break; sleep 2; done
-          python diag/capturas_ui.py http://127.0.0.1:8501 res/ui ambos || true
+          python diag/capturas_ui.py http://127.0.0.1:8501 res/ui escritorio || true
       - uses: actions/upload-artifact@v4
         with: {name: ui, path: res}
   publicar:
-    needs: [valoracion]
+    needs: [valoracion, ui]
     if: always()
     runs-on: ubuntu-latest
     steps:
