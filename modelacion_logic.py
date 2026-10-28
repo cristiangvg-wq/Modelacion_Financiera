@@ -3999,13 +3999,26 @@ def driver_robusto(serie, ventana=5, k=3.5):
 
 
 def _margenes_robustos(df_hist):
-    """(margen EBITDA, margen EBIT, margen D&A, info). EBIT = EBITDA − D&A: coherencia contable."""
+    """Márgenes independientes de EBITDA, EBIT y D&A sobre ingresos.
+
+    No fuerza EBIT = EBITDA − D&A: algunos emisores incluyen impuestos operativos
+    y resultados de participadas en su EBITDA publicado. En esos casos la identidad
+    aritmética no representa D&A ni EBIT operativo comparable.
+    """
     ing = df_hist["Ingresos"].astype(float).replace(0, np.nan)
-    m_ebitda, i1 = driver_robusto(df_hist["EBITDA"] / ing)
-    m_da, i2 = driver_robusto((df_hist["EBITDA"] - df_hist["EBIT"]) / ing)
+    m_ebitda, i1 = driver_robusto(df_hist["EBITDA"].astype(float) / ing)
+    if "Depreciacion" in df_hist.columns:
+        da_hist = pd.to_numeric(df_hist["Depreciacion"], errors="coerce").astype(float)
+        m_da, i2 = driver_robusto(da_hist / ing)
+    else:
+        m_da, i2 = driver_robusto(
+            (df_hist["EBITDA"].astype(float) - df_hist["EBIT"].astype(float)) / ing
+        )
+    m_ebit, i3 = driver_robusto(df_hist["EBIT"].astype(float) / ing)
     m_ebitda = float(np.clip(m_ebitda if np.isfinite(m_ebitda) else 0.20, -0.20, 0.90))
+    m_ebit = float(np.clip(m_ebit if np.isfinite(m_ebit) else m_ebitda - m_da, -0.20, 0.90))
     m_da = float(np.clip(m_da if np.isfinite(m_da) else 0.05, 0.0, 0.50))
-    return m_ebitda, m_ebitda - m_da, m_da, {"ebitda": i1, "da": i2}
+    return m_ebitda, m_ebit, m_da, {"ebitda": i1, "da": i2, "ebit": i3}
 
 
 def diagnosticar_atipicos_historico(df):
@@ -4119,7 +4132,8 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     Proyección por drivers con estimadores ROBUSTOS (mediana + Hampel) e identidad FCFF:
     - Ingresos: crecimiento = mediana robusta de las variaciones anuales (admite caídas), con
       convergencia lineal hacia G_CONVERGENCIA al final del horizonte.
-    - EBITDA y D&A como % de ingresos (EBIT = EBITDA − D&A: coherente; antes D&A salía de CAPEX×ratio).
+    - EBITDA, EBIT y D&A proyectados como drivers independientes; evita asumir EBIT = EBITDA − D&A
+      cuando el EBITDA reportado incluye impuestos operativos o resultados de participadas.
     - CAPEX % ingresos robusto; converge hacia un nivel de mantenimiento (≤ 1,3×D&A) para que el
       último año del horizonte sea representativo de la perpetuidad.
     - NWC: coeficiente robusto sobre ΔIngresos (admite capital de trabajo negativo).
@@ -4144,7 +4158,7 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     m_ebitda, m_ebit, m_da, info_m = _margenes_robustos(df_hist)
     ebitda_proj = ing_proj * m_ebitda
     ebit_proj = ing_proj * m_ebit
-    dep_proj = ebitda_proj - ebit_proj
+    dep_proj = ing_proj * m_da
 
     capex_r, info_c = driver_robusto(df_hist["CAPEX"].astype(float) / ing.replace(0, np.nan))
     capex_r = float(np.clip(capex_r if np.isfinite(capex_r) else 0.10, 0.0, 0.60))
@@ -4192,14 +4206,14 @@ def proyectar_por_ets(df_hist, horizonte=5, tax=0.35):
     """ETS/Holt sobre ingresos y CAPEX; márgenes e identidad FCFF como en drivers."""
     años_fut = list(range(int(df_hist.index[-1]) + 1, int(df_hist.index[-1]) + 1 + horizonte))
     ing_mean, _, _, std_ing, nombre = ajustar_ets(df_hist["Ingresos"], horizonte)
-    margen_ebitda, margen_ebit, _m_da, _ = _margenes_robustos(df_hist)
+    margen_ebitda, margen_ebit, m_da, _ = _margenes_robustos(df_hist)
     ebitda_proj = ing_mean * margen_ebitda
     ebit_proj = ing_mean * margen_ebit
     capex_mean, _, _, _, _ = ajustar_ets(df_hist["CAPEX"], horizonte)
     capex_mean = np.clip(capex_mean, 0.0, ing_mean * 0.60)
     nwc_mean, _, _, _, _ = ajustar_ets(df_hist["NWC"], horizonte)
     delta_nwc = np.diff(np.concatenate([[float(df_hist["NWC"].iloc[-1])], nwc_mean]))
-    dep_proj = ebitda_proj - ebit_proj   # D&A coherente con EBITDA − EBIT
+    dep_proj = ing_mean * m_da   # usa D&A histórica; no infiere depreciación de EBITDA − EBIT
     nopat_proj = calcular_nopat(ebit_proj, tax)
     fcff_proj = nopat_proj + dep_proj - capex_mean - delta_nwc  # conservar FCFF negativos, sin piso artificial
     df_proj = pd.DataFrame({
@@ -4216,14 +4230,14 @@ def proyectar_por_arima(df_hist, horizonte=5, tax=0.35):
     """Benchmark ARIMA (método anterior)."""
     años_fut = list(range(int(df_hist.index[-1]) + 1, int(df_hist.index[-1]) + 1 + horizonte))
     ing_mean, _, _, _ = ajustar_arima(df_hist["Ingresos"], horizonte=horizonte)
-    margen_ebitda, margen_ebit, _m_da, _ = _margenes_robustos(df_hist)
+    margen_ebitda, margen_ebit, m_da, _ = _margenes_robustos(df_hist)
     ebitda_proj = ing_mean * margen_ebitda
     ebit_proj = ing_mean * margen_ebit
     capex_mean, _, _, _ = ajustar_arima(df_hist["CAPEX"], horizonte=horizonte)
     capex_mean = np.clip(capex_mean, 0.0, ing_mean * 0.60)
     nwc_mean, _, _, _ = ajustar_arima(df_hist["NWC"], horizonte=horizonte)
     delta_nwc = np.diff(np.concatenate([[df_hist["NWC"].iloc[-1]], nwc_mean]))
-    dep_proj = ebitda_proj - ebit_proj   # D&A coherente con EBITDA − EBIT
+    dep_proj = ing_mean * m_da   # usa D&A histórica; no infiere depreciación de EBITDA − EBIT
     nopat_proj = calcular_nopat(ebit_proj, tax)
     fcff_proj = nopat_proj + dep_proj - capex_mean - delta_nwc  # conservar FCFF negativos, sin piso artificial
     df_proj = pd.DataFrame({
