@@ -250,43 +250,7 @@ class TestGeminiBusquedaWeb(unittest.TestCase):
         self.assertNotIn("tools", enviados[0])
 
 
-class TestComiteConContextoDeMercado(unittest.TestCase):
-    def test_prompt_incluye_tres_bloques_y_salida_lista_fuentes(self):
-        L.vincular_estado_sesion({})
-        capturado = {}
-
-        def fake_call(sistema, user, **kw):
-            capturado["user"] = user
-            capturado["kw"] = kw
-            L._almacen_estado()["_ia_ultimas_fuentes"] = [{"titulo": "BanRep", "url": "https://banrep.gov.co"}]
-            L._almacen_estado()["_ia_busqueda_web"] = {"solicitada": True, "usada": True, "consultas": []}
-            return SALIDA_NUEVA
-
-        metricas = {
-            "empresa": "ISA — Interconexión Eléctrica", "ticker": "ISA.CL", "moneda": "COP", "moneda_precio": "COP",
-            "monedas_alineadas": True, "precio_mercado": 29000, "vps_modelo": 27000, "upside": -6.9,
-            "wacc_calc": 0.1396, "ke_calc": 0.1727, "roic_calc": 0.1668, "de_ratio": 1.09, "g": 0.05,
-            "val_ev": 51510, "val_equity": 14873, "wacc_implicito_mercado": 0.1088, "wacc_paridad_usd": 0.1252,
-            "decision_modelo": "NEUTRAL / MONITOREAR", "unidad_modelo": "miles de millones de COP",
-            "unidad_precio": "por acción", "fuente_precio": "test", "fecha_precio": "2026-10-26",
-            "fuente_valoracion": "DCF test",
-        }
-        try:
-            with mock.patch.object(L, "_llamar_ia_redaccion", fake_call), \
-                    mock.patch.object(L, "_metricas_comite_para_ia", lambda _n: {}):
-                html = L.generar_recomendacion_comite_ia(
-                    "ISA — Interconexión Eléctrica", api_key="AIza-test", metricas=metricas,
-                    contexto_mercado={"precio": 29000, "fecha_precio": "2026-10-26", "macro": {"as_of": "2026-10"}},
-                )
-        finally:
-            L.desvincular_estado_sesion()
-        u = capturado["user"].upper()
-        for bloque in ("RESULTADOS DEL MODELO", "INSTANTÁNEA DE MERCADO VERIFICADA", "RECOMENDACIÓN FINAL: COMPRAR, MANTENER O VENDER",
-                       "WACC POR PARIDAD", "WACC IMPLÍCITO EN EL PRECIO", "CATALIZADORES"):
-            self.assertIn(bloque, u)
-        self.assertTrue(capturado["kw"].get("buscar_web"))
-        self.assertIn("banrep.gov.co", html)
-        self.assertIn("MANTENER", html)
+# El comité completo (dos pasos, JSON, anclas) se prueba en test_comite_ia_v2.py.
 
 
 if __name__ == "__main__":

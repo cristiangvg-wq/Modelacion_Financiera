@@ -1,0 +1,1035 @@
+{
+  "version": 1,
+  "descripcion": "Banco de casos del comité IA: cada salida candidata trae el veredicto que debe dar validar_dictamen. scripts/evaluar_comite_ia.py ejecuta además el proveedor real sobre los mismos casos.",
+  "dictamen_base": {
+    "analisis_interno": {
+      "resumen": "El WACC del modelo (13,96 %) supera en 308 pb al implícito (10,88 %); la tasa local explica la brecha.",
+      "supuestos_fragiles": [
+        {
+          "supuesto": "WACC local con TES",
+          "impacto": "−32 % vs paridad"
+        }
+      ]
+    },
+    "contexto_mercado": {
+      "resumen": "La acción cotiza cerca del escenario optimista y existe una oferta potencial por el bloque de control (W1).",
+      "hechos_usados": [
+        "Y1",
+        "W1"
+      ]
+    },
+    "recomendacion": "MANTENER",
+    "precio_objetivo": 24000,
+    "anclas_usadas": [
+      "A3",
+      "A4"
+    ],
+    "metodo_precio_objetivo": "Promedio de A3 y A4",
+    "conviccion": 6,
+    "tesis": [
+      "Flujos regulados indexados",
+      "Valor sensible al WACC"
+    ],
+    "riesgos": [
+      {
+        "riesgo": "TES por encima de 13 %",
+        "indicador": "TES 10 años"
+      },
+      {
+        "riesgo": "Cambios regulatorios",
+        "indicador": "Resoluciones CREG"
+      }
+    ],
+    "catalizadores": [
+      {
+        "catalizador": "Resultados 3T26",
+        "ventana": "noviembre 2026"
+      },
+      {
+        "catalizador": "Decisión sobre la venta del bloque de Ecopetrol",
+        "ventana": "1S27"
+      }
+    ],
+    "cambiaria_la_recomendacion": [
+      "WACC por paridad < 11 %"
+    ],
+    "divergencia_motor": {
+      "hay_divergencia": false,
+      "justificacion": ""
+    },
+    "condicionado_a_recalibrar": false
+  },
+  "casos": [
+    {
+      "id": "utility_neutral",
+      "descripcion": "Utility regulada con WACC local alto (ISA)",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 13423,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "EVITAR / REVISAR",
+        "vetos_calidad": [],
+        "control_calidad_modelo": false
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 13423,
+            "vps_precio": 13423
+          },
+          {
+            "id": "A3",
+            "nombre": "DCF optimista",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 29017,
+            "vps_precio": 29017
+          },
+          {
+            "id": "A4",
+            "nombre": "DCF paridad",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 19713,
+            "vps_precio": 19713
+          }
+        ],
+        "rango": [
+          13423,
+          29017
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "mantener_en_rango",
+          "parche": {},
+          "esperado_ok": true
+        },
+        {
+          "etiqueta": "objetivo_fuera_de_rango",
+          "parche": {
+            "precio_objetivo": 45000
+          },
+          "esperado_ok": false,
+          "error_contiene": "fuera del rango"
+        }
+      ]
+    },
+    {
+      "id": "veto_activo",
+      "descripcion": "Motor con veto de calidad (equity ≤ 0)",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 13423,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "RECALIBRAR MODELO · VETO DE CALIDAD",
+        "vetos_calidad": [
+          "Equity base <= 0"
+        ],
+        "control_calidad_modelo": true
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 13423,
+            "vps_precio": 13423
+          },
+          {
+            "id": "A3",
+            "nombre": "DCF optimista",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 29017,
+            "vps_precio": 29017
+          },
+          {
+            "id": "A4",
+            "nombre": "DCF paridad",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 19713,
+            "vps_precio": 19713
+          }
+        ],
+        "rango": [
+          13423,
+          29017
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [
+        "COMPRAR"
+      ],
+      "salidas": [
+        {
+          "etiqueta": "comprar_con_veto",
+          "parche": {
+            "recomendacion": "COMPRAR",
+            "condicionado_a_recalibrar": true,
+            "divergencia_motor": {
+              "hay_divergencia": true,
+              "justificacion": "El mercado paga más por los flujos regulados que el modelo, según el WACC implícito."
+            }
+          },
+          "esperado_ok": false,
+          "error_contiene": "veto"
+        },
+        {
+          "etiqueta": "mantener_condicionado",
+          "parche": {
+            "condicionado_a_recalibrar": true
+          },
+          "esperado_ok": true
+        },
+        {
+          "etiqueta": "mantener_sin_condicion",
+          "parche": {},
+          "esperado_ok": false,
+          "error_contiene": "recalibrar"
+        }
+      ]
+    },
+    {
+      "id": "motor_prudente_comprar",
+      "descripcion": "COMPRAR con motor prudente exige divergencia",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 13423,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "EVITAR / REVISAR",
+        "vetos_calidad": [],
+        "control_calidad_modelo": false
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 13423,
+            "vps_precio": 13423
+          },
+          {
+            "id": "A3",
+            "nombre": "DCF optimista",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 29017,
+            "vps_precio": 29017
+          },
+          {
+            "id": "A4",
+            "nombre": "DCF paridad",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 19713,
+            "vps_precio": 19713
+          }
+        ],
+        "rango": [
+          13423,
+          29017
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "comprar_sin_divergencia",
+          "parche": {
+            "recomendacion": "COMPRAR"
+          },
+          "esperado_ok": false,
+          "error_contiene": "contradice"
+        },
+        {
+          "etiqueta": "comprar_con_divergencia",
+          "parche": {
+            "recomendacion": "COMPRAR",
+            "divergencia_motor": {
+              "hay_divergencia": true,
+              "justificacion": "El WACC por paridad (12,5 %) lleva el valor a 19.713 COP y el optimista a 29.017 COP."
+            }
+          },
+          "esperado_ok": true
+        }
+      ]
+    },
+    {
+      "id": "motor_favorable_vender",
+      "descripcion": "VENDER con motor favorable exige divergencia",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 35000,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "FAVORABLE · MARGEN DE SEGURIDAD",
+        "vetos_calidad": [],
+        "control_calidad_modelo": false
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 35000,
+            "vps_precio": 35000
+          },
+          {
+            "id": "A4",
+            "nombre": "DCF paridad",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 41000,
+            "vps_precio": 41000
+          }
+        ],
+        "rango": [
+          35000,
+          41000
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "vender_sin_divergencia",
+          "parche": {
+            "recomendacion": "VENDER",
+            "precio_objetivo": 36000,
+            "anclas_usadas": [
+              "A1",
+              "A4"
+            ],
+            "metodo_precio_objetivo": "Promedio de A1 y A4"
+          },
+          "esperado_ok": false,
+          "error_contiene": "contradice"
+        },
+        {
+          "etiqueta": "comprar_en_rango",
+          "parche": {
+            "recomendacion": "COMPRAR",
+            "precio_objetivo": 38000,
+            "anclas_usadas": [
+              "A1",
+              "A4"
+            ],
+            "metodo_precio_objetivo": "Promedio de A1 y A4"
+          },
+          "esperado_ok": true
+        }
+      ]
+    },
+    {
+      "id": "sin_anclas",
+      "descripcion": "Sin anclas calculables: el objetivo debe ser null",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 13423,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "EVITAR / REVISAR",
+        "vetos_calidad": [],
+        "control_calidad_modelo": false
+      },
+      "anclas": {
+        "anclas": [],
+        "rango": null,
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "objetivo_null",
+          "parche": {
+            "precio_objetivo": null,
+            "anclas_usadas": [],
+            "metodo_precio_objetivo": "N/D"
+          },
+          "esperado_ok": true
+        },
+        {
+          "etiqueta": "objetivo_inventado",
+          "parche": {
+            "precio_objetivo": 30000,
+            "anclas_usadas": [],
+            "metodo_precio_objetivo": "N/D"
+          },
+          "esperado_ok": false,
+          "error_contiene": "sin anclas"
+        }
+      ]
+    },
+    {
+      "id": "hecho_inventado",
+      "descripcion": "Cita un hecho que no está en la hoja",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 13423,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "EVITAR / REVISAR",
+        "vetos_calidad": [],
+        "control_calidad_modelo": false
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 13423,
+            "vps_precio": 13423
+          },
+          {
+            "id": "A3",
+            "nombre": "DCF optimista",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 29017,
+            "vps_precio": 29017
+          },
+          {
+            "id": "A4",
+            "nombre": "DCF paridad",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 19713,
+            "vps_precio": 19713
+          }
+        ],
+        "rango": [
+          13423,
+          29017
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "cita_w9",
+          "parche": {
+            "contexto_mercado": {
+              "resumen": "Según W9 la tarifa sube.",
+              "hechos_usados": [
+                "Y1",
+                "W9"
+              ]
+            }
+          },
+          "esperado_ok": false,
+          "error_contiene": "inexistente"
+        }
+      ]
+    },
+    {
+      "id": "ancla_inventada",
+      "descripcion": "Usa un ancla inexistente",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 13423,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "EVITAR / REVISAR",
+        "vetos_calidad": [],
+        "control_calidad_modelo": false
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 13423,
+            "vps_precio": 13423
+          },
+          {
+            "id": "A3",
+            "nombre": "DCF optimista",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 29017,
+            "vps_precio": 29017
+          },
+          {
+            "id": "A4",
+            "nombre": "DCF paridad",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 19713,
+            "vps_precio": 19713
+          }
+        ],
+        "rango": [
+          13423,
+          29017
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "usa_a9",
+          "parche": {
+            "anclas_usadas": [
+              "A1",
+              "A9"
+            ]
+          },
+          "esperado_ok": false,
+          "error_contiene": "anclas inexistentes"
+        }
+      ]
+    },
+    {
+      "id": "moneda_distinta",
+      "descripcion": "Mineros: modelo en USD, cotización en COP",
+      "metricas": {
+        "empresa": "Mineros",
+        "ticker": "MINEROS.CL",
+        "moneda": "USD",
+        "moneda_precio": "COP",
+        "precio_mercado": 19400,
+        "precio_mercado_moneda_modelo": 6.09,
+        "fx_aplicado": 3185,
+        "vps_modelo": 4.18,
+        "wacc_calc": 0.1136,
+        "wacc_implicito_mercado": 0.0778,
+        "g": 0.03,
+        "decision_modelo": "NEUTRAL / MONITOREAR",
+        "vetos_calidad": []
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 13313,
+            "vps_precio": 13313
+          },
+          {
+            "id": "A3",
+            "nombre": "DCF optimista",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 21500,
+            "vps_precio": 21500
+          }
+        ],
+        "rango": [
+          13313,
+          21500
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "objetivo_en_cop",
+          "parche": {
+            "precio_objetivo": 17000,
+            "anclas_usadas": [
+              "A1",
+              "A3"
+            ],
+            "contexto_mercado": {
+              "resumen": "ok",
+              "hechos_usados": [
+                "Y1",
+                "Y2"
+              ]
+            },
+            "metodo_precio_objetivo": "Ponderación de las anclas listadas"
+          },
+          "esperado_ok": true
+        },
+        {
+          "etiqueta": "objetivo_en_usd",
+          "parche": {
+            "precio_objetivo": 5.4,
+            "anclas_usadas": [
+              "A1"
+            ],
+            "contexto_mercado": {
+              "resumen": "ok",
+              "hechos_usados": [
+                "Y1",
+                "Y2"
+              ]
+            },
+            "metodo_precio_objetivo": "Ponderación de las anclas listadas"
+          },
+          "esperado_ok": false,
+          "error_contiene": "fuera del rango"
+        }
+      ]
+    },
+    {
+      "id": "hipercrecimiento",
+      "descripcion": "PLTR: DCF fuera de dominio",
+      "metricas": {
+        "empresa": "Palantir",
+        "ticker": "PLTR",
+        "moneda": "USD",
+        "moneda_precio": "USD",
+        "precio_mercado": 198.73,
+        "vps_modelo": 7.47,
+        "wacc_calc": 0.15,
+        "g": 0.03,
+        "fuera_de_dominio_crecimiento": true,
+        "decision_modelo": "NEUTRAL / MONITOREAR · PRECIO SOBRE VALOR",
+        "vetos_calidad": []
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 7.47,
+            "vps_precio": 7.47
+          },
+          {
+            "id": "A7",
+            "nombre": "Consenso",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 190.0,
+            "vps_precio": 190.0
+          }
+        ],
+        "rango": [
+          7.47,
+          190.0
+        ],
+        "moneda": "USD"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "mantener_consenso",
+          "parche": {
+            "precio_objetivo": 150.0,
+            "anclas_usadas": [
+              "A1",
+              "A7"
+            ],
+            "contexto_mercado": {
+              "resumen": "ok",
+              "hechos_usados": [
+                "Y1",
+                "Y2"
+              ]
+            },
+            "metodo_precio_objetivo": "Ponderación de las anclas listadas"
+          },
+          "esperado_ok": true
+        },
+        {
+          "etiqueta": "conviccion_cero",
+          "parche": {
+            "precio_objetivo": 150.0,
+            "anclas_usadas": [
+              "A7"
+            ],
+            "conviccion": 0,
+            "contexto_mercado": {
+              "resumen": "ok",
+              "hechos_usados": [
+                "Y1",
+                "Y2"
+              ]
+            },
+            "metodo_precio_objetivo": "Ponderación de las anclas listadas"
+          },
+          "esperado_ok": false,
+          "error_contiene": "Convicción"
+        }
+      ]
+    },
+    {
+      "id": "formato_incompleto",
+      "descripcion": "Pocos riesgos o vocabulario fuera de lista",
+      "metricas": {
+        "empresa": "ISA",
+        "ticker": "ISA.CL",
+        "moneda": "COP",
+        "moneda_precio": "COP",
+        "precio_mercado": 29000,
+        "vps_modelo": 13423,
+        "wacc_calc": 0.1396,
+        "wacc_implicito_mercado": 0.1088,
+        "wacc_paridad_usd": 0.1252,
+        "g": 0.05,
+        "roic_calc": 0.167,
+        "de_ratio": 1.09,
+        "decision_modelo": "EVITAR / REVISAR",
+        "vetos_calidad": [],
+        "control_calidad_modelo": false
+      },
+      "anclas": {
+        "anclas": [
+          {
+            "id": "A1",
+            "nombre": "DCF base",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 13423,
+            "vps_precio": 13423
+          },
+          {
+            "id": "A3",
+            "nombre": "DCF optimista",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 29017,
+            "vps_precio": 29017
+          },
+          {
+            "id": "A4",
+            "nombre": "DCF paridad",
+            "metodo": "caso de evaluación",
+            "vps_modelo": 19713,
+            "vps_precio": 19713
+          }
+        ],
+        "rango": [
+          13423,
+          29017
+        ],
+        "moneda": "COP"
+      },
+      "hechos": [
+        {
+          "id": "Y1",
+          "categoria": "mercado",
+          "hecho": "Cotización de cierre",
+          "valor": "29.000 COP",
+          "fecha": "2026-10-26",
+          "fuente": "Yahoo Finance"
+        },
+        {
+          "id": "Y2",
+          "categoria": "macro",
+          "hecho": "Rendimiento TES a 10 años",
+          "valor": "13,18 %",
+          "fecha": "2026-10-16",
+          "fuente": "BanRep"
+        },
+        {
+          "id": "W1",
+          "categoria": "corporativo",
+          "hecho": "GEB prepara oferta por la participación de Ecopetrol en ISA",
+          "valor": "US$4.500 M",
+          "fecha": "2026-07-28",
+          "fuente": "riotimesonline.com",
+          "url": "https://www.riotimesonline.com/geb-bids-us4-5-billion-for-ecopetrols-isa-grid-stake/"
+        }
+      ],
+      "prohibidas": [],
+      "salidas": [
+        {
+          "etiqueta": "un_riesgo",
+          "parche": {
+            "riesgos": [
+              {
+                "riesgo": "Tasas",
+                "indicador": "TES"
+              }
+            ]
+          },
+          "esperado_ok": false,
+          "error_contiene": "riesgos"
+        },
+        {
+          "etiqueta": "vocabulario_antiguo",
+          "parche": {
+            "recomendacion": "INVERTIR"
+          },
+          "esperado_ok": false,
+          "error_contiene": "fuera de COMPRAR"
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import json
 import traceback
 from datetime import datetime
 
@@ -2496,7 +2497,7 @@ def _contexto_comite_ia(empresa, w=None, de_ratio=None, g=None, moneda=None):
     }
 
 
-def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="COP"):
+def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="COP", forzar=False):
     """Comité IA (4+). Usado tras tab4 en Generar todo, en Solo pestaña 4 y en el botón
     de la pestaña 4. Retorna (ok, msg). Única implementación del flujo (antes había
     dos copias divergentes de ~250 líneas)."""
@@ -2533,38 +2534,30 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
                 "ni una recomendación de venta. Revisa los vetos/alertas, alinea monedas y unidades (COP/USD), "
                 "corrige el puente EV–equity si corresponde y vuelve a ejecutar la pestaña 4."
             )
-        _kw_ia = {}
-        try:
-            import inspect as _insp
-            _params_ia = _insp.signature(L.generar_recomendacion_comite_ia).parameters
-            if "buscar_web" in _params_ia:
-                _kw_ia["buscar_web"] = bool(st.session_state.get("tab4_busqueda_web", True))
-        except Exception:
-            pass
         respuesta = L.generar_recomendacion_comite_ia(
-            empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas, **_kw_ia,
+            empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas,
+            buscar_web=bool(st.session_state.get("tab4_busqueda_web", True)), forzar=bool(forzar),
         )
-        _audit_resp = L.auditar_respuesta_comite_ia(respuesta, _metricas)
-        if _audit_resp.get("errors"):
-            return False, "Salida IA inválida: " + "; ".join(_audit_resp["errors"])
-        if "Comité IA bloqueado" in str(respuesta) or "No se pudo generar la deliberación" in str(respuesta) \
-                or "rechazada por controles de calidad" in str(respuesta):
-            st.session_state["tab4_comite_ia_html"] = respuesta
-            return False, L._html_a_texto(respuesta, 400) if hasattr(L, "_html_a_texto") else "Comité IA sin respuesta válida."
+        _res = L._almacen_estado().get("comite_ia_ultimo") or {}
         st.session_state["tab4_comite_ia_html"] = respuesta
         st.session_state["tab4_comite_empresa"] = empresa
+        st.session_state["tab4_comite_ia_res"] = {k: v for k, v in _res.items() if k != "html"}
+        if not _res.get("ok"):
+            return False, _res.get("error") or "Comité IA sin respuesta válida."
         try:
-            _struct = L.extraer_resumen_comite_ia(respuesta) if hasattr(L, "extraer_resumen_comite_ia") else {}
-            _txt = (_struct or {}).get("texto") or (
-                L._html_a_texto(respuesta, 800) if hasattr(L, "_html_a_texto") else str(respuesta)[:800]
-            )
+            _md = _res.get("markdown") or ""
+            _struct = L.extraer_resumen_comite_ia(_md)
+            _txt = (_struct or {}).get("texto") or _md[:800]
             L.guardar_resultado_tab("comite_ia", empresa, {
                 "texto": _txt, "struct": _struct, "proveedor": prov_ia or "gemini",
+                "dictamen": _res.get("dictamen"),
             })
             st.session_state["tab4_comite_ia_texto"] = _txt
             st.session_state["tab4_comite_ia_struct"] = _struct
         except Exception:
             pass
+        if _res.get("cache"):
+            return True, "Dictamen reutilizado: los insumos no cambiaron desde la última corrida."
         return True, "Comité IA generado."
     except Exception as e:
         st.session_state["tab4_comite_ia_html"] = None
@@ -3762,15 +3755,15 @@ def main():
             pass
         progress = st.progress(0, text="Iniciando…")
         errores = []
-        # Orden: 1 → 2 → 3 → 4 → 4+ (Comité IA) → 5 → 6 → 7 (última)
+        # Orden: 1 → 2 → 3 → 4 → 5 → 6 → Comité IA (usa 2 y 6) → 7 (última)
         pasos = [
             ("1 · Pronóstico FCFF", 1 / 8),
             ("2 · Escenarios DCF", 2 / 8),
             ("3 · Auditoría", 3 / 8),
             ("4 · Recomendación", 4 / 8),
-            ("4+ · Comité interdisciplinario (IA)", 5 / 8),
-            ("5 · VPN / TIR", 6 / 8),
-            ("6 · Sector", 7 / 8),
+            ("5 · VPN / TIR", 5 / 8),
+            ("6 · Sector", 6 / 8),
+            ("4+ · Comité de inversión (IA)", 7 / 8),
             ("7 · Informe PDF", 8 / 8),
         ]
         try:
@@ -3811,8 +3804,24 @@ def main():
             except Exception as e:
                 errores.append(f"Pestaña 4: {e}")
 
-            # 4+ Comité IA inmediatamente después de la pestaña 4
             progress.progress(pasos[4][1], text=pasos[4][0])
+            try:
+                st.session_state["resultados"]["tab5"] = L.tab5_vpn_tir(
+                    empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
+                    inversion_inicial, rf, erp, crp, usar_publicos,
+                )
+            except Exception as e:
+                errores.append(f"Pestaña 5: {e}")
+
+            progress.progress(pasos[5][1], text=pasos[5][0])
+            try:
+                st.session_state["resultados"]["tab6"] = L.tab6_comparacion_sectorial(empresa)
+                st.session_state["tab6_empresa"] = empresa
+            except Exception as e:
+                errores.append(f"Pestaña 6: {e}")
+
+            # Comité IA después de 1–6: usa escenarios (2) y múltiplos de pares (6) como anclas; el 7 lo resume
+            progress.progress(pasos[6][1], text=pasos[6][0])
             avisos = []
             try:
                 if _clave_ia_efectiva()[1]:
@@ -3826,22 +3835,6 @@ def main():
                     avisos.append("Comité IA omitido: no hay API key configurada (GEMINI_API_KEY).")
             except Exception as e:
                 errores.append(f"Comité IA (4+): {e}")
-
-            progress.progress(pasos[5][1], text=pasos[5][0])
-            try:
-                st.session_state["resultados"]["tab5"] = L.tab5_vpn_tir(
-                    empresa, archivo, horizonte, de_ratio, kd, tax, g, capex_extra, beta_u,
-                    inversion_inicial, rf, erp, crp, usar_publicos,
-                )
-            except Exception as e:
-                errores.append(f"Pestaña 5: {e}")
-
-            progress.progress(pasos[6][1], text=pasos[6][0])
-            try:
-                st.session_state["resultados"]["tab6"] = L.tab6_comparacion_sectorial(empresa)
-                st.session_state["tab6_empresa"] = empresa
-            except Exception as e:
-                errores.append(f"Pestaña 6: {e}")
 
             # 7 Informe PDF — última ejecución
             progress.progress(pasos[7][1], text=pasos[7][0])
@@ -3862,7 +3855,7 @@ def main():
             else:
                 st.session_state["modelo_dirty"] = False
                 st.success(
-                    "Pipeline completo: 1→2→3→4→4+(Comité IA)→5→6→7. "
+                    "Pipeline completo: 1→2→3→4→5→6→Comité IA→7. "
                     "Revisa cada pestaña."
                 )
             _liberar_figuras(st.session_state.get("resultados"))
@@ -4251,16 +4244,27 @@ def main():
                     f"Moneda del modelo ({_mon_md or 'N/D'}) ≠ cotización ({_mon_px or 'N/D'}): "
                     "el comité tratará el upside como no comparable."
                 )
-            if st.button(
-                "▶ Generar dictamen del comité (IA)", type="primary", key="btn_tab4_comite_ia",
-                use_container_width=True, disabled=not _tiene_base,
-            ):
-                with st.spinner("El comité interdisciplinario está deliberando…"):
+            _cb1, _cb2 = st.columns([3, 1])
+            with _cb1:
+                _btn_gen = st.button(
+                    "▶ Generar dictamen del comité (IA)", type="primary", key="btn_tab4_comite_ia",
+                    use_container_width=True, disabled=not _tiene_base,
+                )
+            with _cb2:
+                _btn_forzar = st.button(
+                    "↻ Regenerar", key="btn_tab4_comite_ia_forzar", use_container_width=True,
+                    disabled=not _tiene_base,
+                    help="Ignora el dictamen guardado: vuelve a llamar a la IA aunque los insumos no hayan cambiado.",
+                )
+            if _btn_gen or _btn_forzar:
+                with st.spinner("Paso 1: reuniendo hechos de mercado · Paso 2: el comité redacta el dictamen…"):
                     _ok_c, _msg_c = _ejecutar_comite_ia_sesion(
-                        empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
+                        empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda, forzar=bool(_btn_forzar),
                     )
                 if not _ok_c:
                     st.error(_msg_c)
+                elif "reutilizado" in str(_msg_c):
+                    st.info(_msg_c)
             _aud = st.session_state.get("tab4_comite_ia_auditoria") or {}
             if _aud.get("warnings") and st.session_state.get("tab4_comite_ia_html"):
                 with st.expander("Advertencias de la auditoría previa", expanded=False):
@@ -4268,11 +4272,50 @@ def main():
                         st.markdown(f"- {_wmsg}")
 
             if st.session_state.get("tab4_comite_ia_html") and st.session_state.get("tab4_comite_empresa") == empresa:
-                st.markdown("###### Salida del comité")
+                st.markdown("###### Dictamen del comité")
                 _html(st.session_state["tab4_comite_ia_html"])
+                _res_c = st.session_state.get("tab4_comite_ia_res") or {}
+                _aud_d = _res_c.get("auditoria") or {}
+                if _aud_d.get("warnings"):
+                    with st.expander("Observaciones de la auditoría del dictamen", expanded=False):
+                        for _wmsg in _aud_d["warnings"]:
+                            st.markdown(f"- {_wmsg}")
                 _explain(
-                    "<b>Uso:</b> deliberación IA complementaria. No es asesoría de inversión ni orden de compra/venta."
+                    "<b>Uso:</b> dictamen IA anclado en el modelo y en hechos con fuente. "
+                    "No es asesoría de inversión ni orden de compra/venta."
                 )
+
+            # Historial de dictámenes de la sesión (comparación con el anterior + descarga)
+            _hist = L.comite_historial(empresa) if hasattr(L, "comite_historial") else []
+            if _hist:
+                with st.expander(f"Historial de dictámenes de esta sesión ({len(_hist)})", expanded=False):
+                    _df_h = pd.DataFrame([{
+                        "Fecha": h.get("fecha"), "Recomendación": h.get("recomendacion"),
+                        "Objetivo 12 m": h.get("precio_objetivo"), "Precio": h.get("precio_mercado"),
+                        "VPS modelo": h.get("vps_modelo"),
+                        "WACC (%)": (h["wacc"] * 100 if h.get("wacc") is not None else None),
+                        "Convicción": h.get("conviccion"), "Hechos web": h.get("hechos_web"),
+                        "Proveedor": h.get("proveedor"),
+                    } for h in reversed(_hist)])
+                    st.dataframe(_df_h, use_container_width=True, hide_index=True)
+                    if len(_hist) >= 2:
+                        _a, _b = _hist[-2], _hist[-1]
+                        _cambios = []
+                        if _a.get("recomendacion") != _b.get("recomendacion"):
+                            _cambios.append(f"recomendación {_a.get('recomendacion')} → {_b.get('recomendacion')}")
+                        if _a.get("precio_objetivo") and _b.get("precio_objetivo"):
+                            _cambios.append(
+                                f"objetivo {_a['precio_objetivo']:,.2f} → {_b['precio_objetivo']:,.2f} "
+                                f"({(_b['precio_objetivo'] / _a['precio_objetivo'] - 1) * 100:+.1f} %)")
+                        if _a.get("wacc") and _b.get("wacc") and abs(_a["wacc"] - _b["wacc"]) > 1e-6:
+                            _cambios.append(f"WACC {_a['wacc'] * 100:.2f} % → {_b['wacc'] * 100:.2f} %")
+                        st.caption("Frente al dictamen anterior: " + ("; ".join(_cambios) if _cambios else "sin cambios materiales."))
+                    st.download_button(
+                        "⬇ Descargar historial (JSON)",
+                        json.dumps(_hist, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+                        file_name="historial_comite_ia.json", mime="application/json",
+                        key="dl_hist_comite_ia",
+                    )
 
     with tab5:
         st.markdown("##### VPN · TIR · Payback")

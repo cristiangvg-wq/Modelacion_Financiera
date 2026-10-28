@@ -408,23 +408,29 @@ class TestGemini(BaseOffline):
         _correr_pestanas("ISA — Interconexión Eléctrica")
         m4 = L.metricas_valoracion_sesion("ISA — Interconexión Eléctrica")
         capturado = {}
-        respuesta = (
-            "## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO\nCFO...\n"
-            "## 2. ANÁLISIS DE BRECHA\nBrecha...\n## 3. DECISIÓN FINAL DE INVERSIÓN\n"
-            "RECOMENDACIÓN FINAL: INVERTIR CONDICIONALMENTE\nPUNTAJE DE VIABILIDAD: 6/10\n"
-            "## 4. FACTORES CRÍTICOS Y PUNTOS DE MONITOREO\n1. Tasa\n2. Regulación\n"
-        )
+        respuesta = json.dumps({
+            "analisis_interno": {"resumen": "El WACC del modelo explica la brecha.", "supuestos_fragiles": []},
+            "contexto_mercado": {"resumen": "Instantánea de mercado.", "hechos_usados": []},
+            "recomendacion": "MANTENER", "precio_objetivo": None, "anclas_usadas": [],
+            "metodo_precio_objetivo": "N/D", "conviccion": 6, "tesis": ["Flujos regulados."],
+            "riesgos": [{"riesgo": "Tasa", "indicador": "TES"}, {"riesgo": "Regulación", "indicador": "CREG"}],
+            "catalizadores": [{"catalizador": "Resultados", "ventana": "3T26"}, {"catalizador": "OPA GEB", "ventana": "2027"}],
+            "cambiaria_la_recomendacion": ["WACC < 11 %"],
+            "divergencia_motor": {"hay_divergencia": False, "justificacion": ""}, "condicionado_a_recalibrar": False,
+        })
 
         def fake_llm(sistema, user, **k):
             capturado["user"] = user
             return respuesta
 
         with mock.patch.object(L, "_llamar_ia_redaccion", side_effect=fake_llm):
-            html = L.generar_recomendacion_comite_ia("ISA — Interconexión Eléctrica", api_key="k", metricas=m4)
+            html = L.generar_recomendacion_comite_ia("ISA — Interconexión Eléctrica", api_key="k", metricas=m4,
+                                                     buscar_web=False)
         if m4["vps_modelo"] is not None and L.auditar_contexto_comite_ia(m4)["ok"]:
             self.assertIn(f"{m4['precio_mercado']:,.2f}", capturado["user"])
             self.assertIn(f"{m4['vps_modelo']:,.2f}", capturado["user"])
-            self.assertIn("COMITÉ INTERDISCIPLINARIO", html)
+            self.assertIn("MANTENER", html)
+            self.assertIn("A1", capturado["user"])  # el DCF base viaja como ancla del precio objetivo
         else:
             self.assertIn("bloqueado", html)
 
