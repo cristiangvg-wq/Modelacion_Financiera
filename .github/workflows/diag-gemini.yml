@@ -1,0 +1,27 @@
+name: Diagnóstico Gemini
+on:
+  push:
+    branches: [diag/gemini]
+permissions:
+  contents: write
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: |
+          set +e
+          mkdir -p out
+          python scripts/smoke_gemini_comite.py "ISA — Interconexión Eléctrica" > out/smoke.txt 2>&1; echo "exit=$?" >> out/smoke.txt
+          python scripts/evaluar_comite_ia.py --vivo gemini > out/eval.txt 2>&1; echo "exit=$?" >> out/eval.txt
+          # nunca publicar la clave
+          for f in out/*.txt; do python -c "import os,sys;k=os.environ.get('GEMINI_API_KEY','');p=sys.argv[1];t=open(p).read();open(p,'w').write(t.replace(k,'***') if k else t)" "$f"; done
+          cd out && git init -q && git checkout -q -b diag/gemini-resultados
+          git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
+          git add -A && git commit -q -m "Resultados" && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/gemini-resultados
