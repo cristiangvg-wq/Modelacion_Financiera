@@ -2041,9 +2041,28 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         row_rev = _yf_pick_row(fin, ["Total Revenue", "Revenue", "Ingresos totales"])
         fac = _factor_escala_yf(row_rev)  # misma escala para ingresos, EBIT, EBITDA, D&A y CAPEX
         rev = _series_from_yf_row(row_rev, fac)
-        ebit = _series_from_yf_row(_yf_pick_row(fin, ["EBIT", "Operating Income", "Ingresos operativos"]), fac)
-        ebitda = _series_from_yf_row(_yf_pick_row(fin, ["EBITDA"]), fac)
+        # EBIT OPERATIVO. El renglón «EBIT» de Yahoo es utilidad antes de impuestos + intereses:
+        # incluye el método de participación y otros no operativos. Como el puente EV→Equity
+        # ya suma las inversiones en asociadas, usarlo las contaba dos veces (GEB: EBIT Yahoo
+        # 5.118 vs utilidad operativa 2.551 miles de millones COP en 2025; ISA 7.415 vs 6.875).
+        ebit_yf = _series_from_yf_row(_yf_pick_row(fin, ["EBIT"]), fac)
+        ebit = _series_from_yf_row(_yf_pick_row(fin, ["Operating Income", "Ingresos operativos"]), fac) or ebit_yf
         dep = _series_from_yf_row(_yf_pick_row(fin, ["Reconciled Depreciation", "Depreciation", "Depreciación"]), fac)
+        ebitda_yf = _series_from_yf_row(_yf_pick_row(fin, ["EBITDA"]), fac)
+        # EBITDA coherente con el EBIT operativo (utilidad operativa + D&A).
+        ebitda = {y: ebit[y] + dep[y] for y in ebit if y in dep} if ebit is not ebit_yf else {}
+        for y, v in ebitda_yf.items():
+            ebitda.setdefault(y, v)
+        # Ingreso por participadas (para valorar las asociadas en el puente, no en los flujos).
+        eq_row = _series_from_yf_row(_yf_pick_row(fin, ["Earnings From Equity Interest"]), fac)
+        otros_no_op = _series_from_yf_row(_yf_pick_row(fin, ["Other Non Operating Income Expenses"]), fac)
+        especiales = _series_from_yf_row(_yf_pick_row(fin, ["Special Income Charges"]), fac)
+        ingreso_participadas = {}
+        for y in ebit:
+            if y in eq_row:
+                ingreso_participadas[y] = eq_row[y]
+            elif y in ebit_yf and ebit is not ebit_yf:
+                ingreso_participadas[y] = ebit_yf[y] - ebit[y] - otros_no_op.get(y, 0.0) - especiales.get(y, 0.0)
 
         capex = {}
         if cf is not None and not cf.empty:
@@ -2163,6 +2182,10 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         df.attrs["ejercicio_cerrado_hasta"] = int(max(df.index))
         df.attrs["nwc_fuente"] = "balance Yahoo" if nwc_real else "proxy 5 % de ingresos"
         df.attrs["tax_efectiva"] = tax_efectiva
+        df.attrs["ebit_fuente"] = "Operating Income (Yahoo)" if ebit is not ebit_yf else "EBIT (Yahoo)"
+        _ult = int(max(df.index))
+        if _ult in ingreso_participadas and np.isfinite(ingreso_participadas[_ult]):
+            df.attrs["ingreso_participadas"] = float(ingreso_participadas[_ult])
         while len(df) > 3 and abs(float(df["Ingresos"].iloc[-1])) < 1e-9:
             df = df.iloc[:-1]
         extra = f" Omitidos {omitidos}." if omitidos else ""
@@ -3567,7 +3590,7 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
                 "Noncontrolling Interest",
                 "Non Controlling Interest",
                 "Minority Interests",
-            ], excluir=("gross", "total equity", "net income", "dividends"))
+            ], excluir=("gross", "total equity", "net income", "dividends", "liabilit"))
             if mi is not None:
                 nci_val = abs(mi)
             else:
@@ -3691,6 +3714,34 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     else:
         p["beta_u"] = 1.0
         p["beta_fuente"] = "proxy_mercado_1.0"
+
+    # Asociadas / negocios conjuntos: el valor contable puede quedarse muy corto frente a lo que
+    # rinden (GEB recibe ≈ 2,3 billones COP/año de participadas). Como sus resultados ya no entran
+    # en el EBIT operativo, se valoran en el puente al mayor entre libros y su utilidad
+    # capitalizada al Ke (sin crecimiento: misma convención RONIC = costo de capital del DCF).
+    ing_part = _safe_float(getattr(df_hist, "attrs", {}).get("ingreso_participadas")) if df_hist is not None else None
+    if ing_part is not None and ing_part > 0:
+        try:
+            ke_aso = costo_equity_capm(beta_apalancado(p["beta_u"], p["de_ratio"], p["tax"]),
+                                       rf=p["rf"], erp=p["erp"], crp=p["crp"])
+            cap = ing_part / ke_aso if ke_aso and ke_aso > 0.02 else None
+            p["ingreso_participadas"] = round(ing_part, 4)
+            if cap is not None and cap > float(p.get("asociados") or 0):
+                p["asociados_libros"] = p.get("asociados")
+                p["asociados"] = round(cap, 4)
+                p["asociados_fuente"] = (f"utilidad de participadas {ing_part:,.1f} / Ke {ke_aso:.1%} "
+                                         f"(> valor en libros {float(p.get('asociados_libros') or 0):,.1f})")
+            else:
+                p["asociados_fuente"] = "valor en libros (≥ utilidad de participadas capitalizada al Ke)"
+        except Exception:
+            pass
+
+    # Últimos doce meses (Yahoo info, moneda de los EEFF): base de proyección para emisores de
+    # materias primas, cuyo último ejercicio cerrado puede reflejar otro nivel de precios.
+    ltm_ing, ltm_ebitda = _safe_float(info.get("totalRevenue")), _safe_float(info.get("ebitda"))
+    if ltm_ing and ltm_ebitda and ltm_ing > 0:
+        p["ltm_ingresos"] = round(ltm_ing / 1e9, 4)
+        p["ltm_ebitda"] = round(ltm_ebitda / 1e9, 4)
 
     if enterprise_to_ebitda is not None and 1 <= enterprise_to_ebitda <= 50:
         p["exit_multiple"] = round(float(enterprise_to_ebitda), 2)
@@ -3853,6 +3904,10 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
             pass
         try:
             df.attrs["ciclico"] = empresa_es_ciclica(nombre_empresa)
+            if df.attrs["ciclico"]:
+                _p = params_empresa(nombre_empresa) or {}
+                if _p.get("ltm_ingresos") and _p.get("ltm_ebitda"):
+                    df.attrs["ltm"] = {"Ingresos": float(_p["ltm_ingresos"]), "EBITDA": float(_p["ltm_ebitda"])}
         except Exception:
             pass
     return df, msg
@@ -4137,8 +4192,11 @@ def driver_robusto(serie, ventana=5, k=3.5, ciclo_medio=False):
     nivel = float(np.median(s_n))
     estimador = "mediana"
     if ciclo_medio:
-        return nivel, {"n": int(len(s_n)), "atipicos": [i for i, m in zip(s.index, mask) if m],
-                       "estimador": "mediana de ciclo (materia prima)"}
+        # Materias primas: margen del ÚLTIMO ejercicio, coherente con el nivel de precios de los
+        # ingresos base. La mediana del ciclo aplicada a ingresos del último año mezclaba precios
+        # de 2022 con volúmenes valorados a precios de 2025 (Mineros: margen 27 % vs 30 % real).
+        return float(s.iloc[-1]), {"n": int(len(s_n)), "atipicos": [],
+                                   "estimador": "último ejercicio (coherente con el precio de los ingresos base)"}
     if len(s_n) >= 4:
         rho = _sps.spearmanr(np.arange(len(s_n)), s_n.to_numpy())[0]
         if np.isfinite(rho) and abs(rho) >= 0.8:
@@ -4311,10 +4369,23 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
         g_path = np.array([g0 + (g_conv - g0) * i / (H - 1) for i in range(H)])
     else:
         g_path = np.array([g0])
-    ing_proj = float(ing.iloc[-1]) * np.cumprod(1 + g_path)
-    ing_prev = np.concatenate([[float(ing.iloc[-1])], ing_proj[:-1]])
-
+    ing_base = float(ing.iloc[-1])
     m_ebitda, m_ebit, m_da, info_m = _margenes_robustos(df_hist, ciclo_medio=ciclico)
+    base_ltm = False
+    ltm = getattr(df_hist, "attrs", {}).get("ltm") if ciclico else None
+    if ltm:
+        try:
+            li, le = float(ltm["Ingresos"]), float(ltm["EBITDA"])
+            # Solo si es plausible frente al último cierre (descarta unidades o monedas cruzadas).
+            if li > 0 and 0.4 <= li / ing_base <= 2.5 and -0.2 < le / li < 0.9:
+                ing_base, m_ebitda = li, le / li
+                m_ebit = m_ebitda - m_da
+                base_ltm = True
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            pass
+    ing_proj = ing_base * np.cumprod(1 + g_path)
+    ing_prev = np.concatenate([[ing_base], ing_proj[:-1]])
+
     ebitda_proj = ing_proj * m_ebitda
     ebit_proj = ing_proj * m_ebit
     dep_proj = ing_proj * m_da
@@ -4358,6 +4429,7 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
         "estimador_ingresos": info_g["estimador"],
         "atipicos_normalizados": atip,
         "ciclico": ciclico,
+        "base_ltm": base_ltm,
         "g_ingresos_historico": g_hist,
         # Fuera de dominio: crecimiento observado muy por encima del techo del motor (12 %).
         # Un DCF de 5 años con convergencia rápida subestima sistemáticamente a estos emisores.
@@ -7977,7 +8049,10 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
             )
             val = forzar_vps_upside(val, nombre_empresa, acciones, precio=precio)
             escenarios[nombre] = val
-            escenarios[nombre]["g"] = g_e
+            # g efectivamente usada (con el techo macro aplicado): el optimista mostraba 7 % aunque
+            # el valor se calculaba con 6 %.
+            escenarios[nombre]["g"] = float(val.get("g_used", g_e))
+            escenarios[nombre]["g_solicitada"] = g_e
             escenarios[nombre]["WACC"] = w_adj
             escenarios[nombre]["shock_drivers"] = _SHOCKS.get(nombre, {})
             escenarios[nombre]["tv_metodo"] = val.get("tv_metodo", "Gordon / valor-conductor")
@@ -8083,9 +8158,9 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
 
         bridge_html = formatear_bridge_html(escenarios["Base"], moneda_modelo=moneda_empresa(nombre_empresa), moneda_precio=moneda_precio_empresa(nombre_empresa), nombre_empresa=nombre_empresa)
         bloque_escenarios = (
-            lectura_escenario("Pesimista", p, 0.75, g_pes, wacc + 0.015, "#DC2626")
-            + lectura_escenario("Base", b, 1.00, float(g), wacc, "#1D4ED8")
-            + lectura_escenario("Optimista", o, 1.25, g_opt, max(wacc - 0.01, 0.06), "#059669")
+            lectura_escenario("Pesimista", p, 0.75, p["g"], wacc + 0.015, "#DC2626")
+            + lectura_escenario("Base", b, 1.00, b["g"], wacc, "#1D4ED8")
+            + lectura_escenario("Optimista", o, 1.25, o["g"], max(wacc - 0.01, 0.06), "#059669")
         )
 
         # Mensaje de margen de seguridad
@@ -8356,12 +8431,14 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             )
         if meta_proj.get("ciclico"):
             motor.setdefault("alertas", []).append(
-                "Emisor de materias primas: ingresos y márgenes proyectados a ciclo medio (mediana histórica, "
-                "crecimiento nominal de largo plazo). El valor es muy sensible al precio de la materia prima."
+                "Emisor de materias primas: no se extrapola la tendencia de precios; ingresos y margen base del "
+                + ("último año móvil (LTM)" if meta_proj.get("base_ltm") else "último ejercicio cerrado")
+                + ", creciendo al nominal de largo plazo. El valor es muy sensible al precio de la materia prima."
             )
         try:
             _inf_lp = INFLACION_LP.get(mercado_empresa(nombre_empresa))
-            if _inf_lp is not None and float(val_base.get("g_used", g)) < _inf_lp - 1e-9:
+            # Tolerancia de 0,5 pp: g = 6,0 % frente a 6,15 % de inflación es crecimiento real ≈ 0, no contracción.
+            if _inf_lp is not None and float(val_base.get("g_used", g)) < _inf_lp - 0.005:
                 motor.setdefault("alertas", []).append(
                     f"g terminal nominal {float(val_base.get('g_used', g))*100:.2f}% < inflación de largo plazo de la moneda "
                     f"({_inf_lp*100:.2f}%): el valor terminal asume contracción REAL perpetua."
@@ -8400,14 +8477,15 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             ],
         })
 
-        vetos_html = "".join(f"<li style='color:#991B1B'>{v}</li>" for v in motor["vetos"]) or "<li style='color:#065F46'>Ningún veto duro activo</li>"
+        # Tonos claros: la app es oscura y #991B1B/#065F46/#9A3412 eran casi ilegibles sobre #0B1220.
+        vetos_html = "".join(f"<li style='color:#F87171'>{v}</li>" for v in motor["vetos"]) or "<li style='color:#34D399'>Ningún veto duro activo</li>"
         # Vetos del motor de decisión (sin bloque de contraste modelo vs mercado en esta pestaña).
         vetos_bloque = (
             "<b>Vetos de calidad del modelo (control interno · no son rating de la acción)</b>"
             f"<ul>{vetos_html}</ul>"
         )
-        alertas_html = "".join(f"<li style='color:#9A3412'>{a}</li>" for a in motor["alertas"]) or "<li>Sin alertas relevantes</li>"
-        soportes_html = "".join(f"<li style='color:#065F46'>{s}</li>" for s in motor["soportes"]) or "<li>Sin soportes destacados</li>"
+        alertas_html = "".join(f"<li style='color:#FDBA74'>{a}</li>" for a in motor["alertas"]) or "<li>Sin alertas relevantes</li>"
+        soportes_html = "".join(f"<li style='color:#6EE7B7'>{s}</li>" for s in motor["soportes"]) or "<li>Sin soportes destacados</li>"
 
         try:
             sens = matriz_sensibilidad_wacc_g(df_proj["FCFF"].values, deuda_neta, wacc, float(g), mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj))
@@ -8742,6 +8820,10 @@ def _fila_sectorial_desde_emp(nombre, emp):
         live_ok = True
         try:
             ev_ebitda = _safe_float(mkt.get("enterprise_to_ebitda"))
+            if ev_ebitda is not None:
+                # Antes la etiqueta quedaba en «Estimado (sin ticker live)» aunque el múltiplo
+                # viniera de Yahoo: la pestaña 6 y el comité lo trataban como estimado.
+                fuente_mult = "Yahoo Finance (enterpriseToEbitda)"
             if ev_ebitda is None and HAS_YF and ticker:
                 info = yf.Ticker(ticker).info or {}
                 ev_ebitda = _safe_float(info.get("enterpriseToEbitda"))
@@ -8782,6 +8864,8 @@ def _fila_sectorial_desde_emp(nombre, emp):
         "Precio": round(precio, 0) if precio else None,
         "Fuente múltiplo": fuente_mult,
         "Sector": emp.get("sector", ""),
+        # Moneda de las cifras: la tabla mezcla emisores en COP y USD (miles de millones de cada una).
+        "Moneda": str(emp.get("moneda") or (emp.get("params") or {}).get("moneda") or ""),
     }
     return row, short, fuente_mult, live_ok
 
@@ -9163,6 +9247,7 @@ def tab6_comparacion_sectorial(nombre_empresa):
                     {"empresa": str(r.get("Nombre") or r.get("Empresa")),
                      "ev_ebitda": _finite_or_none(r.get("EV/EBITDA (x)")),
                      "fuente": str(r.get("Fuente múltiplo") or ""),
+                     "moneda": str(r.get("Moneda") or ""),
                      "es_focal": str(r.get("Empresa") or "").upper() == _focal}
                     for _, r in df.iterrows()
                 ],
@@ -9503,7 +9588,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
             ebitda_out = float(df_proj["EBITDA"].iloc[-1]) * fac if "EBITDA" in df_proj.columns else None
             val = valorar_con_bridge(_escalar_fcff(df_proj["FCFF"].values, fac), w_adj, g_e, bp, ebitda_salida=ebitda_out, precio_mercado=precio, mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj, fac))
             escenarios[nombre] = val
-            escenarios[nombre]["g"] = g_e
+            escenarios[nombre]["g"] = float(val.get("g_used", g_e))
             escenarios[nombre]["WACC"] = w_adj
 
         # Asegurar VPS/upside en todos los escenarios (AAPL y cualquier Yahoo)

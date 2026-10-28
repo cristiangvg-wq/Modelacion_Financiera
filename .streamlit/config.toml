@@ -1,0 +1,15 @@
+# Tema base oscuro alineado con el CSS de la app. Sin este archivo Streamlit usaba su tema
+# CLARO por defecto bajo el CSS oscuro: los widgets sin estilo propio (opciones de radio,
+# subtítulos, tablas st.dataframe) quedaban con texto gris oscuro o fondo blanco.
+[theme]
+base = "dark"
+primaryColor = "#14B8A6"
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#1A2336"
+textColor = "#F1F5F9"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

@@ -87,21 +87,21 @@
       "puente": {
         "deuda_neta": 17170,
         "caja": 2430,
-        "nci": 1500,
+        "nci": 576.2,
         "otros_claims": 0,
-        "asociados": 800,
+        "asociados": 13688.2,
         "acciones": 9181,
-        "fuente": "1T26 GEB: deuda neta 17,54 billones (coincide)"
+        "fuente": "Balance Yahoo dic-2025: interés minoritario 576,2; inversiones en asociadas y negocios conjuntos 13.688,2 (valor en libros). Deuda neta 1T26 17,54 billones."
       },
       "supuestos": {
         "beta_u": 0.4,
-        "tax": 0.18,
+        "tax": 0.35,
         "de_ratio": 0.63,
         "g": 0.05,
         "exit_multiple": 13.6,
         "capital_invertido": 38000,
         "inversion_inicial": 3500,
-        "fuente_tax": "tasa efectiva 1T26 (126/694 = 18 %)",
+        "fuente_tax": "estatutaria 35 % sobre EBIT operativo: la tasa efectiva consolidada (≈ 15–18 %) es baja porque la utilidad de participadas llega neta de impuestos y ya no está en el EBIT.",
         "fuente_de_ratio": "mercado: 17.540 / 27.770, oct-2026"
       },
       "historico": {
@@ -118,16 +118,16 @@
           8015.6
         ],
         "EBITDA": [
-          5400,
-          5737.8,
-          5394.8,
-          6153.3
+          2803.8,
+          3554.7,
+          3646.5,
+          3585.4
         ],
         "EBIT": [
-          4563.8,
-          4758.9,
-          4425.7,
-          5118.5
+          1967.6,
+          2575.7,
+          2677.4,
+          2550.6
         ],
         "Depreciacion": [
           836.2,
@@ -148,8 +148,8 @@
           641.3
         ]
       },
-      "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
-      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+      "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA reemplazados por utilidad OPERATIVA de Yahoo (oct-2026): el EBIT anterior incluía ≈ 2,3 billones/año del método de participación, que el puente ya suma como asociadas.",
+      "verificacion": "parcial: EBIT operativo, NCI y asociadas contrastados con Yahoo (oct-2026); asociadas a valor en libros."
     },
     "CELSIA — Celsia S.A. E.S.P.": {
       "ticker_bvc": "CELSIA",
@@ -160,11 +160,11 @@
       "puente": {
         "deuda_neta": 5030,
         "caja": 300,
-        "nci": 200,
+        "nci": 1743.7,
         "otros_claims": 0,
-        "asociados": 100,
+        "asociados": 624.5,
         "acciones": 1033,
-        "fuente": "Catálogo previo (por verificar)"
+        "fuente": "Balance Yahoo dic-2025: interés minoritario 1.743,7; inversiones de largo plazo en participadas 624,5."
       },
       "supuestos": {
         "beta_u": 0.45,
@@ -189,16 +189,16 @@
           5395.1
         ],
         "EBITDA": [
-          1710.1,
-          1751.7,
-          1481.5,
-          1580.1
+          1796.2,
+          1850.6,
+          1498.3,
+          1660.9
         ],
         "EBIT": [
-          1281.7,
-          1370.3,
-          1075.4,
-          1140.7
+          1367.7,
+          1469.2,
+          1092.2,
+          1221.5
         ],
         "Depreciacion": [
           428.5,
@@ -219,7 +219,7 @@
           431.6
         ]
       },
-      "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
+      "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA = utilidad operativa (Yahoo, oct-2026).",
       "verificacion": "pendiente: verificar contra estados financieros consolidados"
     },
     "EPM — Empresas Públicas de Medellín": {
@@ -394,16 +394,16 @@
           119694
         ],
         "EBITDA": [
-          73813.5,
-          59832,
-          55747,
-          45128
+          73351.9,
+          58330.0,
+          51542.0,
+          43689.0
         ],
         "EBIT": [
-          61684.5,
-          46020,
-          40550,
-          29021
+          61222.9,
+          44518.0,
+          36345.0,
+          27582.0
         ],
         "Depreciacion": [
           12129,
@@ -424,7 +424,7 @@
           9575.5
         ]
       },
-      "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
+      "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA = utilidad operativa (Yahoo, oct-2026), sin método de participación (≈ 710/año), que entra por el puente.",
       "verificacion": "parcial: puente EV→equity verificado con EEFF consolidados 30-jun-2025; histórico de ingresos/EBITDA por verificar (catálogo previo). Ingresos 1S25 = 61.035 consistentes con 2025 ≈ 119.694.",
       "ciclico": true
     }
