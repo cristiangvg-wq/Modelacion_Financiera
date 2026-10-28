@@ -3584,6 +3584,11 @@ def main():
             # Paso 0,0005: las primas de Damodaran (p. ej. 4,42 %) no son múltiplos de 0,5 pp.
             erp = _slider_y_caja("ERP", 0.03, 0.10, float(st.session_state.get("erp", 0.055)), 0.0005, f"erp_{ek}", "%.4f", paso_caja=0.0001)
             crp = _slider_y_caja("CRP", 0.0, 0.08, float(st.session_state.get("crp", 0.0)), 0.0005, f"crp_{ek}", "%.4f", paso_caja=0.0001)
+            _mon_flujos = str(p.get("moneda") or "").upper()
+            if _mon_flujos == "COP" and float(crp or 0) > 0:
+                st.warning(f"CRP {crp:.2%} con flujos en pesos: el ERP de Damodaran para Colombia ya incluye el "
+                           "riesgo país y rf (TES) ya trae el riesgo soberano. Sumar CRP lo cuenta dos veces; "
+                           "déjalo en 0 salvo que uses un ERP de mercado maduro.")
             try:
                 _dam_ui = L.damodaran_empresa(empresa) if hasattr(L, "damodaran_empresa") else {}
                 _rp_ui = (_dam_ui or {}).get("riesgo_pais") or {}
@@ -5030,6 +5035,8 @@ def main():
                     optimizar_portafolio as _opt_portfolio,
                     construir_frontera as _frontier_portfolio,
                     convertir_a_moneda_comun as _fx_portfolio,
+                    rendimientos_comunes as _rets_portfolio,
+                    metricas_riesgo_historicas as _riesgo_portfolio,
                 )
                 _ptickers = list(_portfolio_tickers_final)
                 if len(_ptickers) < 2:
@@ -5084,6 +5091,11 @@ def main():
                     _mu, _cov, objetivo=_pobjective,
                     tasa_libre_riesgo=float(_prf), peso_maximo=float(_pmax),
                 )
+                try:
+                    _riesgo = _riesgo_portfolio(_rets_portfolio(_prices), _res["pesos"])
+                except Exception as _e_riesgo:
+                    _riesgo = {"error": str(_e_riesgo)}
+                _riesgo["contraccion_alpha"] = float(getattr(_cov, "attrs", {}).get("contraccion_alpha", 0.0))
                 _frontier = _frontier_portfolio(
                     _mu, _cov, tasa_libre_riesgo=float(_prf),
                     peso_maximo=float(_pmax), n_puntos=20,
@@ -5093,6 +5105,7 @@ def main():
                     "return": _res["retorno_esperado"],
                     "volatility": _res["volatilidad"],
                     "sharpe": _res["sharpe"],
+                    "riesgo": _riesgo,
                     "currency": _pbase,
                     "monedas_origen": dict(_meta),
                     "period": _pperiod,
@@ -5123,6 +5136,25 @@ def main():
             _pc2.metric("Volatilidad anualizada", f"{_portfolio_saved['volatility']:.2%}")
             _psharpe = _portfolio_saved["sharpe"]
             _pc3.metric("Sharpe estimado", f"{_psharpe:.2f}" if _psharpe is not None else "N/D")
+            _rz = _portfolio_saved.get("riesgo") or {}
+            if _rz and not _rz.get("error"):
+                _rc1, _rc2, _rc3, _rc4 = st.columns(4)
+                _rc1.metric("Caída máxima histórica", f"{_rz['max_drawdown']:.1%}",
+                            help="Mayor caída del capital desde un pico, con estos pesos en la ventana elegida.")
+                _rc2.metric(f"VaR diario {_rz['confianza']:.0%}", f"{_rz['var_diario']:.2%}",
+                            help="En el 95 % de los días históricos la pérdida diaria no superó este valor.")
+                _rc3.metric(f"CVaR diario {_rz['confianza']:.0%}",
+                            f"{_rz['cvar_diario']:.2%}" if _rz.get("cvar_diario") is not None else "N/D",
+                            help="Pérdida diaria promedio en el 5 % de los peores días (pérdida de cola).")
+                _rc4.metric("Rendimiento compuesto anual",
+                            f"{_rz['retorno_compuesto_anual']:.2%}" if _rz.get("retorno_compuesto_anual") is not None else "N/D",
+                            help="Lo que creció el capital por año con estos pesos. El «retorno esperado» de arriba es la "
+                                 "media aritmética que usa el optimizador; con volatilidad, el compuesto es menor.")
+                st.caption(
+                    f"Covarianza con contracción de Ledoit-Wolf (α = {_rz.get('contraccion_alpha', 0):.2f}): reduce el ruido "
+                    "de las correlaciones históricas. Todas las cifras describen el pasado (pesos actuales aplicados "
+                    "a toda la ventana) y no garantizan pérdidas ni rendimientos futuros."
+                )
             st.markdown("###### Pesos sugeridos por el optimizador")
             _weights_df = pd.DataFrame.from_dict(_portfolio_saved["weights"], orient="index", columns=["Peso"])
             _weights_df["Peso (%)"] = _weights_df["Peso"] * 100

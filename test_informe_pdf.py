@@ -80,10 +80,37 @@ class TestPdf(_Base):
         texto = "\n".join(pg.extract_text() for pg in pypdf.PdfReader(r[3]).pages)
         for esperado in ("1. La empresa", "Cotiza en", "2. Resumen", "Valor por acción del modelo", "Del valor de la empresa",
                          "4. Rango de valor", "5. Modelo frente al mercado", "7. Datos y fuentes", "9. Dictamen del comité IA",
-                         "MANTENER", "26,500", "Ingresos regulados", "TES 10a"):
+                         "MANTENER", "26,500", "Ingresos regulados", "TES 10a", "Estado de cada dato", "Deuda neta",
+                         "Beta sin deuda"):
             self.assertIn(esperado, texto)
         for prohibido in ("Equity base", "VPN proyecto", "Sin narrativa HTML", "informe HTML"):
             self.assertNotIn(prohibido, texto)
+
+
+class TestCalidadVariables(_Base):
+    """Estado de cada dato crítico (auditoría externa 2026-10-28, sección 2.7)."""
+
+    def test_estados_y_edicion_del_usuario(self):
+        p = L.params_empresa(ISA)
+        filas = {f[0]: f for f in L.calidad_variables(ISA, {"deuda_neta": p["deuda_neta"], "beta_u": p["beta_u"],
+                                                              "rf": 0.11, "erp": 0.07, "crp": 0.0})}
+        self.assertIn(filas["Deuda neta"][2], ("OBSERVADO", "CURADO"))
+        self.assertTrue(set(f[2] for f in filas.values()) <= set(L.ESTADOS_DATO))
+        editado = {f[0]: f for f in L.calidad_variables(ISA, {"deuda_neta": float(p["deuda_neta"]) * 1.2})}
+        self.assertEqual(editado["Deuda neta"][2], "USUARIO")
+        sin_deuda = {f[0]: f for f in L.calidad_variables(ISA, {"deuda_neta": 0.0, "de_ratio": 1.1})}
+        self.assertEqual(sin_deuda["Deuda neta"][2], "FALTANTE")
+
+    def test_crp_en_pesos_avisa_doble_conteo(self):
+        filas = {f[0]: f for f in L.calidad_variables(ISA, {"crp": 0.02, "erp": 0.07})}
+        self.assertIn("doble conteo", filas["Primas ERP / CRP"][3])
+
+    def test_estado_por_fuente(self):
+        self.assertEqual(L._estado_por_fuente("yahoo (ajuste Blume: 0.67·β + 0.33)"), "OBSERVADO")
+        self.assertEqual(L._estado_por_fuente("bottom-up Damodaran (sin β)"), "ESTIMADO")
+        self.assertEqual(L._estado_por_fuente("catálogo curado (Yahoo sin deuda)"), "CURADO")
+        self.assertEqual(L._estado_por_fuente("hoja Parámetros del archivo"), "USUARIO")
+        self.assertEqual(L._estado_por_fuente("estatutaria_CO"), "ESTIMADO")
 
 
 if __name__ == "__main__":

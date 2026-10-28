@@ -11,16 +11,10 @@ import pandas as pd
 from scipy.optimize import minimize
 
 
-def preparar_estadisticas(
-    precios: pd.DataFrame,
-    periodos_anuales: int = 252,
-    min_observaciones: int = 120,
-) -> tuple[pd.Series, pd.DataFrame]:
-    """Calcula media aritmética y covarianza anualizadas desde precios."""
+def rendimientos_comunes(precios: pd.DataFrame, min_observaciones: int = 120) -> pd.DataFrame:
+    """Rendimientos simples diarios en fechas comunes, sin inventar precios faltantes."""
     if precios is None or precios.empty:
         raise ValueError("No hay precios para construir el portafolio.")
-    if periodos_anuales <= 0 or min_observaciones < 2:
-        raise ValueError("Parámetros de anualización/muestra inválidos.")
     p = precios.copy().sort_index()
     p = p.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
     p = p.dropna(axis=1, thresh=min_observaciones + 1)
@@ -31,18 +25,69 @@ def preparar_estadisticas(
         raise ValueError("No hay suficientes fechas comunes entre los activos.")
     if (p <= 0).any().any():
         raise ValueError("Los precios deben ser estrictamente positivos.")
-    returns = p.pct_change(fill_method=None).dropna()
-    if len(returns) < min_observaciones:
+    r = p.pct_change(fill_method=None).dropna()
+    if len(r) < min_observaciones:
         raise ValueError("La muestra de rendimientos es demasiado corta.")
+    return r
+
+
+def covarianza_ledoit_wolf(rendimientos) -> tuple[np.ndarray, float]:
+    """Covarianza con contracción de Ledoit-Wolf (2004) hacia una matriz escalar μ·I.
+
+    Σ_LW = (1 − α)·S + α·μ·I, con α estimado de los datos (misma fórmula que
+    sklearn.covariance.LedoitWolf, sin añadir esa dependencia). Reduce el error de
+    estimación de las correlaciones; no corrige el error de la media.
+    Devuelve (matriz por periodo, α).
+    """
+    x = np.asarray(rendimientos, dtype=float)
+    if x.ndim != 2 or x.shape[0] < 2 or x.shape[1] < 1 or not np.isfinite(x).all():
+        raise ValueError("Rendimientos inválidos para la covarianza.")
+    n, p = x.shape
+    xc = x - x.mean(axis=0)
+    s = xc.T @ xc / n
+    mu = float(np.trace(s)) / p
+    delta = float(((s - mu * np.eye(p)) ** 2).sum()) / p
+    beta = float(sum(((np.outer(row, row) - s) ** 2).sum() for row in xc)) / (p * n * n)
+    beta = min(beta, delta)
+    alpha = 0.0 if delta <= 0 else beta / delta
+    cov = (1.0 - alpha) * s + alpha * mu * np.eye(p)
+    # Corrección a la covarianza muestral insesgada (n − 1) para ser comparable con DataFrame.cov().
+    return cov * n / (n - 1), float(alpha)
+
+
+def preparar_estadisticas(
+    precios: pd.DataFrame,
+    periodos_anuales: int = 252,
+    min_observaciones: int = 120,
+    contraccion: bool = True,
+) -> tuple[pd.Series, pd.DataFrame]:
+    """Calcula media aritmética y covarianza anualizadas desde precios.
+
+    Con `contraccion=True` (por defecto) la covarianza usa Ledoit-Wolf: los pesos
+    óptimos dependen menos de correlaciones estimadas con ruido. El α aplicado queda
+    en ``cov.attrs["contraccion_alpha"]``.
+    """
+    if precios is None or precios.empty:
+        raise ValueError("No hay precios para construir el portafolio.")
+    if periodos_anuales <= 0 or min_observaciones < 2:
+        raise ValueError("Parámetros de anualización/muestra inválidos.")
+    returns = rendimientos_comunes(precios, min_observaciones)
     mu = returns.mean() * float(periodos_anuales)
-    cov = returns.cov() * float(periodos_anuales)
+    alpha = 0.0
+    if contraccion:
+        lw, alpha = covarianza_ledoit_wolf(returns.to_numpy(dtype=float))
+        cov = pd.DataFrame(lw * float(periodos_anuales), index=returns.columns, columns=returns.columns)
+    else:
+        cov = returns.cov() * float(periodos_anuales)
     matrix = cov.to_numpy(dtype=float)
     if not np.isfinite(mu.to_numpy(dtype=float)).all() or not np.isfinite(matrix).all():
         raise ValueError("Retornos o covarianza contienen valores no finitos.")
     matrix = (matrix + matrix.T) / 2.0
     if float(np.linalg.eigvalsh(matrix).min()) < -1e-8:
         raise ValueError("La covarianza no es semidefinida positiva; revisar datos.")
-    return mu, pd.DataFrame(matrix, index=mu.index, columns=mu.index)
+    out = pd.DataFrame(matrix, index=mu.index, columns=mu.index)
+    out.attrs["contraccion_alpha"] = alpha
+    return mu, out
 
 
 def metricas_portafolio(pesos, mu, cov, tasa_libre_riesgo: float = 0.0) -> dict:
@@ -135,12 +180,80 @@ def optimizar_portafolio(
         or abs(float(weights.sum()) - 1.0) > 1e-5
     ):
         raise RuntimeError("La solución no cumple las restricciones.")
-    weights = np.clip(weights, 0.0, float(peso_maximo))
-    weights /= weights.sum()
+    # Antes: recortar al máximo y volver a dividir por la suma. Esa división podía dejar
+    # un peso por encima del máximo. Ahora se proyecta sobre {0 ≤ w ≤ máx, Σw = 1}
+    # repartiendo el residuo solo entre los activos que aún tienen holgura.
+    weights = proyectar_pesos(weights, peso_maximo)
     metrics = metricas_portafolio(weights, m, c, rf)
     return {
         "pesos": pd.Series(weights, index=tickers, name="Peso"),
         **metrics, "objetivo": objetivo, "solver_success": bool(result.success),
+    }
+
+
+def proyectar_pesos(pesos, peso_maximo: float, tol: float = 1e-12) -> np.ndarray:
+    """Lleva un vector casi factible a 0 ≤ w ≤ peso_maximo con Σw = 1 sin violar el tope.
+
+    Corrige solo residuos numéricos del optimizador: el déficit o exceso se reparte
+    proporcionalmente entre los activos con holgura (nunca se escala un peso ya topado).
+    """
+    w = np.clip(np.asarray(pesos, dtype=float), 0.0, float(peso_maximo))
+    cap = float(peso_maximo)
+    if len(w) * cap < 1.0 - 1e-9:
+        raise ValueError("Peso máximo inviable: n × máximo < 100 %.")
+    for _ in range(len(w) + 2):
+        resto = 1.0 - float(w.sum())
+        if abs(resto) <= tol:
+            break
+        if resto > 0:
+            libres = w < cap - tol
+            base = w[libres] if w[libres].sum() > tol else np.ones(int(libres.sum()))
+            w[libres] = np.minimum(cap, w[libres] + resto * base / base.sum())
+        else:
+            activos = w > tol
+            w[activos] = np.maximum(0.0, w[activos] + resto * w[activos] / w[activos].sum())
+    if abs(float(w.sum()) - 1.0) > 1e-9 or w.max() > cap + 1e-12 or w.min() < 0:
+        raise RuntimeError("No se pudo ajustar los pesos a las restricciones.")
+    return w
+
+
+def metricas_riesgo_historicas(rendimientos: pd.DataFrame, pesos, confianza: float = 0.95,
+                               periodos_anuales: int = 252) -> dict:
+    """Riesgo de pérdidas con los rendimientos diarios observados de la cartera.
+
+    - VaR y CVaR históricos diarios (pérdidas en positivo) al nivel de confianza.
+    - Caída máxima desde un pico (drawdown) del capital acumulado.
+    - Rendimiento compuesto anual (geométrico) frente a la media aritmética anualizada:
+      el aritmético es el insumo del optimizador; el compuesto es lo que creció el capital.
+    Son descripciones del pasado, no garantías sobre pérdidas futuras.
+    """
+    r = pd.DataFrame(rendimientos).apply(pd.to_numeric, errors="coerce").dropna()
+    w = pd.Series(pesos, dtype=float)
+    if isinstance(pesos, (pd.Series, dict)):
+        w = w.reindex(r.columns).fillna(0.0)
+    else:
+        w.index = r.columns
+    if len(r) < 2 or not np.isfinite(r.to_numpy()).all():
+        raise ValueError("Rendimientos insuficientes o no finitos.")
+    if not 0.5 < float(confianza) < 1.0:
+        raise ValueError("Nivel de confianza inválido.")
+    rp = r.to_numpy(dtype=float) @ w.to_numpy(dtype=float)
+    if (rp < -1).any():
+        raise ValueError("Un rendimiento simple no puede ser inferior a −100 %.")
+    q = float(np.quantile(rp, 1.0 - float(confianza)))
+    cola = rp[rp <= q]
+    riqueza = np.cumprod(1.0 + rp)
+    dd = riqueza / np.maximum.accumulate(riqueza) - 1.0
+    años = len(rp) / float(periodos_anuales)
+    geo = float(riqueza[-1] ** (1.0 / años) - 1.0) if años > 0 and riqueza[-1] > 0 else None
+    return {
+        "var_diario": max(0.0, -q),
+        "cvar_diario": max(0.0, -float(cola.mean())) if len(cola) else None,
+        "confianza": float(confianza),
+        "max_drawdown": float(dd.min()),
+        "retorno_compuesto_anual": geo,
+        "retorno_aritmetico_anual": float(rp.mean() * periodos_anuales),
+        "observaciones": int(len(rp)),
     }
 
 
