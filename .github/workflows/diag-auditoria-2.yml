@@ -13,11 +13,13 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.11", cache: pip}
       - run: pip install -r requirements.txt
-      - run: mkdir -p res && python diag/valorar_activos.py > res/valoracion.json 2> res/valoracion.err || true
+      - run: mkdir -p res && echo omitido > res/valoracion.json
       - run: python diag/filas_yahoo.py > res/filas_yahoo.json 2> res/filas_yahoo.err || true
+      - run: python diag/flujos_yahoo.py > res/flujos_yahoo.json 2> res/flujos_yahoo.err || true
       - uses: actions/upload-artifact@v4
         with: {name: valoracion, path: res}
   versiones:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -37,6 +39,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: {name: versiones, path: res}
   gemini:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -55,6 +58,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: {name: gemini, path: res}
   ui:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -70,7 +74,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: {name: ui, path: res}
   publicar:
-    needs: [valoracion, versiones, gemini, ui]
+    needs: [valoracion]
     if: always()
     runs-on: ubuntu-latest
     steps:
