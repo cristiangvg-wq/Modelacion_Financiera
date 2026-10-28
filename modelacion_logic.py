@@ -20,9 +20,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
+# statsmodels (ARIMA/ETS) se importa de forma diferida dentro de ajustar_ets/ajustar_arima:
+# solo lo usan los métodos alternativos de la pestaña 1 y su importación en frío añade
+# ~1–2 s y ~100 MB a CADA arranque del contenedor de Streamlit Cloud.
 try:
     import gradio as gr
 except ImportError:
@@ -222,6 +222,7 @@ def _construir_catalogo(datos):
             "deuda_neta": pu.get("deuda_neta"), "caja": pu.get("caja"), "nci": pu.get("nci"),
             "otros_claims": pu.get("otros_claims"), "asociados": pu.get("asociados"),
             "acciones": pu.get("acciones"), "moneda": datos.get("moneda", "COP"),
+            "ciclico": c.get("ciclico"),
         }
         emp = {
             "ticker_bvc": c.get("ticker_bvc"), "ticker_yf": c.get("ticker_yf"),
@@ -627,7 +628,7 @@ def extraer_resumen_comite_ia(html_o_texto, max_monitoreo=3):
     for pat in (
         r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：]\s*([^\n]+)",
         r"Recomendaci[oó]n\s+final\s*[:：]\s*([^\n]+)",
-        r"\b(INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b",
+        r"\b(COMPRAR|MANTENER|VENDER|INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b",
     ):
         mm = re.search(pat, raw, flags=re.I)
         if mm:
@@ -636,8 +637,8 @@ def extraer_resumen_comite_ia(html_o_texto, max_monitoreo=3):
 
     # PUNTAJE
     for pat in (
-        r"PUNTAJE\s+DE\s+VIABILIDAD\s*[:：]\s*([^\n]+)",
-        r"Puntaje\s+de\s+viabilidad\s*[:：]\s*([^\n]+)",
+        r"PUNTAJE\s+DE\s+(?:VIABILIDAD|CONVICCI[ÓO]N)\s*[:：]\s*([^\n]+)",
+        r"Puntaje\s+de\s+(?:viabilidad|convicci[oó]n)\s*[:：]\s*([^\n]+)",
         r"PUNTAJE\s*[:：]\s*([0-9]+(?:\s*/\s*10)?)",
         r"\b([0-9]{1,2})\s*/\s*10\b",
     ):
@@ -2770,6 +2771,109 @@ CAPM_POR_MERCADO = {
 }
 CAPM_AS_OF = "2026-10"  # US rf~5.0% (UST10 4,99 % 27-oct-2026) / ERP~5%; CO rf~13% (TES 10a >13% al 21-oct-2026). Revisar en cada ciclo de FOMC/BanRep.
 
+# Riesgo país: CDS soberano a 5 años (Bloomberg vía La República, corte 20-oct-2026).
+# Solo se suma cuando los flujos están en una moneda DURA distinta a la local del emisor
+# (p. ej. MINEROS: EEFF en USD, emisor colombiano). Si los flujos están en COP, el TES ya
+# incorpora el riesgo soberano y sumarlo otra vez sería doble conteo.
+RIESGO_PAIS_CDS = {"CO": 0.0160, "BR": 0.0117, "MX": 0.0095, "PE": 0.0067, "CL": 0.0054}
+MULT_CRP_EQUITY = 1.5   # σ(acciones)/σ(bonos) típico en emergentes: CRP equity ≈ 1,5 × CDS
+# Inflación de largo plazo implícita en el mercado (para Fisher / paridad):
+#   CO: breakeven TES COP vs UVR 10 años 6,15 % (BanRep, 21-ago-2026)
+#   US: UST10 5,22 % − tasa real 10 años 2,87 % = 2,35 % (9-oct-2026)
+INFLACION_LP = {"CO": 0.0615, "US": 0.0235}
+MERCADO_POR_MONEDA = {"COP": "CO", "USD": "US", "BRL": "BR", "MXN": "MX", "CLP": "CL", "GBP": "GB"}
+TASA_ESTATUTARIA = {"CO": 0.35, "US": 0.21, "BR": 0.34, "MX": 0.30, "CL": 0.27, "GB": 0.25}
+
+
+def _mercado_desde_pais(country):
+    c = str(country or "").strip().upper()
+    return {
+        "COLOMBIA": "CO", "COL": "CO", "CO": "CO", "UNITED STATES": "US", "USA": "US", "US": "US",
+        "BRAZIL": "BR", "BRA": "BR", "BR": "BR", "MEXICO": "MX", "MEX": "MX", "MX": "MX",
+        "CHILE": "CL", "CHL": "CL", "UNITED KINGDOM": "GB", "GBR": "GB", "GB": "GB", "UK": "GB",
+        "PERU": "PE", "PER": "PE", "PE": "PE",
+    }.get(c)
+
+
+def capm_coherente_con_moneda(country=None, moneda_flujos=None, ticker_yf=None):
+    """Anclas CAPM en la MONEDA DE LOS FLUJOS (regla de consistencia del DCF).
+
+    Antes el mercado CAPM se elegía por país/sufijo del ticker: un emisor .CL que reporta
+    en USD (MINEROS) se descontaba con el TES en COP (13 %) y Kd = 14 %, mezclando la
+    inflación colombiana en una tasa aplicada a flujos en dólares (WACC 17,3 % vs 14,5 %
+    implícito en el precio). Ahora:
+      · rf, ERP, g de largo plazo y techo macro → mercado de la moneda de los flujos;
+      · si esa moneda es dura y el emisor es de un país emergente → + riesgo país
+        (Ke: 1,5×CDS; Kd: + CDS).
+    Devuelve dict con rf, erp, crp, crp_deuda, g_max_macro, g_lp, kd_spread y códigos.
+    """
+    merc_pais = _mercado_desde_pais(country) or _codigo_mercado(country, None, ticker_yf)
+    merc_moneda = MERCADO_POR_MONEDA.get(str(moneda_flujos or "").upper().replace("US$", "USD"))
+    merc = merc_moneda or merc_pais or "DEFAULT"
+    if merc not in CAPM_POR_MERCADO:
+        merc = "DEFAULT"
+    base = dict(CAPM_POR_MERCADO[merc])
+    cds = 0.0
+    if merc_moneda and merc_pais and merc_pais != merc_moneda:
+        cds = float(RIESGO_PAIS_CDS.get(merc_pais, 0.0))
+    base.update({
+        "crp": round(float(base.get("crp", 0.0)) + MULT_CRP_EQUITY * cds, 4),
+        "crp_deuda": round(cds, 4),
+        "mercado": merc,
+        "mercado_pais": merc_pais,
+        "cruce_moneda": bool(cds),
+    })
+    return base
+
+
+def tasa_estatutaria(country=None, mercado=None):
+    """Tasa estatutaria de renta por país (fallback 25 %)."""
+    m = mercado or _mercado_desde_pais(country)
+    return float(TASA_ESTATUTARIA.get(m, 0.25))
+
+
+def wacc_paridad_usd(beta_u, de_ratio, tax, kd_spread=0.01, pais="CO"):
+    """WACC alternativo construido en USD y llevado a COP por paridad de inflación (Fisher).
+
+    Práctica habitual de banca de inversión para emisores colombianos con negocio
+    regional: Ke_USD = rf_US + β_L·ERP + 1,5·CDS; Kd_USD = rf_US + spread + CDS; luego
+    (1+x_USD)·(1+π_CO)/(1+π_US) − 1. La diferencia frente al WACC local (TES) mide la
+    prima de plazo/liquidez del mercado local que el modelo está cobrando. Es un
+    diagnóstico: no reemplaza el caso base.
+    """
+    try:
+        us = CAPM_POR_MERCADO["US"]
+        cds = float(RIESGO_PAIS_CDS.get(pais, 0.0))
+        bl = beta_apalancado(float(beta_u), float(de_ratio), float(tax))
+        ke_usd = us["rf"] + bl * us["erp"] + MULT_CRP_EQUITY * cds
+        kd_usd = us["rf"] + float(kd_spread) + cds
+        wacc_usd, _, _ = calcular_wacc(float(de_ratio), kd_usd, ke_usd, float(tax))
+        fisher = (1 + INFLACION_LP.get(pais, INFLACION_LP["US"])) / (1 + INFLACION_LP["US"])
+        return {
+            "ke_usd": ke_usd, "kd_usd": kd_usd, "wacc_usd": wacc_usd,
+            "wacc_local_fisher": (1 + wacc_usd) * fisher - 1,
+            "ke_local_fisher": (1 + ke_usd) * fisher - 1,
+            "fuente": f"UST10 {us['rf']:.2%} + CDS {pais} {cds:.2%} · π {pais} {INFLACION_LP.get(pais, 0):.2%} vs π US {INFLACION_LP['US']:.2%}",
+        }
+    except Exception:
+        return None
+
+
+# Sectores cuyos ingresos dependen del precio de una materia prima: la tendencia
+# histórica de ingresos/márgenes refleja el ciclo de precios, no capacidad.
+_PALABRAS_SECTOR_CICLICO = (
+    "petróleo", "petroleo", "oil", "crude", "exploration & production", "gold", "oro ",
+    "minería", "mineria", "mining", "metals", "metal", "copper", "cobre", "coal", "carbón",
+    "silver", "plata", "steel", "acero",
+)
+
+
+def es_sector_ciclico(sector="", industry=""):
+    texto = f" {sector or ''} {industry or ''} ".lower()
+    if texto.strip() in ("energy",) or " energy " in texto.replace("/", " "):
+        return True
+    return any(k in texto for k in _PALABRAS_SECTOR_CICLICO)
+
 
 def _aplicar_reglas_catalogo():
     """Kd del catálogo = rf del mercado CO + spread según calificación (datos_curados.json)."""
@@ -3523,31 +3627,49 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     elif df_hist is not None and not df_hist.empty and "Ingresos" in df_hist.columns:
         p["inversion_inicial"] = round(abs(float(df_hist["Ingresos"].iloc[-1])) * 0.10, 4)
 
-    # --- Mercado CAPM según país/ticker de ESTA empresa (no el default Colombia de la UI) ---
+    # --- Mercado CAPM en la MONEDA DE LOS FLUJOS (no por sufijo del ticker) ---
+    # MINEROS.CL reporta en USD: sus flujos se descuentan con UST + riesgo país CO,
+    # no con el TES en COP (que incorpora ~6 % de inflación colombiana).
     currency = info.get("currency") or ""
-    merc = _codigo_mercado(country, currency, ticker_yf)
-    capm = CAPM_POR_MERCADO.get(merc, CAPM_POR_MERCADO["DEFAULT"])
+    capm = capm_coherente_con_moneda(country, fin_cur_p or currency, ticker_yf)
+    merc = capm["mercado"]
     p["rf"] = capm["rf"]
     p["erp"] = capm["erp"]
     p["crp"] = capm["crp"]
     p["g_max_macro"] = capm["g_max_macro"]
     p["mercado_capm"] = merc
+    if capm.get("cruce_moneda"):
+        p["capm_fuente"] = (
+            f"flujos en {fin_cur_p} → rf {merc} {capm['rf']:.2%} + riesgo país {capm['mercado_pais']} "
+            f"(CDS {capm['crp_deuda']:.2%}; CRP equity {capm['crp']:.2%})"
+        )
 
-    # g TERMINAL de largo plazo (Gordon): NO usar el CAGR histórico completo.
-    # CAGR reciente alimenta la proyección de horizonte explícito; g perpetuo se ancla a macro del mercado.
+    # Tasa de impuestos de PERPETUIDAD: una tasa efectiva muy inferior a la estatutaria
+    # suele reflejar pérdidas fiscales acumuladas (NOL) o créditos temporales (PLTR ≈ 4 %).
+    # Perpetuarla infla NOPAT y valor terminal; se usa la estatutaria y se informa.
+    _stat = tasa_estatutaria(country, capm.get("mercado_pais"))
+    if p.get("tax") is not None and float(p["tax"]) < 0.5 * _stat:
+        p["tax_efectiva_observada"] = float(p["tax"])
+        p["tax"] = round(_stat, 4)
+        p["tax_fuente"] = (
+            f"estatutaria {_stat:.0%} (la efectiva observada {p['tax_efectiva_observada']:.1%} es < 50 % de la "
+            "estatutaria: beneficio fiscal transitorio que no se perpetúa)"
+        )
+
+    # g TERMINAL de largo plazo (Gordon): crecimiento nominal de largo plazo de la moneda
+    # de los flujos (g_lp ≈ inflación esperada + crecimiento real bajo), acotado por el techo
+    # macro. Antes se usaba el CAGR histórico de ingresos: AAPL (CAGR 1,8 %) quedaba con
+    # g < inflación de EE. UU., es decir, contracción real perpetua.
     cagr = 0.0
     if df_hist is not None and not df_hist.empty and "Ingresos" in df_hist.columns:
         tail = df_hist["Ingresos"].iloc[-min(5, len(df_hist)):]
         cagr = _cagr_serie(tail.tolist(), floor_g=0.0, cap_g=0.15)
     p["g_cagr_historico"] = round(cagr, 4)
-    # Terminal: entre 1% y g_max_macro, sesgado a macro (más estable para DCF)
-    g_term = min(capm["g_max_macro"] * 0.7, max(0.01, min(cagr, capm["g_max_macro"])))
-    # Si el CAGR es muy alto (tech), no arrastrar 10% a perpetuidad
-    if cagr > capm["g_max_macro"]:
-        g_term = capm["g_max_macro"] * 0.75
+    g_term = min(float(capm.get("g_lp", G_CONVERGENCIA)), float(capm["g_max_macro"]))
     p["g"] = round(float(g_term), 4)
+    p["g_fuente"] = f"g de largo plazo del mercado {merc} (nominal en {fin_cur_p or currency or 'moneda del emisor'})"
 
-    # kd: interés propio o rf de su mercado + spread (no el 8% de ISA)
+    # kd: interés propio o rf de su mercado + spread (+ CDS si la deuda está en moneda dura de un emisor emergente)
     ir = _safe_float(info.get("interestRate") or info.get("borrowRate"))
     if ir is not None and 0 < ir < 0.4:
         p["kd"] = round(float(ir), 4)
@@ -3556,7 +3678,7 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         if ie is not None and total_debt and total_debt > 0:
             p["kd"] = round(float(np.clip(abs(ie) / total_debt, 0.01, 0.25)), 4)
         else:
-            p["kd"] = round(float(capm["rf"] + capm["kd_spread"]), 4)
+            p["kd"] = round(float(capm["rf"] + capm["kd_spread"] + capm.get("crp_deuda", 0.0)), 4)
 
     # Beta unlevered de ESTA acción; si Yahoo no trae beta, 1.0 (mercado) con marca
     tax = p["tax"]
@@ -3699,6 +3821,23 @@ def g_convergencia_empresa(nombre_empresa):
     return float(m.get("g_lp", G_CONVERGENCIA))
 
 
+def empresa_es_ciclica(nombre_empresa):
+    """True si la empresa vende una materia prima (petróleo, oro, metales, carbón).
+
+    En esos emisores la tendencia de ingresos y márgenes refleja el ciclo de precios:
+    Ecopetrol 2022→2025 (Brent normalizándose) daba −10 %/año de ingresos perpetuados en
+    la proyección justo cuando el 2T26 creció +35 %. Se proyecta a precio de ciclo medio.
+    """
+    try:
+        emp = resolver_empresa(nombre_empresa) or {}
+        p = emp.get("params") or {}
+        if p.get("ciclico") is not None:
+            return bool(p.get("ciclico"))
+        return es_sector_ciclico(emp.get("sector") or "", emp.get("industry") or "")
+    except Exception:
+        return False
+
+
 def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
     """Carga el histórico (Excel/CSV o datos públicos) y anota la moneda/mercado.
 
@@ -3710,6 +3849,10 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
     if df is not None and hasattr(df, "attrs"):
         try:
             df.attrs["g_convergencia"] = g_convergencia_empresa(nombre_empresa)
+        except Exception:
+            pass
+        try:
+            df.attrs["ciclico"] = empresa_es_ciclica(nombre_empresa)
         except Exception:
             pass
     return df, msg
@@ -3981,14 +4124,21 @@ def normalizar_atipicos(serie, k=3.5, reemplazo="winsor", piso_rel=0.0, piso_abs
     return s.clip(lower=lo, upper=hi), pd.Series(mask, index=s.index)
 
 
-def driver_robusto(serie, ventana=5, k=3.5):
-    """Nivel representativo de una razón histórica: Hampel + mediana (+ último dato si hay tendencia)."""
+def driver_robusto(serie, ventana=5, k=3.5, ciclo_medio=False):
+    """Nivel representativo de una razón histórica: Hampel + mediana (+ último dato si hay tendencia).
+
+    ciclo_medio=True (emisores de materias primas): siempre la mediana del ciclo; una
+    tendencia de precios no es una tendencia de capacidad y no debe fijarse en el último dato.
+    """
     s = pd.Series(serie, dtype=float).replace([np.inf, -np.inf], np.nan).dropna().iloc[-ventana:]
     if s.empty:
         return np.nan, {"n": 0, "atipicos": [], "estimador": "sin datos"}
     s_n, mask = normalizar_atipicos(s, k=k, piso_rel=0.15, piso_abs=0.015)
     nivel = float(np.median(s_n))
     estimador = "mediana"
+    if ciclo_medio:
+        return nivel, {"n": int(len(s_n)), "atipicos": [i for i, m in zip(s.index, mask) if m],
+                       "estimador": "mediana de ciclo (materia prima)"}
     if len(s_n) >= 4:
         rho = _sps.spearmanr(np.arange(len(s_n)), s_n.to_numpy())[0]
         if np.isfinite(rho) and abs(rho) >= 0.8:
@@ -3998,7 +4148,7 @@ def driver_robusto(serie, ventana=5, k=3.5):
     return nivel, {"n": int(len(s_n)), "atipicos": [i for i, m in zip(s.index, mask) if m], "estimador": estimador}
 
 
-def _margenes_robustos(df_hist):
+def _margenes_robustos(df_hist, ciclo_medio=False):
     """Márgenes independientes de EBITDA, EBIT y D&A sobre ingresos.
 
     No fuerza EBIT = EBITDA − D&A: algunos emisores incluyen impuestos operativos
@@ -4006,15 +4156,15 @@ def _margenes_robustos(df_hist):
     aritmética no representa D&A ni EBIT operativo comparable.
     """
     ing = df_hist["Ingresos"].astype(float).replace(0, np.nan)
-    m_ebitda, i1 = driver_robusto(df_hist["EBITDA"].astype(float) / ing)
+    m_ebitda, i1 = driver_robusto(df_hist["EBITDA"].astype(float) / ing, ciclo_medio=ciclo_medio)
     if "Depreciacion" in df_hist.columns:
         da_hist = pd.to_numeric(df_hist["Depreciacion"], errors="coerce").astype(float)
-        m_da, i2 = driver_robusto(da_hist / ing)
+        m_da, i2 = driver_robusto(da_hist / ing, ciclo_medio=ciclo_medio)
     else:
         m_da, i2 = driver_robusto(
             (df_hist["EBITDA"].astype(float) - df_hist["EBIT"].astype(float)) / ing
         )
-    m_ebit, i3 = driver_robusto(df_hist["EBIT"].astype(float) / ing)
+    m_ebit, i3 = driver_robusto(df_hist["EBIT"].astype(float) / ing, ciclo_medio=ciclo_medio)
     m_ebitda = float(np.clip(m_ebitda if np.isfinite(m_ebitda) else 0.20, -0.20, 0.90))
     m_ebit = float(np.clip(m_ebit if np.isfinite(m_ebit) else m_ebitda - m_da, -0.20, 0.90))
     m_da = float(np.clip(m_da if np.isfinite(m_da) else 0.05, 0.0, 0.50))
@@ -4065,6 +4215,7 @@ def ajustar_ets(serie, horizonte=5):
             std = max(abs(forecast[-1]) * 0.08, 1.0)
             return forecast, forecast - 1.96 * std, forecast + 1.96 * std, std, "CAGR"
         # Holt: nivel + tendencia (sin estacionalidad: datos anuales pocos)
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
         model = ExponentialSmoothing(
             serie, trend="add", seasonal=None, initialization_method="estimated"
         ).fit(optimized=True)
@@ -4087,6 +4238,8 @@ def ajustar_arima(serie, horizonte=5):
             forecast, g = _tendencia_cagr(serie, horizonte)
             std = max(abs(forecast[-1]) * 0.07, 1.0)
             return forecast, forecast - 1.96 * std, forecast + 1.96 * std, std
+        from statsmodels.tsa.arima.model import ARIMA
+        from statsmodels.tsa.stattools import adfuller
         try:
             d = 0 if adfuller(serie)[1] < 0.05 else 1
         except Exception:
@@ -4146,8 +4299,14 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     años_fut = list(range(int(df_hist.index[-1]) + 1, int(df_hist.index[-1]) + 1 + H))
     ing = df_hist["Ingresos"].astype(float)
 
+    ciclico = bool(getattr(df_hist, "attrs", {}).get("ciclico"))
     g0, info_g = driver_robusto(ing.pct_change())
+    g_hist = float(g0) if np.isfinite(g0) else None
     g0 = float(np.clip(g0 if np.isfinite(g0) else 0.03, -0.10, 0.12))
+    if ciclico:
+        # Materias primas: precio de ciclo medio → ingresos crecen al nominal de largo plazo.
+        g0 = float(g_conv)
+        info_g = dict(info_g, estimador="ciclo medio (no se extrapola la tendencia de precios)")
     if H > 1:
         g_path = np.array([g0 + (g_conv - g0) * i / (H - 1) for i in range(H)])
     else:
@@ -4155,7 +4314,7 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     ing_proj = float(ing.iloc[-1]) * np.cumprod(1 + g_path)
     ing_prev = np.concatenate([[float(ing.iloc[-1])], ing_proj[:-1]])
 
-    m_ebitda, m_ebit, m_da, info_m = _margenes_robustos(df_hist)
+    m_ebitda, m_ebit, m_da, info_m = _margenes_robustos(df_hist, ciclo_medio=ciclico)
     ebitda_proj = ing_proj * m_ebitda
     ebit_proj = ing_proj * m_ebit
     dep_proj = ing_proj * m_da
@@ -4198,6 +4357,11 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
         "dep_ratio": (m_da / capex_r) if capex_r > 0 else 0.0,
         "estimador_ingresos": info_g["estimador"],
         "atipicos_normalizados": atip,
+        "ciclico": ciclico,
+        "g_ingresos_historico": g_hist,
+        # Fuera de dominio: crecimiento observado muy por encima del techo del motor (12 %).
+        # Un DCF de 5 años con convergencia rápida subestima sistemáticamente a estos emisores.
+        "fuera_de_dominio_crecimiento": bool(g_hist is not None and not ciclico and g_hist > 0.25),
     }
     return df_proj, meta
 
@@ -6608,10 +6772,40 @@ GEMINI_TIMEOUT_SEG = 45
 GEMINI_PRESUPUESTO_SEG = 120
 
 
-def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, proveedor="auto"):
+def fuentes_ultima_ia():
+    """Fuentes web (título, URL) que Gemini citó en la última llamada con búsqueda (por sesión)."""
+    return list(_almacen_estado().get("_ia_ultimas_fuentes") or [])
+
+
+def _extraer_fuentes_grounding(cand):
+    """groundingMetadata.groundingChunks[].web → [{'titulo','url'}] sin duplicados."""
+    out, vistos = [], set()
+    try:
+        gm = cand.get("groundingMetadata") or {}
+        for ch in gm.get("groundingChunks") or []:
+            web = ch.get("web") or {}
+            uri = str(web.get("uri") or "").strip()
+            if uri and uri not in vistos:
+                vistos.add(uri)
+                out.append({"titulo": str(web.get("title") or uri)[:160], "url": uri})
+        consultas = [str(q) for q in (gm.get("webSearchQueries") or [])][:6]
+    except Exception:
+        consultas = []
+    return out, consultas
+
+
+def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, proveedor="auto",
+                         buscar_web=False):
     """Llama a xAI, OpenAI o Google Gemini si hay API key (argumento o variable de entorno).
     Devuelve texto o None. El último error queda en _get_ia_error() (por sesión).
+
+    buscar_web=True (solo Gemini): activa la herramienta google_search de la Gemini API
+    para que el comité contraste la coyuntura con fuentes actuales. Las URLs citadas
+    quedan en fuentes_ultima_ia(). Si el modelo no admite la herramienta (HTTP 400),
+    se reintenta sin búsqueda y se informa en _almacen_estado()['_ia_busqueda_web'].
     """
+    _almacen_estado()["_ia_ultimas_fuentes"] = []
+    _almacen_estado()["_ia_busqueda_web"] = {"solicitada": bool(buscar_web), "usada": False, "consultas": []}
     import os
     import json as _json
     import urllib.request
@@ -6709,6 +6903,9 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                     "maxOutputTokens": 4096,
                 },
             }
+            usar_busqueda = bool(buscar_web) and not _almacen_estado().get("_ia_busqueda_no_soportada", {}).get(model)
+            if usar_busqueda:
+                body_dict["tools"] = [{"google_search": {}}]
             try:
                 data = _http_json(
                     url,
@@ -6726,6 +6923,12 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                 if text:
                     _set_ia_error(None)
                     _almacen_estado()["_ia_ultimo_modelo"] = model
+                    if usar_busqueda:
+                        fuentes, consultas = _extraer_fuentes_grounding(cands[0])
+                        _almacen_estado()["_ia_ultimas_fuentes"] = fuentes
+                        _almacen_estado()["_ia_busqueda_web"] = {
+                            "solicitada": True, "usada": bool(fuentes or consultas), "consultas": consultas,
+                        }
                     return text
                 last_err = f"Gemini respuesta vacía (modelo={model}, finishReason={cands[0].get('finishReason')})."
             except urllib.error.HTTPError as e:
@@ -6735,6 +6938,11 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                     detail = str(e)
                 detail = detail.replace(key, "***") if key else detail
                 last_err = f"HTTP {e.code} Gemini modelo={model}. Detalle: {detail}"
+                if e.code == 400 and usar_busqueda and "API_KEY" not in detail.upper():
+                    # Modelo sin soporte de google_search: recordar y reintentar el MISMO modelo sin herramienta.
+                    _almacen_estado().setdefault("_ia_busqueda_no_soportada", {})[model] = True
+                    models.insert(models.index(model) + 1, model)
+                    continue
                 if e.code in (400, 401, 403) and ("API_KEY" in detail.upper() or e.code != 400):
                     _set_ia_error(last_err + " — key inválida o API Gemini no habilitada en el proyecto.")
                     return None
@@ -7303,7 +7511,9 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
     m = dict(metricas or {})
     if not raw:
         errors.append("Respuesta vacía")
-    if "CONTEXTO DE ENTRADA" in upper or "INSTRUCCIONES Y FORMATO DE SALIDA" in upper:
+    if ("CONTEXTO DE ENTRADA" in upper or "INSTRUCCIONES Y FORMATO DE SALIDA" in upper
+            or "FORMATO DE SALIDA (MARKDOWN" in upper or "NO LA CONTRADIGAS SIN CITAR" in upper
+            or "REGLAS DE CALIDAD (LIBRO VERSIONADO)" in upper):
         errors.append("La IA devolvió/ecoó el prompt")
     if re.search(r"\[\s*\.\.\.\s*\]", raw):
         errors.append("La respuesta contiene marcadores de plantilla [ ... ] sin completar")
@@ -7324,23 +7534,38 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
         extreme_gap = False
     if extreme_gap and re.search(r"(CLARO\s+ERROR\s+DE\s+ESCALA|ERROR\s+DE\s+ESCALA|BRECHA\s+NOMINAL\s+ABSURDA|SE\s+DEBE\s+A\s+UN\s+ERROR\s+DE\s+ESCALA)", upper):
         errors.append("La respuesta atribuye la discrepancia a un error de escala sin evidencia; solo puede indicarla como hipótesis por verificar")
-    for section in ("DELIBERACIÓN", "ANÁLISIS DE BRECHA", "DECISIÓN FINAL", "FACTORES CRÍTICOS"):
+    # Formato vigente (análisis interno / contexto / recomendación / riesgos y catalizadores);
+    # se acepta el formato anterior (deliberación / brecha / decisión / factores) por compatibilidad.
+    formato_nuevo = "ANÁLISIS INTERNO" in upper or "CONTEXTO DE MERCADO" in upper
+    secciones = (("ANÁLISIS INTERNO", "CONTEXTO DE MERCADO", "RECOMENDACIÓN DE INVERSIÓN", "RIESGOS")
+                 if formato_nuevo else ("DELIBERACIÓN", "ANÁLISIS DE BRECHA", "DECISIÓN FINAL", "FACTORES CRÍTICOS"))
+    for section in secciones:
         if section not in upper:
             warnings.append(f"Falta sección: {section}")
-    rec = re.search(r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：-]*\s*(INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b", upper)
+    if formato_nuevo and "CATALIZADOR" not in upper:
+        warnings.append("No se identificaron catalizadores")
+    rec = re.search(
+        r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：\-]*\s*\**\s*(COMPRAR|MANTENER|VENDER|INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b",
+        upper,
+    )
     if not rec:
         warnings.append("No se identificó recomendación final dentro del vocabulario permitido")
+    # Equivalencias para las reglas de coherencia con el motor.
+    _equiv = {"COMPRAR": "INVERTIR", "VENDER": "NO INVERTIR", "MANTENER": "INVERTIR CONDICIONALMENTE"}
     # La respuesta debe respetar el estado de calidad y explicar divergencias materiales.
     vetos = m.get("vetos_calidad") or []
     veto_activo = bool(m.get("control_calidad_modelo") or vetos)
     decision_motor = str(m.get("decision_modelo") or "").upper()
+    rec_raw = re.sub(r"\s+", " ", rec.group(1)).strip() if rec else None
+    rec_norm = _equiv.get(rec_raw, rec_raw) if rec else None
     if veto_activo:
-        if rec and rec.group(1).replace("  ", " ") in ("INVERTIR", "INVERTIR CONDICIONALMENTE"):
+        # Con veto: MANTENER/VENDER se admiten (no implican compra); COMPRAR/INVERTIR/condicional no.
+        if rec_raw in ("COMPRAR", "INVERTIR", "INVERTIR CONDICIONALMENTE"):
             errors.append("La IA recomienda invertir pese a un veto de calidad activo; debe pausarse la recomendación hasta recalibrar el modelo")
         if "VETO DE CALIDAD" not in upper and "RECALIBRAR" not in upper:
             errors.append("La respuesta omite el veto de calidad del modelo y la necesidad de recalibración")
     elif rec:
-        recomendacion = re.sub(r"\s+", " ", rec.group(1)).strip()
+        recomendacion = rec_norm
         favorable_motor = ("FAVORABLE" in decision_motor or "POSITIVO" in decision_motor)
         prudente_motor = ("EVITAR" in decision_motor or "NEUTRAL" in decision_motor or "MONITOREAR" in decision_motor)
         # La recomendación condicional puede ser una cautela compatible con el motor prudente.
@@ -7348,7 +7573,7 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
         diverge = (recomendacion == "INVERTIR" and prudente_motor) or (recomendacion == "NO INVERTIR" and favorable_motor)
         if diverge and "DIVERGENCIA FRENTE AL MOTOR CUANTITATIVO" not in upper:
             errors.append("La recomendación difiere del motor cuantitativo sin declarar y justificar la divergencia")
-    score = re.search(r"PUNTAJE(?:\s+DE\s+VIABILIDAD)?\s*[:：-]*\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*10)?", upper)
+    score = re.search(r"PUNTAJE(?:\s+DE\s+(?:VIABILIDAD|CONVICCI[ÓO]N))?\s*[:：-]*\s*\**\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*10)?", upper)
     if score:
         try:
             val = float(score.group(1).replace(",", "."))
@@ -7358,7 +7583,160 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
             warnings.append("Puntaje no interpretable")
     else:
         warnings.append("No se identificó puntaje de viabilidad")
+    po = re.search(r"PRECIO\s+OBJETIVO[^:\n]*[:：]\s*\**\s*\$?\s*([0-9][0-9.,]*)", upper)
+    try:
+        px_ref = float(m.get("precio_mercado")) if m.get("precio_mercado") is not None else None
+    except (TypeError, ValueError):
+        px_ref = None
+    if po and px_ref and px_ref > 0:
+        po_val = _numero_texto_es_en(po.group(1))
+        if po_val is not None and not (px_ref / 5.0 <= po_val <= px_ref * 5.0):
+            warnings.append(f"Precio objetivo {po_val:,.2f} fuera de 0,2×–5× del precio de mercado: verificar moneda/escala")
     return {"ok": not errors, "errors": errors, "warnings": warnings, "texto": raw}
+
+
+def _numero_texto_es_en(txt):
+    """'29.000' / '29,000.5' / '29.000,5' / '343.91' → float (None si no es interpretable)."""
+    t = str(txt or "").strip().rstrip(".,")
+    if not t:
+        return None
+    if "," in t and "." in t:
+        t = t.replace(".", "").replace(",", ".") if t.rfind(",") > t.rfind(".") else t.replace(",", "")
+    elif "." in t:
+        partes = t.split(".")
+        if len(partes) > 2 or (len(partes) == 2 and len(partes[1]) == 3):
+            t = t.replace(".", "")  # separador de miles es-CO
+    elif "," in t:
+        partes = t.split(",")
+        t = t.replace(",", "") if (len(partes) > 2 or len(partes[1]) == 3) else t.replace(",", ".")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+_CACHE_SNAPSHOT_IA = {}
+
+
+def contexto_mercado_comite(nombre_empresa, metricas=None, ttl_seg=900):
+    """Instantánea VERIFICADA de mercado y macro para el comité IA (sin texto libre de la IA).
+
+    Combina: (1) cotización/fecha de la instantánea única de la app; (2) datos Yahoo del
+    emisor (rango 52 semanas, P/E, EV/EBITDA, β, consenso de analistas, titulares);
+    (3) anclas macro versionadas en el código (UST10, TES 10a, CDS, inflación implícita);
+    (4) múltiplos implícitos del propio modelo frente al precio (EV de mercado con el
+    mismo puente que usa el DCF). Todo lo que falta queda en None → «N/D» en el prompt.
+    """
+    m = dict(metricas or {})
+    tk = m.get("ticker") or (ticker_yf_empresa(nombre_empresa) if nombre_empresa else None)
+    clave = (str(tk), int(_time.time() // max(int(ttl_seg), 60)))
+    if clave in _CACHE_SNAPSHOT_IA:
+        base = dict(_CACHE_SNAPSHOT_IA[clave])
+    else:
+        base = {"ticker": tk, "rango_52s": None, "pe": None, "pe_forward": None, "ev_ebitda_yahoo": None,
+                "beta_yahoo": None, "objetivo_analistas": None, "objetivo_rango": None,
+                "recomendacion_analistas": None, "n_analistas": None, "rentabilidad_dividendo": None,
+                "variacion_12m_pct": None, "titulares": [], "moneda_cotizacion": None}
+        if tk and HAS_YF:
+            try:
+                t = yf.Ticker(str(tk))
+                info = _yf_info_dict(t)
+                base["moneda_cotizacion"] = info.get("currency")
+                lo, hi = _finite_or_none(info.get("fiftyTwoWeekLow")), _finite_or_none(info.get("fiftyTwoWeekHigh"))
+                try:
+                    h = t.history(period="1y", auto_adjust=False)
+                    if h is not None and len(h) > 5 and "Close" in h.columns:
+                        cl = h["Close"].dropna()
+                        lo = lo or float(cl.min())
+                        hi = hi or float(cl.max())
+                        if float(cl.iloc[0]) > 0:
+                            base["variacion_12m_pct"] = (float(cl.iloc[-1]) / float(cl.iloc[0]) - 1) * 100
+                except Exception:
+                    pass
+                base["rango_52s"] = (lo, hi) if (lo and hi) else None
+                base["pe"] = _finite_or_none(info.get("trailingPE"))
+                base["pe_forward"] = _finite_or_none(info.get("forwardPE"))
+                base["ev_ebitda_yahoo"] = _finite_or_none(info.get("enterpriseToEbitda"))
+                base["beta_yahoo"] = _finite_or_none(info.get("beta"))
+                base["objetivo_analistas"] = _finite_or_none(info.get("targetMeanPrice"))
+                tlo, thi = _finite_or_none(info.get("targetLowPrice")), _finite_or_none(info.get("targetHighPrice"))
+                base["objetivo_rango"] = (tlo, thi) if (tlo and thi) else None
+                base["recomendacion_analistas"] = info.get("recommendationKey")
+                base["n_analistas"] = _finite_or_none(info.get("numberOfAnalystOpinions"))
+                dy = _finite_or_none(info.get("dividendYield"))
+                base["rentabilidad_dividendo"] = (dy * 100 if dy is not None and dy < 1 else dy)
+                for n in (getattr(t, "news", None) or [])[:5]:
+                    title = n.get("title") or ((n.get("content") or {}).get("title") if isinstance(n.get("content"), dict) else None)
+                    if title:
+                        base["titulares"].append(str(title)[:180])
+            except Exception:
+                pass
+        _CACHE_SNAPSHOT_IA[clave] = dict(base)
+        if len(_CACHE_SNAPSHOT_IA) > 256:
+            _CACHE_SNAPSHOT_IA.pop(next(iter(_CACHE_SNAPSHOT_IA)))
+
+    snap = instantanea_precio_mercado(nombre_empresa) if nombre_empresa else {}
+    base.update({
+        "precio": m.get("precio_mercado") if m.get("precio_mercado") is not None else snap.get("precio"),
+        "fecha_precio": m.get("fecha_precio") or snap.get("fecha"),
+        "fuente_precio": m.get("fuente_precio") or snap.get("fuente"),
+    })
+    # EV de mercado con el MISMO puente del DCF (moneda del modelo) y múltiplo implícito.
+    try:
+        acc = _finite_or_none(m.get("acciones"))
+        px_mod = _finite_or_none(m.get("precio_mercado_moneda_modelo")) if m.get("fx_aplicado") else (
+            _finite_or_none(m.get("precio_mercado")) if m.get("monedas_alineadas") else None)
+        p = params_empresa(nombre_empresa) if nombre_empresa else {}
+        if acc and px_mod:
+            mcap = acc * px_mod / 1000.0  # millones de acciones × precio → miles de millones
+            ev_mkt = mcap + float(p.get("deuda_neta") or 0) + float(p.get("nci") or 0) \
+                + float(p.get("otros_claims") or 0) - float(p.get("asociados") or 0)
+            base["capitalizacion_modelo"] = mcap
+            base["ev_mercado"] = ev_mkt
+            df_h, _msg = cargar_y_limpiar_excel(None, nombre_empresa, True)
+            if df_h is not None and "EBITDA" in df_h.columns and float(df_h["EBITDA"].iloc[-1]) > 0:
+                base["ebitda_ultimo"] = float(df_h["EBITDA"].iloc[-1])
+                base["ev_ebitda_mercado"] = ev_mkt / float(df_h["EBITDA"].iloc[-1])
+                if m.get("val_ev"):
+                    base["ev_ebitda_modelo"] = float(m["val_ev"]) / float(df_h["EBITDA"].iloc[-1])
+    except Exception:
+        pass
+    mac = m.get("macro") or {}
+    base["macro"] = {
+        "as_of": mac.get("capm_as_of") or CAPM_AS_OF,
+        "ust10": mac.get("rf_us", CAPM_POR_MERCADO["US"]["rf"]),
+        "tes10": mac.get("rf_co", CAPM_POR_MERCADO["CO"]["rf"]),
+        "cds_co": mac.get("cds_co", RIESGO_PAIS_CDS.get("CO")),
+        "inflacion_lp_co": mac.get("inflacion_lp_co", INFLACION_LP.get("CO")),
+        "inflacion_lp_us": mac.get("inflacion_lp_us", INFLACION_LP.get("US")),
+    }
+    return base
+
+
+def _texto_contexto_mercado(cm, mon_px=""):
+    """Bloque de texto para el prompt (todo N/D si falta)."""
+    def n(v, d=2, suf=""):
+        try:
+            return "N/D" if v is None else f"{float(v):,.{d}f}{suf}"
+        except (TypeError, ValueError):
+            return "N/D"
+    mac = cm.get("macro") or {}
+    rg = cm.get("rango_52s")
+    ob = cm.get("objetivo_rango")
+    lineas = [
+        f"- Cotización: {n(cm.get('precio'))} {mon_px} · fecha {cm.get('fecha_precio') or 'N/D'} · fuente {cm.get('fuente_precio') or 'N/D'}",
+        f"- Rango 52 semanas: {n(rg[0]) + ' – ' + n(rg[1]) if rg else 'N/D'} · variación 12 meses: {n(cm.get('variacion_12m_pct'), 1, ' %')}",
+        f"- Múltiplos de mercado (Yahoo): P/E {n(cm.get('pe'), 1)} · P/E forward {n(cm.get('pe_forward'), 1)} · EV/EBITDA {n(cm.get('ev_ebitda_yahoo'), 1)} · β {n(cm.get('beta_yahoo'))} · dividendo {n(cm.get('rentabilidad_dividendo'), 2, ' %')}",
+        f"- EV/EBITDA con el puente del modelo: mercado {n(cm.get('ev_ebitda_mercado'), 1, 'x')} vs modelo {n(cm.get('ev_ebitda_modelo'), 1, 'x')} (EBITDA último ejercicio {n(cm.get('ebitda_ultimo'), 1)})",
+        f"- Consenso de analistas (Yahoo): objetivo medio {n(cm.get('objetivo_analistas'))} {mon_px} · rango {n(ob[0]) + ' – ' + n(ob[1]) if ob else 'N/D'} · recomendación {cm.get('recomendacion_analistas') or 'N/D'} · n={n(cm.get('n_analistas'), 0)}",
+        f"- Macro ({mac.get('as_of', 'N/D')}): UST10 {n((mac.get('ust10') or 0) * 100 if mac.get('ust10') is not None else None, 2, ' %')} · TES 10a {n((mac.get('tes10') or 0) * 100 if mac.get('tes10') is not None else None, 2, ' %')} · CDS Colombia 5a {n((mac.get('cds_co') or 0) * 1e4 if mac.get('cds_co') is not None else None, 0, ' pb')} · inflación implícita LP CO {n((mac.get('inflacion_lp_co') or 0) * 100 if mac.get('inflacion_lp_co') is not None else None, 2, ' %')} / US {n((mac.get('inflacion_lp_us') or 0) * 100 if mac.get('inflacion_lp_us') is not None else None, 2, ' %')}",
+    ]
+    tit = cm.get("titulares") or []
+    lineas.append("- Titulares recientes (Yahoo): " + (" | ".join(tit[:5]) if tit else "N/D"))
+    return "\n".join(lineas)
+
+
+VOCAB_RECOMENDACION = ("COMPRAR", "MANTENER", "VENDER")
 
 
 def _reglas_calidad_ia_para_prompt():
@@ -7382,10 +7760,17 @@ def _reglas_calidad_ia_para_prompt():
         return "\n".join(f"- {regla}" for regla in fallback)
 
 
-def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gemini", metricas=None):
+def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gemini", metricas=None,
+                                    buscar_web=True, contexto_mercado=None):
     """
-    Deliberación tipo comité interdisciplinario (CFO / Mercado / CRO) usando el mismo
-    stack de IA que Consulta IA (_llamar_ia_redaccion).
+    Comité de inversión con IA en tres bloques obligatorios:
+      1) Análisis interno del modelo: crítica cuantitativa de márgenes, WACC (local vs.
+         paridad USD vs. implícito en el precio), crecimiento, peso del valor terminal y VPS.
+      2) Contexto de mercado real: instantánea verificada (cotización, múltiplos, consenso,
+         macro) + búsqueda web de Gemini (google_search) cuando buscar_web=True.
+      3) Recomendación COMPRAR / MANTENER / VENDER con tesis, riesgos, catalizadores,
+         precio objetivo a 12 meses con método y condiciones que invalidan la tesis.
+    Usa el mismo conector que Consulta IA (_llamar_ia_redaccion).
     """
     import html as _html
 
@@ -7457,84 +7842,96 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
         if v is None:
             faltantes.append(lab)
 
+    cm = dict(contexto_mercado or {})
+    if not cm:
+        try:
+            cm = contexto_mercado_comite(nombre_empresa, m)
+        except Exception:
+            cm = {}
+    mon_px = m.get("moneda_precio") or mon or ""
+    es_gemini = str(proveedor or "gemini").lower() in ("gemini", "google", "google-ai")
+    con_busqueda = bool(buscar_web) and es_gemini
+    wacc_impl = _f("wacc_implicito_mercado")
+    wacc_par = _f("wacc_paridad_usd")
+    tv_pct = _f("tv_pct_ev")
+    g_used = _f("g_usada", g)
+    margen = _f("margen_ebitda_proy")
+    g_hist = _f("g_ingresos_historico")
+
     sistema = (
-        "Eres el secretario de un Comité Interdisciplinario de Inversión de alto nivel. "
-        "Redactas la deliberación entre tres expertos senior: "
-        "(1) Director Financiero (CFO / Valuation — DCF/FCFF, WACC, Ke, CAPM, deuda), "
-        "(2) Analista de Mercado y Estratega Competitivo (múltiplos, ROIC vs WACC, macro), "
-        "(3) Chief Risk Officer (auditoría de supuestos, sensibilidad, escenarios, atípicos). "
-        "Respondes siempre en español, con tono profesional de comité, crítico y equilibrado. "
-        "No inventes cifras distintas a las del contexto numérico; si faltan datos, dilo explícitamente. "
-        "Esto es apoyo a decisión, no una orden de compra/venta ni asesoría personalizada. "
-        "Sigue estrictamente el formato de secciones numeradas que pide el usuario."
+        "Eres el secretario técnico de un Comité de Inversión institucional (renta variable). "
+        "Redactas en español, con rigor de analista sell-side senior y sin adornos. "
+        "Separas siempre: (a) DATO OBSERVADO con fuente y fecha, (b) RESULTADO DEL MODELO, "
+        "(c) JUICIO DEL COMITÉ. No inventas cifras: todo número debe venir del contexto o de una "
+        "fuente web citada; lo demás es N/D. Esto es apoyo a decisión, no asesoría personalizada."
     )
 
-    user_content = f"""Actúa como un Comité Interdisciplinario de Inversión de alto nivel compuesto por tres expertos senior:
+    bloque_busqueda = (
+        "BÚSQUEDA WEB ACTIVA: usa la búsqueda de Google para verificar la coyuntura ACTUAL del emisor y su "
+        "mercado (resultados trimestrales recientes, guía de la compañía, regulación, precio de la materia prima "
+        "si aplica, tasas y política monetaria, eventos corporativos). Cita cada dato externo con su fuente y "
+        "fecha entre paréntesis. Prioriza fuentes primarias (emisor, regulador, banco central) y prensa financiera."
+        if con_busqueda else
+        "SIN BÚSQUEDA WEB: el único contexto de mercado verificado es la instantánea de abajo. Declara "
+        "explícitamente que no hubo contraste con noticias en vivo y no afirmes eventos que no estén en el contexto."
+    )
 
-1. **Director Financiero (CFO / Experto en Valuation):** Especialista en valoración intrínseca (DCF/FCFF), costo de capital (WACC, Ke, CAPM), estructura de deuda y sostenibilidad de flujos.
-2. **Analista de Mercado y Estratega Competitivo:** Especialista en dinámicas sectoriales, lectura de múltiplos comparables (EV/EBITDA, P/E), posición competitiva (ROIC vs WACC) y contexto macroeconómico.
-3. **Chief Risk Officer (CRO / Gestor de Riesgos):** Especialista en auditoría de supuestos (g vs WACC, apalancamiento D/E), análisis de sensibilidad, valoración de escenarios y detección de eventos atípicos.
+    user_content = f"""EMISOR: {empresa}{f' ({ticker})' if ticker else ''} · moneda del modelo {mon or 'N/D'} · moneda de cotización {mon_px or 'N/D'}
 
----
+A. RESULTADOS DEL MODELO CUANTITATIVO (pestañas 1–4, escenario base)
+- Precio de mercado: {_fmt_num(precio_mercado)} {mon_px} · VPS del modelo: {_fmt_num(vps_modelo)} {mon} · upside/downside: {"N/D" if upside is None else f"{upside:+.2f}%"}
+- EV: {_fmt_num(val_ev)} · Equity: {_fmt_num(val_equity)} ({m.get("unidad_modelo") or "N/D"}) · % del EV en valor terminal: {_fmt_pct(tv_pct)}
+- Ke (CAPM): {_fmt_pct(ke_calc)} · WACC del modelo: {_fmt_pct(wacc_calc)} · WACC por paridad USD+Fisher: {_fmt_pct(wacc_par)} · WACC implícito en el precio (TIR al precio de mercado): {_fmt_pct(wacc_impl)}
+- g terminal usada: {_fmt_pct(g_used)} · D/E: {_fmt_num(de_ratio)} · ROIC: {_fmt_pct(roic_calc)}
+- Margen EBITDA proyectado: {_fmt_pct(margen)} · crecimiento histórico de ingresos (mediana robusta): {_fmt_pct(g_hist)}
+- Emisor de materias primas (proyección a ciclo medio): {"SÍ" if m.get("emisor_ciclico") else "NO"} · Crecimiento fuera del dominio del motor: {"SÍ" if m.get("fuera_de_dominio_crecimiento") else "NO"}
+- Decisión del motor cuantitativo: {m.get("decision_modelo") or "N/D"}
+- Vetos de calidad (control interno, no rating): {"; ".join(map(str, m.get("vetos_calidad") or [])) or "ninguno"}
+- Alertas del motor: {"; ".join(map(str, m.get("alertas_modelo") or [])) or "ninguna"}
+- Soportes del motor: {"; ".join(map(str, m.get("soportes_modelo") or [])) or "ninguno"}
+- Calidad/fuente financiera: {m.get("nivel_calidad") or "N/D"} / {m.get("fuente_financiera") or "N/D"}
+{('- Datos incompletos: ' + ', '.join(faltantes)) if faltantes else ''}
 
-### CONTEXTO DE ENTRADA (Calculado por el Modelo Cuantitativo)
-- **Empresa Objetivo / Ticker:** {empresa}{f' ({ticker})' if ticker else ''}
-- **Moneda del modelo:** {mon or 'N/D'}
-- **Precio Actual de Mercado:** {_fmt_num(precio_mercado)}
-- **Valor por Acción Según el Modelo (VPS):** {_fmt_num(vps_modelo)} (Upside calculado: {"N/D" if upside is None else f"{upside:+.2f}%"})
-- **WACC Calculado:** {_fmt_pct(wacc_calc)} | **Ke (CAPM):** {_fmt_pct(ke_calc)} | **ROIC:** {_fmt_pct(roic_calc)}
-- **Estructura D/E:** {_fmt_num(de_ratio)} | **Crecimiento Terminal (g):** {_fmt_pct(g)}
-- **Valor del Negocio (EV Base):** {_fmt_num(val_ev)}
-- **Valor del Equity Base:** {_fmt_num(val_equity)}
-- **Decisión del motor cuantitativo:** {m.get("decision_modelo") or "N/D"}
-- **Veto de calidad activo:** {"SÍ" if (m.get("control_calidad_modelo") or m.get("vetos_calidad")) else "NO"}
-- **Vetos de calidad (no son rating de la acción):** {"; ".join(map(str, m.get("vetos_calidad") or [])) or "ninguno registrado"}
-- **Alertas del motor:** {"; ".join(map(str, m.get("alertas_modelo") or [])) or "ninguna registrada"}
-- **Soportes del motor:** {"; ".join(map(str, m.get("soportes_modelo") or [])) or "ninguno registrado"}
-- **Calidad/fuente financiera:** {m.get("nivel_calidad") or "N/D"} / {m.get("fuente_financiera") or "N/D"}
-- **Fuente de mercado:** {m.get("fuente_mercado") or "N/D"}
-{('- **Datos incompletos en el modelo:** ' + ', '.join(faltantes)) if faltantes else ''}
+B. INSTANTÁNEA DE MERCADO VERIFICADA (no la contradigas sin citar una fuente más reciente)
+{_texto_contexto_mercado(cm, mon_px)}
 
----
-
-### AUDITORÍA PREVIA DEL CONTEXTO (reglas automáticas, no verificación externa)
-- Estado matemático: {"APTO" if audit_ctx["ok"] else "NO APTO"}
-- Errores bloqueantes: {"; ".join(audit_ctx["errors"]) or "ninguno"}
+C. AUDITORÍA AUTOMÁTICA DEL CONTEXTO
 - Advertencias: {"; ".join(audit_ctx["warnings"]) or "ninguna"}
-- Upside recalculado desde VPS/precio: {f"{audit_ctx['upside_recalculado']:+.2f}%" if audit_ctx["upside_recalculado"] is not None else "N/D"}
+- Upside recalculado: {f"{audit_ctx['upside_recalculado']:+.2f}%" if audit_ctx["upside_recalculado"] is not None else "N/D"}
 
-REGLAS PERMANENTES DE CALIDAD (libro versionado en el repositorio):
+REGLAS DE CALIDAD (libro versionado):
 {_reglas_calidad_ia_para_prompt()}
+- No inventes comparables, cotizaciones, macrodatos ni consensos: usa solo el contexto o fuentes web citadas con fecha; lo que no tenga respaldo es N/D.
+- Si hubiera errores bloqueantes en el contexto, no emitas recomendación ni puntaje: pide corregir los inputs.
+- La decisión del motor y sus vetos/alertas son evidencia obligatoria. Con veto de calidad activo NO puedes recomendar COMPRAR: indica que el dictamen queda condicionado a recalibrar el modelo (el veto no es una orden de venta).
+- Si tu recomendación contradice al motor (COMPRAR con motor prudente, o VENDER con motor favorable), escribe literalmente "DIVERGENCIA FRENTE AL MOTOR CUANTITATIVO" y justifícala con datos.
+- Si el WACC del modelo difiere más de 150 pb del implícito en el precio, explica qué supuesto (tasa local vs. paridad, crecimiento, RONIC, puente) explica la brecha antes de concluir que el precio está caro o barato.
+- El precio objetivo a 12 meses debe declarar su método (DCF del modelo, DCF con WACC alternativo, múltiplo de mercado o consenso) y ser coherente con las cifras del contexto.
 
-REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles. La decisión del motor cuantitativo y sus vetos/alertas son evidencia obligatoria para la deliberación: no los omitas ni los conviertas automáticamente en rating de la acción. Si existe un veto de calidad, la salida debe indicar que el comité queda condicionado a recalibrar el modelo y que el veto NO equivale a "NO INVERTIR" ni a una orden de venta. Si la recomendación final difiere del sesgo cuantitativo, incluye literalmente "DIVERGENCIA FRENTE AL MOTOR CUANTITATIVO" y explica con datos por qué.
+{bloque_busqueda}
 
-### INSTRUCCIONES Y FORMATO DE SALIDA
-Simula una deliberación crítica entre los tres miembros del comité contrastando estos números con la realidad del mercado.
-Entrega el resultado **estrictamente** bajo este formato:
-
-## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO
-- **Aportes del CFO (Estructura y DCF):** explica qué respaldan los flujos, el WACC y la estructura de capital.
-- **Aportes del Analista de Mercado (Sector y Competencia):** distingue datos observados de información no disponible.
-- **Aportes del CRO (Riesgos y Sensibilidad):** identifica los riesgos materiales y los supuestos que deben probarse.
-
-## 2. ANÁLISIS DE BRECHA (MODELO VS. MERCADO ACTUAL)
-- **Brecha Detectada:** cuantifica solo si los datos comparables son válidos; de lo contrario, indica N/D.
-- **Factores de Mercado no Contemplados:** enumera los factores no verificados que podrían afectar el resultado.
-
-## 3. DECISIÓN FINAL DE INVERSIÓN
-- **RECOMENDACIÓN FINAL:** elige INVERTIR, NO INVERTIR o INVERTIR CONDICIONALMENTE, y justifica la decisión.
-- **PUNTAJE DE VIABILIDAD:** entero de 1 a 10, solo si los datos son suficientes.
-- **PRECIO OBJETIVO DE CONSENSO (Rango Ajustado):** informa un rango únicamente si existe método y datos suficientes; en caso contrario, N/D.
-- **TESIS Y JUSTIFICACIÓN ESTRATÉGICA:** resume la evidencia, incertidumbres y condiciones de la tesis.
-
-## 4. FACTORES CRÍTICOS Y PUNTOS DE MONITOREO
-1. Primer factor material a vigilar.
-2. Segundo factor material a vigilar.
+FORMATO DE SALIDA (Markdown, exactamente estas secciones):
+## 1. ANÁLISIS INTERNO DEL MODELO
+Evalúa críticamente márgenes, crecimiento, WACC (modelo vs paridad vs implícito), peso del valor terminal, puente EV→equity y VPS vs precio. Señala qué supuestos son frágiles y cuánto pesan.
+## 2. CONTEXTO DE MERCADO REAL
+Coyuntura macro y sectorial actual, desempeño reciente de la acción, múltiplos frente a pares/consenso y eventos relevantes. Cita fuente y fecha de cada dato externo.
+## 3. RECOMENDACIÓN DE INVERSIÓN
+- RECOMENDACIÓN FINAL: COMPRAR, MANTENER o VENDER
+- PRECIO OBJETIVO 12 MESES: valor o rango en {mon_px or 'la moneda de cotización'} y método; N/D si no hay base suficiente
+- PUNTAJE DE CONVICCIÓN: entero 1–10
+- TESIS DE INVERSIÓN: 3–5 viñetas con la evidencia que la sostiene
+## 4. RIESGOS, CATALIZADORES Y PUNTOS DE MONITOREO
+- Riesgos principales (con el supuesto o dato que los mide)
+- Catalizadores (con fecha o ventana esperada si se conoce)
+- Qué haría cambiar la recomendación (umbrales concretos)
 """
 
     texto = _llamar_ia_redaccion(
-        sistema, user_content, temperature=0.35, api_key=api_key, proveedor=proveedor or "gemini"
+        sistema, user_content, temperature=0.3, api_key=api_key, proveedor=proveedor or "gemini",
+        buscar_web=con_busqueda,
     )
+    fuentes_web = fuentes_ultima_ia()
+    estado_busqueda = dict(_almacen_estado().get("_ia_busqueda_web") or {})
     if not texto:
         err = _get_ia_error() or "Sin respuesta del proveedor de IA."
         return (
@@ -7569,18 +7966,26 @@ Datos incompletos: {", ".join(faltantes) if faltantes else "ninguno identificado
 
 Reglas: no inventes cifras, fuentes, comparables ni causas de mercado. Trata datos ausentes como N/D. Si el contexto tiene errores bloqueantes, no emitas recomendación ni puntaje. No afirmes haber consultado fuentes externas si no lo hiciste.
 
-Usa exactamente estas cuatro secciones en español:
-1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO: aportes del CFO, analista de mercado y CRO.
-2. ANÁLISIS DE BRECHA: brecha entre modelo y mercado y factores no contemplados.
-3. DECISIÓN FINAL DE INVERSIÓN: recomendación, puntaje solo si hay datos suficientes, rango objetivo solo si está respaldado y tesis.
-4. FACTORES CRÍTICOS Y PUNTOS DE MONITOREO: al menos dos riesgos concretos.
+WACC por paridad USD: {_fmt_pct(wacc_par)}; WACC implícito en el precio: {_fmt_pct(wacc_impl)}; % EV en valor terminal: {_fmt_pct(tv_pct)}.
+Decisión del motor: {m.get("decision_modelo") or "N/D"}. Vetos: {"; ".join(map(str, m.get("vetos_calidad") or [])) or "ninguno"}.
+Instantánea de mercado:
+{_texto_contexto_mercado(cm, mon_px)}
+
+Usa exactamente estas cuatro secciones en español (encabezados Markdown ##):
+1. ANÁLISIS INTERNO DEL MODELO: márgenes, WACC (modelo vs paridad vs implícito), valor terminal y VPS vs precio.
+2. CONTEXTO DE MERCADO REAL: solo datos de la instantánea o de fuentes citadas con fecha.
+3. RECOMENDACIÓN DE INVERSIÓN: línea "RECOMENDACIÓN FINAL: COMPRAR|MANTENER|VENDER", precio objetivo 12 meses con método (o N/D), "PUNTAJE DE CONVICCIÓN: n/10" y tesis.
+4. RIESGOS, CATALIZADORES Y PUNTOS DE MONITOREO: al menos dos riesgos y dos catalizadores concretos.
 
 Devuelve únicamente el informe, no introducciones ni comentarios sobre la tarea."""
 
         texto_reintento = _llamar_ia_redaccion(
             retry_system, retry_user, temperature=0.2,
-            api_key=api_key, proveedor=proveedor or "gemini",
+            api_key=api_key, proveedor=proveedor or "gemini", buscar_web=con_busqueda,
         )
+        if texto_reintento:
+            fuentes_web = fuentes_ultima_ia() or fuentes_web
+            estado_busqueda = dict(_almacen_estado().get("_ia_busqueda_web") or estado_busqueda)
         if texto_reintento:
             audit_reintento = auditar_respuesta_comite_ia(texto_reintento, m)
             if audit_reintento["ok"]:
@@ -7602,14 +8007,36 @@ Devuelve únicamente el informe, no introducciones ni comentarios sobre la tarea
         except Exception:
             cuerpo = f"<pre style='white-space:pre-wrap;color:#E8EEF7'>{_html.escape(texto)}</pre>"
 
+    rec_m = re.search(r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：\-]*\s*\**\s*(COMPRAR|MANTENER|VENDER|INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)",
+                      _html_a_texto(texto, 20000).upper())
+    rec_txt = re.sub(r"\s+", " ", rec_m.group(1)) if rec_m else None
+    color_rec = {"COMPRAR": "#10B981", "INVERTIR": "#10B981", "MANTENER": "#F59E0B",
+                 "INVERTIR CONDICIONALMENTE": "#F59E0B", "VENDER": "#EF4444", "NO INVERTIR": "#EF4444"}.get(rec_txt, "#64748B")
+    badge = (f'<span style="display:inline-block;padding:4px 12px;border-radius:999px;background:{color_rec};'
+             f'color:#0B1220;font-weight:700;letter-spacing:.04em">{_html.escape(rec_txt)}</span>') if rec_txt else ""
+    if fuentes_web:
+        items = "".join(
+            f'<li><a href="{_html.escape(f["url"])}" target="_blank" rel="noopener">{_html.escape(f["titulo"])}</a></li>'
+            for f in fuentes_web[:12]
+        )
+        bloque_fuentes = f'<details style="margin-top:12px"><summary><b>Fuentes web consultadas ({len(fuentes_web)})</b></summary><ol>{items}</ol></details>'
+    elif con_busqueda:
+        bloque_fuentes = ('<p style="color:#F59E0B;margin-top:10px">Búsqueda web solicitada, pero el proveedor no devolvió '
+                          'fuentes citadas: trata el contexto externo como no verificado.</p>')
+    else:
+        bloque_fuentes = ('<p style="color:#94A3B8;margin-top:10px">Sin búsqueda web: el contexto de mercado proviene solo de '
+                          'la instantánea Yahoo/macro de la app.</p>')
+
     return f"""
 <div class="section-card" style="border-left:4px solid #14B8A6">
-  <div style="font-size:12px;color:#94A3B8;margin-bottom:8px">
-    COMITÉ INTERDISCIPLINARIO (IA) · {_html.escape(str(empresa))}
+  <div style="font-size:12px;color:#94A3B8;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <span>COMITÉ DE INVERSIÓN (IA) · {_html.escape(str(empresa))}
     · proveedor <b>{_html.escape(str(proveedor or 'gemini'))}</b>
-    · apoyo a decisión · no es orden de compra/venta
+    · {"con búsqueda web" if estado_busqueda.get("usada") else "sin búsqueda web"}
+    · apoyo a decisión · no es asesoría personalizada</span> {badge}
   </div>
   {cuerpo}
+  {bloque_fuentes}
 </div>
 """
 
@@ -8024,8 +8451,9 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
     try:
         horizonte = int(horizonte)
         df_hist, mensaje_carga = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
-        df_proj = proyectar_variables(df_hist, horizonte, tax=tax).copy()
-        df_proj = recalcular_fcff(df_proj, tax=tax, capex_extra=capex_extra)
+        df_proj, meta_proj = proyectar_variables_con_meta(df_hist, horizonte, tax=tax)
+        df_proj = recalcular_fcff(df_proj.copy(), tax=tax, capex_extra=capex_extra)
+        meta_proj = meta_proj or {}
         beta_l = beta_apalancado(beta_u, de_ratio, tax)
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, _, _ = calcular_wacc(de_ratio, kd, ke, tax)
@@ -8116,6 +8544,29 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             moneda_modelo=mon_modelo, moneda_precio=(mon_modelo if val_base.get("fx_aplicado") else mon_precio),
         )
         decision, color, just = motor["decision"], motor["color"], motor["sesgo"]
+        # Alertas de dominio del modelo (no cambian la decisión; informan al comité).
+        _g_hist = meta_proj.get("g_ingresos_historico")
+        if meta_proj.get("fuera_de_dominio_crecimiento"):
+            motor.setdefault("alertas", []).append(
+                f"Crecimiento histórico de ingresos ≈ {_g_hist*100:.0f} %/año, muy por encima del techo del motor "
+                "(12 % con convergencia en 5 años): el DCF base subestima por construcción a un emisor de "
+                "hipercrecimiento. Úsalo como piso conservador y contrasta con un escenario explícito de crecimiento."
+            )
+        if meta_proj.get("ciclico"):
+            motor.setdefault("alertas", []).append(
+                "Emisor de materias primas: ingresos y márgenes proyectados a ciclo medio (mediana histórica, "
+                "crecimiento nominal de largo plazo). El valor es muy sensible al precio de la materia prima."
+            )
+        try:
+            _inf_lp = INFLACION_LP.get(mercado_empresa(nombre_empresa))
+            if _inf_lp is not None and float(val_base.get("g_used", g)) < _inf_lp - 1e-9:
+                motor.setdefault("alertas", []).append(
+                    f"g terminal nominal {float(val_base.get('g_used', g))*100:.2f}% < inflación de largo plazo de la moneda "
+                    f"({_inf_lp*100:.2f}%): el valor terminal asume contracción REAL perpetua."
+                )
+        except Exception:
+            pass
+        _wp = wacc_paridad_usd(beta_u, de_ratio, tax, pais="CO") if str(mon_modelo or "").upper() == "COP" else None
 
         _px_modelo = val_base.get("precio_moneda_modelo") if val_base.get("fx_aplicado") else (
             precio_p if (mon_modelo and mon_modelo == mon_precio) else None)
@@ -8226,6 +8677,22 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "acciones": _finite_or_none(val_base.get("acciones")),
                     "wacc_calc": _finite_or_none(wacc),
                     "wacc_implicito_mercado": _finite_or_none(wacc_impl),
+                    "wacc_paridad_usd": _finite_or_none((_wp or {}).get("wacc_local_fisher")),
+                    "wacc_paridad_fuente": (_wp or {}).get("fuente"),
+                    "g_usada": _finite_or_none(val_base.get("g_used")),
+                    "tv_pct_ev": _finite_or_none(val_base.get("tv_pct_ev")),
+                    "ev_ebitda_salida_modelo": _finite_or_none(val_base.get("mult_terminal")),
+                    "margen_ebitda_proy": _finite_or_none(meta_proj.get("margen_ebitda")),
+                    "g_ingresos_historico": _finite_or_none(meta_proj.get("g_ingresos_historico")),
+                    "g_ingresos_proy_inicial": _finite_or_none(meta_proj.get("g_ingresos")),
+                    "emisor_ciclico": bool(meta_proj.get("ciclico")),
+                    "fuera_de_dominio_crecimiento": bool(meta_proj.get("fuera_de_dominio_crecimiento")),
+                    "macro": {
+                        "capm_as_of": CAPM_AS_OF,
+                        "rf_us": CAPM_POR_MERCADO["US"]["rf"], "rf_co": CAPM_POR_MERCADO["CO"]["rf"],
+                        "erp": float(erp), "cds_co": RIESGO_PAIS_CDS.get("CO"),
+                        "inflacion_lp_co": INFLACION_LP.get("CO"), "inflacion_lp_us": INFLACION_LP.get("US"),
+                    },
                     "ke_calc": _finite_or_none(ke),
                     "roic_calc": _finite_or_none(roic),
                     "roic_fuente": "NOPAT medio proyectado / capital invertido (pestaña 4)",

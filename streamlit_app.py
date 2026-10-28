@@ -622,6 +622,16 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
 .tf-metrics-row.cols-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+/* Responsivo: las variantes cols-3/cols-2 tienen más especificidad que la media query
+   anterior y mantenían 3 columnas en tablet/móvil (cifras cortadas). */
+@media (max-width: 960px) {
+  .tf-metrics-row.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .tf-metrics-row, .tf-metrics-row.cols-3, .tf-metrics-row.cols-2,
+  .tf-kpi-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .tf-metric-tip .m-value, .tf-kpi .value { font-size: 1.15rem; }
+}
 
 .tf-explain {
   background: rgba(20, 184, 166, 0.09);
@@ -754,12 +764,14 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
   line-height: 1.45;
 }
 
-/* Plotly container breathing room */
+/* Plotly container breathing room. Sin overflow:hidden: recortaba etiquetas de hover,
+   la barra de herramientas y leyendas de varias líneas en anchos medios. */
 .stPlotlyChart, [data-testid="stPlotlyChart"] {
   border-radius: 14px;
-  overflow: hidden;
+  overflow: visible;
   margin: 0.35rem 0 0.85rem 0 !important;
 }
+.stPlotlyChart .js-plotly-plot, [data-testid="stPlotlyChart"] .js-plotly-plot { max-width: 100%; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -1171,12 +1183,68 @@ def _plotly_table(df, title="Tabla"):
 
 
 
+def _fmt_celda_num(v):
+    """Formato numérico legible para st.dataframe (mismo criterio que la tabla Plotly)."""
+    try:
+        if v is None or (isinstance(v, float) and (v != v or np.isinf(v))):
+            return "—"
+        if isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, bool):
+            fv = float(v)
+            if abs(fv) >= 100:
+                return f"{fv:,.1f}"
+            if abs(fv) >= 1:
+                return f"{fv:,.2f}"
+            return f"{fv:.4g}"
+    except Exception:
+        pass
+    return v
+
+
+def _tabla_ancha(df, max_cols=7):
+    """Una go.Table de Plotly no tiene scroll horizontal: con muchas columnas las
+    comprime y los encabezados se solapan (proyección de 10 columnas en móvil).
+    Esas tablas se muestran con st.dataframe (scroll, orden y anchos nativos)."""
+    try:
+        return df is not None and hasattr(df, "columns") and len(df.columns) + (
+            0 if isinstance(df.index, pd.RangeIndex) else 1) > max_cols
+    except Exception:
+        return False
+
+
+def _dataframe_formateado(df):
+    d = df.copy()
+    years_idx = False
+    try:
+        years_idx = (not isinstance(d.index, pd.RangeIndex)) and all(
+            1900 <= int(x) <= 2100 for x in d.index)
+    except Exception:
+        years_idx = False
+    if years_idx:
+        d.index = [str(int(x)) for x in d.index]
+    num_cols = [c for c in d.columns if pd.api.types.is_numeric_dtype(d[c])]
+    altura = min(38 + 35 * (len(d) + 1), 620)
+    try:
+        sty = d.style.format(_fmt_celda_num, subset=num_cols) if num_cols else d.style
+        st.dataframe(sty, use_container_width=True, hide_index=not years_idx and isinstance(df.index, pd.RangeIndex),
+                     height=altura)
+    except Exception:
+        # Styler falla con columnas duplicadas o tipos mixtos: mostrar sin formato antes que nada.
+        st.dataframe(d, use_container_width=True, height=altura)
+
+
 def _show_df(df, label=None, csv_key=None):
-    """Preferir tabla Plotly; respaldo st.dataframe con ancho completo. CSV opcional."""
+    """Tabla Plotly para tablas estrechas/textuales; st.dataframe para tablas anchas
+    (scroll horizontal, sin solapamiento). CSV opcional."""
     if df is None:
         return
     title = label or "Datos"
-    if _plotly_table(df, title=title):
+    if _tabla_ancha(df):
+        st.markdown(
+            f'<div class="tf-section-title" style="margin:0.35rem 0 0.5rem 0">{title}</div>',
+            unsafe_allow_html=True,
+        )
+        _dataframe_formateado(df)
+    elif _plotly_table(df, title=title):
         pass
     else:
         if label:
@@ -2134,6 +2202,35 @@ def _plotly_sector(df):
                           height=max(420, 36 * len(labels) + 140), showlegend=False)
 
 
+def _liberar_figuras(obj, _prof=0):
+    """Desregistra de pyplot las figuras Matplotlib devueltas por las pestañas.
+
+    Las funciones de lógica crean figuras con plt.subplots() (respaldo estático) que
+    la UI casi nunca muestra porque usa Plotly nativo; nunca se llamaba plt.close y
+    quedaban en el gestor GLOBAL de pyplot, compartido por todas las sesiones del
+    proceso: ~6 figuras por «Generar todo» y por usuario hasta reiniciar el contenedor
+    (aviso «More than 20 figures have been opened»). plt.close solo las quita del
+    gestor: el objeto Figure sigue siendo válido para st.pyplot en el respaldo.
+    """
+    if not HAS_MPL or obj is None or _prof > 3:
+        return
+    try:
+        from matplotlib.figure import Figure as _Fig
+    except Exception:
+        return
+    if isinstance(obj, _Fig):
+        try:
+            plt.close(obj)
+        except Exception:
+            pass
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            _liberar_figuras(v, _prof + 1)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _liberar_figuras(v, _prof + 1)
+
+
 def _show_fig(fig, caption=None):
     """Respaldo estático Matplotlib si no hay Plotly nativo."""
     if fig is None:
@@ -2432,12 +2529,20 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
             st.session_state["tab4_comite_ia_html"] = None
             st.session_state["tab4_comite_empresa"] = empresa
             return False, (
-                "Comité IA pausado por veto de calidad del modelo. Esto no es una calificación negativa de ISA "
+                f"Comité IA pausado por veto de calidad del modelo. Esto no es una calificación negativa de {empresa} "
                 "ni una recomendación de venta. Revisa los vetos/alertas, alinea monedas y unidades (COP/USD), "
                 "corrige el puente EV–equity si corresponde y vuelve a ejecutar la pestaña 4."
             )
+        _kw_ia = {}
+        try:
+            import inspect as _insp
+            _params_ia = _insp.signature(L.generar_recomendacion_comite_ia).parameters
+            if "buscar_web" in _params_ia:
+                _kw_ia["buscar_web"] = bool(st.session_state.get("tab4_busqueda_web", True))
+        except Exception:
+            pass
         respuesta = L.generar_recomendacion_comite_ia(
-            empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas,
+            empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas, **_kw_ia,
         )
         _audit_resp = L.auditar_respuesta_comite_ia(respuesta, _metricas)
         if _audit_resp.get("errors"):
@@ -3760,6 +3865,7 @@ def main():
                     "Pipeline completo: 1→2→3→4→4+(Comité IA)→5→6→7. "
                     "Revisa cada pestaña."
                 )
+            _liberar_figuras(st.session_state.get("resultados"))
             st.rerun()
         except Exception as e:
             st.error(str(e))
@@ -3822,6 +3928,7 @@ def main():
                                 caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
                             )
                         st.success(f"Pestaña {_tab_labels[i]} lista.")
+                        _liberar_figuras(st.session_state.get("resultados"))
                         st.rerun()
                     except Exception as e:
                         st.error(str(e))
@@ -4044,10 +4151,11 @@ def main():
             )
 
         st.markdown("---")
-        st.markdown("##### 🤖 Recomendación IA · Comité interdisciplinario")
+        st.markdown("##### 🤖 Comité de inversión IA · modelo + mercado real")
         st.caption(
-            "Mismo proveedor/API key que **Consulta IA**. "
-            "Deliberación CFO + Analista de Mercado + CRO con los números del modelo (moneda alineada)."
+            "Mismo proveedor/API key que **Consulta IA**. Tres bloques: (1) crítica de los resultados del modelo, "
+            "(2) coyuntura de mercado verificada (instantánea + búsqueda web con Gemini) y "
+            "(3) recomendación COMPRAR / MANTENER / VENDER con tesis, riesgos y catalizadores."
         )
 
         def _fmt_or_nd(v, fmt="{:,.2f}", suf=""):
@@ -4109,6 +4217,29 @@ def main():
                     + ". La clave viaja en cabecera HTTP, nunca en la URL."
                 )
 
+            _c_tg, _c_tx = st.columns([1, 2])
+            with _c_tg:
+                st.toggle(
+                    "Contexto de mercado en vivo (búsqueda web)", value=True, key="tab4_busqueda_web",
+                    help="Solo Gemini: activa la herramienta google_search de la API para contrastar con noticias, "
+                         "resultados y macro actuales. La salida lista las fuentes citadas.",
+                )
+            with _c_tx:
+                _wm, _wi, _wp = ctx_preview.get("wacc_calc"), ctx_preview.get("wacc_implicito_mercado"), ctx_preview.get("wacc_paridad_usd")
+                st.caption(
+                    f"WACC modelo **{_fmt_or_nd(_wm * 100 if _wm is not None else None, '{:.2f}', '%')}** · "
+                    f"paridad USD **{_fmt_or_nd(_wp * 100 if _wp is not None else None, '{:.2f}', '%')}** · "
+                    f"implícito en el precio **{_fmt_or_nd(_wi * 100 if _wi is not None else None, '{:.2f}', '%')}**. "
+                    "Si difieren mucho, el comité debe explicar qué supuesto produce la brecha."
+                )
+            if hasattr(L, "contexto_mercado_comite") and ctx_preview.get("vps_modelo") is not None:
+                with st.expander("Instantánea de mercado que recibe el comité", expanded=False):
+                    try:
+                        _cm = L.contexto_mercado_comite(empresa, ctx_preview)
+                        st.markdown(L._texto_contexto_mercado(_cm, ctx_preview.get("moneda_precio") or ""))
+                    except Exception as _e_cm:
+                        st.caption(f"Instantánea no disponible: {_e_cm}")
+
             _tiene_base = ctx_preview.get("vps_modelo") is not None
             if not _tiene_base:
                 st.warning(
@@ -4121,7 +4252,7 @@ def main():
                     "el comité tratará el upside como no comparable."
                 )
             if st.button(
-                "▶ Deliberar en el comité (IA)", type="primary", key="btn_tab4_comite_ia",
+                "▶ Generar dictamen del comité (IA)", type="primary", key="btn_tab4_comite_ia",
                 use_container_width=True, disabled=not _tiene_base,
             ):
                 with st.spinner("El comité interdisciplinario está deliberando…"):
