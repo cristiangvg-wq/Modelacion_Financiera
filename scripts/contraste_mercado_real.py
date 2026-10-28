@@ -40,7 +40,63 @@ def correr(nombre):
                              p.get("otros_claims", 0), p.get("asociados", 0), acc,
                              p.get("exit_multiple", 8.0), True, gmax)
     tabs = L.RESULTADOS_SESION["tabs"]
-    return {k: (tabs.get(k) or {}).get("metricas") or {} for k in ("2", "4", "7")}
+    resultado = {k: (tabs.get(k) or {}).get("metricas") or {} for k in ("2", "4", "7")}
+    # Lee el histórico ya seleccionado por la lógica financiera, sin iniciar otra descarga web.
+    try:
+        df_hist, _, fuente_hist = L.obtener_datos_financieros_publicos(nombre, preferir_yahoo=False)
+        resultado["_meta"] = {"anios_historicos": int(len(df_hist)) if df_hist is not None else None,
+                              "fuente_historico": fuente_hist}
+    except Exception as exc:
+        resultado["_meta"] = {"anios_historicos": None, "fuente_historico": f"no disponible: {exc}"}
+    return resultado
+
+
+def evaluar_calidad_valoracion(metricas, anios_historicos=None):
+    """Reglas deterministas de calidad; separa consistencia interna de brecha económica."""
+    m = dict(metricas or {})
+    alertas = []
+
+    if anios_historicos is not None and anios_historicos < 3:
+        alertas.append(("BLOQUEO", f"histórico insuficiente: {anios_historicos} ejercicio(s); se requieren al menos 3"))
+    elif anios_historicos is None:
+        alertas.append(("AVISO", "no se pudo determinar la cantidad de ejercicios históricos"))
+
+    moneda = str(m.get("moneda") or "").upper()
+    moneda_precio = str(m.get("moneda_precio") or moneda).upper()
+    if moneda and moneda_precio and moneda != moneda_precio and not m.get("fx_aplicado"):
+        alertas.append(("BLOQUEO", f"monedas no alineadas ({moneda}/{moneda_precio}) sin conversión FX registrada"))
+
+    try:
+        precio = float(m.get("precio_mercado"))
+        vps = float(m.get("vps_modelo"))
+        if not (precio > 0 and vps > 0):
+            raise ValueError
+        ratio = vps / precio
+        if ratio < 0.10 or ratio > 10:
+            alertas.append(("BLOQUEO", f"brecha extrema VPS/mercado={ratio:.4f}x; revisar escala, acciones y puente EV→Equity"))
+        elif ratio < 0.50 or ratio > 2.0:
+            alertas.append(("ALTA", f"brecha material VPS/mercado={ratio:.4f}x; requiere explicación económica"))
+        elif ratio < 0.75 or ratio > (1 / 0.75):
+            alertas.append(("REVISAR", f"brecha relevante VPS/mercado={ratio:.4f}x; validar supuestos"))
+    except (TypeError, ValueError, ZeroDivisionError):
+        alertas.append(("BLOQUEO", "precio de mercado o VPS no disponible/positivo; no se puede validar la brecha"))
+
+    try:
+        acciones = float(m.get("acciones"))
+        if not (acciones > 0):
+            alertas.append(("BLOQUEO", "acciones en circulación ausentes o no positivas"))
+    except (TypeError, ValueError):
+        alertas.append(("BLOQUEO", "acciones en circulación ausentes o no numéricas"))
+
+    try:
+        wacc = float(m.get("wacc_calc"))
+        g = float(m.get("g_usada", m.get("g")))
+        if g >= wacc:
+            alertas.append(("BLOQUEO", f"crecimiento terminal ({g:.2%}) no es menor que WACC ({wacc:.2%})"))
+    except (TypeError, ValueError):
+        alertas.append(("AVISO", "no se pudo validar g terminal frente a WACC"))
+
+    return alertas
 
 
 def main(argv):
@@ -60,7 +116,7 @@ def main(argv):
         print(f"[{tk}] → {nombre} · ticker {L.ticker_canonico_empresa(nombre)}")
         nombres.append(nombre)
     fallos = 0
-    print("\nEmpresa | Ticker | Moneda | Precio mercado | VPS modelo | Upside % | WACC | g terminal | Fecha precio | Consistencia 2/4/7")
+    print("\nEmpresa | Ticker | Moneda | Precio mercado | VPS modelo | Upside % | Acciones (M) | Años hist. | WACC | g terminal | Fecha precio | Consistencia 2/4/7 | Alertas calidad")
     for n in nombres:
         m = correr(n)
         m4 = m["4"]
@@ -79,15 +135,24 @@ def main(argv):
                     incons.append(f"{k}: t4={a} t7={b}")
             elif abs(float(a) - float(b)) > 1e-6 * max(1.0, abs(float(a)), abs(float(b))):
                 incons.append(f"{k}: t4={a} t7={b}")
-        fallos += bool(incons)
+        meta = m.get("_meta") or {}
+        alertas = evaluar_calidad_valoracion(m4, meta.get("anios_historicos"))
+        # Los bloqueos son fallos de calidad financiera, aunque las pestañas sean consistentes.
+        fallos += bool(incons) or any(nivel == "BLOQUEO" for nivel, _ in alertas)
         f = lambda v: "N/D" if v is None else f"{v:,.2f}"
         pct = lambda v: "N/D" if v is None else f"{100.0 * float(v):.2f}%"
+        texto_alertas = "; ".join(f"{nivel}: {mensaje}" for nivel, mensaje in alertas) or "Sin alertas de umbral"
         print(f"{n[:34]} | {m4.get('ticker')} | {m4.get('moneda')}/{m4.get('moneda_precio')} | "
               f"{f(m4.get('precio_mercado'))} | {f(m4.get('vps_modelo'))} | {f(m4.get('upside'))} | "
+              f"{f(m4.get('acciones'))} | {meta.get('anios_historicos', 'N/D')} | "
               f"WACC {pct(m4.get('wacc_calc'))} | g {pct(m4.get('g_usada', m4.get('g')))} | "
               f"precio-fecha {m4.get('fecha_precio') or 'N/D'} | "
-              f"{'OK' if not incons else '; '.join(incons)}")
-    return 1 if fallos else 0
+              f"{'OK' if not incons else '; '.join(incons)} | {texto_alertas}")
+    if fallos:
+        print("\nRESULTADO: BLOQUEADO — hay discrepancias entre pestañas o alertas críticas de calidad.")
+        return 1
+    print("\nRESULTADO: sin bloqueos críticos; revisar también las alertas no críticas.")
+    return 0
 
 
 if __name__ == "__main__":
