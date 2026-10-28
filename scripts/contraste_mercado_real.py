@@ -60,7 +60,7 @@ def main(argv):
         print(f"[{tk}] → {nombre} · ticker {L.ticker_canonico_empresa(nombre)}")
         nombres.append(nombre)
     fallos = 0
-    print("\nEmpresa | Ticker | Moneda | Precio | VPS | Upside % | Consistencia 2/4/7")
+    print("\nEmpresa | Ticker | Moneda | Precio mercado | VPS modelo | Upside % | WACC | g terminal | Fecha precio | Consistencia 2/4/7")
     for n in nombres:
         m = correr(n)
         m4 = m["4"]
@@ -70,13 +70,22 @@ def main(argv):
             vs = [v for v in vals.values() if v is not None]
             if vs and max(vs) - min(vs) > 1e-6 * max(1.0, abs(max(vs))):
                 incons.append(f"{k}={vals}")
+        # Comparar floats con tolerancia relativa: la igualdad exacta puede marcar
+        # discrepancias espurias por redondeo aunque ambas pestañas usen los mismos insumos.
         for k in ("vps_modelo", "upside"):
-            if m4.get(k) != m["7"].get(k):
-                incons.append(f"{k}: t4={m4.get(k)} t7={m['7'].get(k)}")
+            a, b = m4.get(k), m["7"].get(k)
+            if a is None or b is None:
+                if a is not b:
+                    incons.append(f"{k}: t4={a} t7={b}")
+            elif abs(float(a) - float(b)) > 1e-6 * max(1.0, abs(float(a)), abs(float(b))):
+                incons.append(f"{k}: t4={a} t7={b}")
         fallos += bool(incons)
         f = lambda v: "N/D" if v is None else f"{v:,.2f}"
+        pct = lambda v: "N/D" if v is None else f"{100.0 * float(v):.2f}%"
         print(f"{n[:34]} | {m4.get('ticker')} | {m4.get('moneda')}/{m4.get('moneda_precio')} | "
               f"{f(m4.get('precio_mercado'))} | {f(m4.get('vps_modelo'))} | {f(m4.get('upside'))} | "
+              f"WACC {pct(m4.get('wacc_calc'))} | g {pct(m4.get('g_usada', m4.get('g')))} | "
+              f"precio-fecha {m4.get('fecha_precio') or 'N/D'} | "
               f"{'OK' if not incons else '; '.join(incons)}")
     return 1 if fallos else 0
 
