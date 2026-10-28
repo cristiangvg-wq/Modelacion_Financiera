@@ -3207,7 +3207,7 @@ def _cargar_params_empresa(nombre):
             mon = str(p_full.get("moneda") or (st.session_state.get("params") or {}).get("moneda") or "").upper()
             merc = str(p_full.get("mercado_capm") or "").upper()
             p = st.session_state.get("params") or {}
-            for k in ("moneda", "mercado_capm", "deuda_es_bruta", "ticker_yf", "precio", "precio_mercado", "precio_moneda"):
+            for k in ("moneda", "mercado_capm", "deuda_es_bruta", "deuda_fuente", "ticker_yf", "precio", "precio_mercado", "precio_moneda"):
                 if k in p_full and p_full.get(k) is not None:
                     p[k] = p_full[k]
             st.session_state["params"] = p
@@ -3572,6 +3572,11 @@ def main():
             deuda_neta = st.number_input(
                 "Deuda neta", value=float(p.get("deuda_neta", 0) or 0), step=100.0, key=f"dn_{ek}"
             )
+            if abs(float(deuda_neta or 0)) < 1e-9 and float(de_ratio or 0) > 0.2:
+                st.warning(f"Deuda neta en 0 con D/E {de_ratio:.2f}: el patrimonio no descuenta deuda y el valor por "
+                           "acción sale inflado. Escribe la deuda neta de los estados financieros.")
+            elif p.get("deuda_fuente"):
+                st.caption(f"Deuda neta: {p['deuda_fuente']}.")
             inversion_inicial = st.number_input(
                 "Inversión proyecto", value=float(p.get("inversion_inicial", 0) or 0), step=10.0, key=f"ii_{ek}"
             )
