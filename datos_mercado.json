@@ -1,0 +1,21 @@
+{
+ "fuente": "Tesoro de EE. UU. (home.treasury.gov) y OCDE (sdmx.oecd.org)",
+ "descargado": "2026-10-28",
+ "tasas": {
+  "us_rf": {
+   "valor": 0.0499,
+   "fecha": "2026-10-27",
+   "fuente": "Tesoro de EE. UU. a 10 años (Treasury, 2026-10-27)"
+  },
+  "us_inflacion_lp": {
+   "valor": 0.0235,
+   "fecha": "2026-10-27",
+   "fuente": "Inflación implícita 10a = nominal 4.99% − real 2.64% (Treasury, 2026-10-27)"
+  },
+  "co_rf_bruto": {
+   "valor": 0.1273,
+   "fecha": "2026-09-15",
+   "fuente": "Bono del gobierno de Colombia a 10 años, promedio de 2026-09 (OCDE)"
+  }
+ }
+}
