@@ -1,0 +1,51 @@
+name: Diagnóstico auditoría 3
+on:
+  push:
+    branches: [diag/auditoria-3]
+permissions:
+  contents: write
+jobs:
+  valoracion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: |
+          mkdir -p res
+          python diag/verif.py > res/verif.json 2> res/verif_err.txt || true
+          python diag/valorar_activos.py > res/valoracion.json 2> res/valoracion_err.txt || true
+          python scripts/contraste_mercado_real.py MINEROS AAPL PLTR > res/contraste.txt 2>&1; echo "exit=$?" >> res/contraste.txt
+      - uses: actions/upload-artifact@v4
+        with: {name: valoracion, path: res}
+  ui:
+    if: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt playwright && python -m playwright install --with-deps chromium
+      - run: |
+          mkdir -p res/ui
+          streamlit run streamlit_app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > res/ui/streamlit.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8501/_stcore/health && break; sleep 2; done
+          python diag/capturas_ui.py http://127.0.0.1:8501 res/ui ambos || true
+      - uses: actions/upload-artifact@v4
+        with: {name: ui, path: res}
+  publicar:
+    needs: [valoracion]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {path: art}
+      - run: |
+          mkdir out && cp -r art/*/* out/ 2>/dev/null || true
+          cd out && git init -q && git checkout -q -b diag/auditoria-3c-resultados
+          git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
+          git add -A && git commit -q -m "Resultados diagnóstico auditoría 3"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/auditoria-3c-resultados
