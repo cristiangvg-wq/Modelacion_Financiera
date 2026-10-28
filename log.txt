@@ -1,0 +1,3 @@
+ISA — Interconexión Eléctrica /tmp/informe_isa_c0kw53c1/Informe_Ejecutivo_v21_ISA_20261028_183217.pdf eq_pes tab4 6733.472844806009 vps 24500.462529364206
+Mineros S.A. — MINEROS /tmp/informe_isa_1jjk4y4p/Informe_Ejecutivo_v21_MINEROS_20261028_183226.pdf eq_pes tab4 1.3941997355143283 vps 7.115811359012979
+Apple Inc. — AAPL /tmp/informe_isa_rvyjsfwy/Informe_Ejecutivo_v21_AAPL_20261028_183235.pdf eq_pes tab4 1631.7090542325054 vps 173.32917412725297
