@@ -35,8 +35,14 @@ class TestCapmMonedaFlujos(unittest.TestCase):
         c = L.capm_coherente_con_moneda("Colombia", "USD", "MINEROS.CL")
         self.assertEqual(c["mercado"], "US")
         self.assertAlmostEqual(c["rf"], L.CAPM_POR_MERCADO["US"]["rf"])
-        self.assertAlmostEqual(c["crp_deuda"], L.RIESGO_PAIS_CDS["CO"])
-        self.assertAlmostEqual(c["crp"], round(L.MULT_CRP_EQUITY * L.RIESGO_PAIS_CDS["CO"], 4))
+        dam = L.damodaran_riesgo_pais("CO")
+        if dam:  # primas de Damodaran (datos_damodaran.json)
+            self.assertAlmostEqual(c["crp_deuda"], round(dam["spread"], 4))
+            self.assertAlmostEqual(c["crp"], round(dam["crp"], 4))
+            self.assertAlmostEqual(c["erp"], dam["erp_madura"])
+        else:    # respaldo: CDS × 1,5
+            self.assertAlmostEqual(c["crp_deuda"], L.RIESGO_PAIS_CDS["CO"])
+            self.assertAlmostEqual(c["crp"], round(L.MULT_CRP_EQUITY * L.RIESGO_PAIS_CDS["CO"], 4))
         self.assertTrue(c["cruce_moneda"])
 
     def test_flujos_en_moneda_local_no_duplican_riesgo_pais(self):
