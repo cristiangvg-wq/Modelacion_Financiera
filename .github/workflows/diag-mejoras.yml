@@ -1,0 +1,27 @@
+name: Diagnóstico mejoras
+on:
+  push:
+    branches: [diag/mejoras]
+permissions:
+  contents: write
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt playwright && python -m playwright install --with-deps chromium
+      - run: |
+          set +e
+          mkdir -p out/ui
+          python scripts/actualizar_tasas.py --salida out/datos_mercado.json > out/tasas.txt 2>&1
+          cp out/datos_mercado.json datos_mercado.json
+          python diag/verif_mejoras.py > out/verif.json 2> out/verif_err.txt
+          streamlit run streamlit_app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > out/ui/streamlit.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8501/_stcore/health && break; sleep 2; done
+          timeout 600 python diag/capturas_dialogos.py http://127.0.0.1:8501 out/ui
+          cd out && git init -q && git checkout -q -b diag/mejoras-resultados
+          git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
+          git add -A && git commit -q -m "Resultados" && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/mejoras-resultados
