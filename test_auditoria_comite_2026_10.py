@@ -139,6 +139,46 @@ class TestValorTerminalYMercado(unittest.TestCase):
             L.fijar_ronic_spread(0.5)
 
 
+def _hist():
+    años = [2021, 2022, 2023, 2024, 2025]
+    ing = np.array([1000.0, 1050.0, 1100.0, 1160.0, 1220.0])
+    df = pd.DataFrame({"Ingresos": ing, "EBITDA": ing * 0.30, "EBIT": ing * 0.22,
+                       "Depreciacion": ing * 0.08, "CAPEX": ing * 0.09, "NWC": ing * 0.05}, index=años)
+    df.index.name = "Año"
+    return df
+
+
+class TestCrecimientoImplicito(unittest.TestCase):
+    def test_reproduce_el_crecimiento_que_genera_el_precio(self):
+        df, tax, wacc, g = _hist(), 0.25, 0.10, 0.03
+        bp = {"deuda_neta": 200.0, "acciones": 50.0}
+        dfp, _ = L.proyectar_por_drivers(df, 5, tax=tax, g_ingresos_inicial=0.15)
+        dfp = L.recalcular_fcff(dfp, tax=tax)
+        v = L.valorar_con_bridge(dfp["FCFF"].values, wacc, g, bp, nopat_final=L._nopat_final(dfp), g_max_macro=0.04)
+        px = v["Equity_Value"] * 1000.0 / 50.0
+        r = L.crecimiento_implicito_mercado(df, 5, tax, wacc, g, bp, px, g_max_macro=0.04)
+        self.assertEqual(r["motivo"], "ok")
+        self.assertAlmostEqual(r["g_ingresos"], 0.15, places=3)
+        self.assertLess(r["g_base"], 0.10)
+
+    def test_sin_precio_no_inventa_resultado(self):
+        r = L.crecimiento_implicito_mercado(_hist(), 5, 0.25, 0.10, 0.03, {"acciones": 50.0}, None)
+        self.assertIsNone(r["g_ingresos"])
+
+
+class TestInversionesNoOperativas(unittest.TestCase):
+    def test_investments_and_advances_suma_al_equity(self):
+        bs = _bs({"Investments And Advances": [77_723e6, 91_479e6], "Long Term Equity Investment": [1e6, 1e6]})
+        p = L.derivar_params_desde_cero(None, info={"_balance_sheet": bs, "currency": "USD"}, ticker_yf="AAPL")
+        self.assertAlmostEqual(p["asociados"], 77.723, places=3)
+
+    def test_componentes_se_suman_sin_agregado(self):
+        bs = _bs({"Long Term Equity Investment": [20_235e6, 18_087e6],
+                  "Investmentin Financial Assets": [1_500e6, 1_400e6]})
+        p = L.derivar_params_desde_cero(None, info={"_balance_sheet": bs, "currency": "USD"}, ticker_yf="KO")
+        self.assertAlmostEqual(p["asociados"], 21.735, places=3)
+
+
 class TestMotorDecisionUsaPrecio(unittest.TestCase):
     BASE = dict(wacc=0.09, g=0.03, roic=0.25, de_ratio=0.3, vpn=10.0, tir=0.12, payback=None,
                 ev_base=1000.0, equity_base=900.0, equity_pesimista=500.0, delta_ev_capex=0.0,

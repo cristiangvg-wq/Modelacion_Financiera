@@ -3465,14 +3465,29 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
                         nci_val = abs(diff)
                     else:
                         nci_val = 0.0  # p.ej. AAPL: gross ≈ stockholders → NCI ≈ 0
-            inv = _bs_first([
-                "Investments And Advances",
-                "Long Term Equity Investment",
-                "Investmentin AssociatedampAffiliatedCompanies",
-                "Investments in Associates",
-            ])
+            # Activos no operativos de largo plazo que el EV (flujos operativos) no
+            # incluye: asociadas/JV + inversiones financieras no corrientes. Yahoo los
+            # agrega en «Investments And Advances» (AAPL: ~78 mil M USD en títulos de
+            # largo plazo que NO están en totalCash). Si ese agregado no existe, se
+            # suman los componentes sin repetir ninguno.
+            inv = _bs_first(["Investments And Advances"])
+            fuente_inv = "Yahoo «Investments And Advances» (asociadas + inversiones financieras LP)"
+            if inv is None:
+                eq_m = _bs_first([
+                    "Long Term Equity Investment",
+                    "Investmentin AssociatedampAffiliatedCompanies",
+                    "Investments in Associates",
+                ])
+                fin_lp = _bs_first([
+                    "Investmentin Financial Assets", "Available For Sale Securities",
+                    "Held To Maturity Securities", "Other Investments",
+                ])
+                partes = [abs(x) for x in (eq_m, fin_lp) if x is not None]
+                inv = sum(partes) if partes else None
+                fuente_inv = "Yahoo: asociadas" + (" + inversiones financieras LP" if fin_lp is not None else "")
             if inv is not None and asociados_val is None:
                 asociados_val = inv
+                p["asociados_fuente"] = fuente_inv
         except Exception:
             pass
     if nci_val is not None:
@@ -4096,7 +4111,8 @@ def calcular_nopat(ebit, tax):
     return resultado
 
 
-def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, convergencia_capex=True):
+def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, convergencia_capex=True,
+                          g_ingresos_inicial=None):
     """
     Proyección por drivers con estimadores ROBUSTOS (mediana + Hampel) e identidad FCFF:
     - Ingresos: crecimiento = mediana robusta de las variaciones anuales (admite caídas), con
@@ -4116,6 +4132,10 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
 
     g0, info_g = driver_robusto(ing.pct_change())
     g0 = float(np.clip(g0 if np.isfinite(g0) else 0.03, -0.10, 0.12))
+    if g_ingresos_inicial is not None:
+        # Escenario explícito (p. ej. crecimiento implícito en el precio): sustituye el
+        # crecimiento histórico del año 1; la convergencia hacia g_conv se mantiene.
+        g0 = float(g_ingresos_inicial)
     if H > 1:
         g_path = np.array([g0 + (g_conv - g0) * i / (H - 1) for i in range(H)])
     else:
@@ -5299,7 +5319,7 @@ def valoracion_dcf(
         "(-) Deuda neta": -deuda_neta,
         "(-) Interés minoritario (NCI)": -nci,
         "(-) Otros claims": -otros_claims,
-        "(+) Asociados / JV": asociados,
+        "(+) Asociados e inversiones no operativas": asociados,
         "Equity atribuible": equity,
         # Diagnósticos del bridge para detectar desajustes de escala y deuda.
         # Se expresan en la misma unidad monetaria que FCFF/EV (normalmente miles de millones).
@@ -5325,7 +5345,7 @@ def valoracion_dcf(
             "(+) Caja y equivalentes": caja,
             "(-) Interés minoritario (NCI)": -nci,
             "(-) Otros claims": -otros_claims,
-            "(+) Asociados / JV": asociados,
+            "(+) Asociados e inversiones no operativas": asociados,
             "Equity atribuible": equity,
             "FCFF usado en TV" + (" (normalizado N+1)" if reinv_term is not None else " (último año)"): (
                 float(nopat_final) * (1 + g_use) * (1 - reinv_term) if reinv_term is not None else fcff_tv),
@@ -5536,6 +5556,64 @@ def wacc_implicito_mercado(fcff_series, g, bridge_params, precio_objetivo, mid_y
         return {"wacc": float(brentq(_gap, lo, hi, xtol=1e-6)), "motivo": "ok"}
     except (ValueError, RuntimeError, ZeroDivisionError):
         return sin
+
+
+def crecimiento_implicito_mercado(df_hist, horizonte, tax, wacc, g, bridge_params, precio_objetivo,
+                                  capex_extra=0.0, mid_year=True, g_max_macro=0.05,
+                                  lo=-0.10, hi=0.60):
+    """Crecimiento de ingresos del año 1 que justifica el precio (DCF inverso por crecimiento).
+
+    Complementa al WACC implícito: deja fijos WACC, márgenes, CAPEX, NWC, g terminal y
+    puente, y resuelve el crecimiento inicial de ingresos (que luego converge linealmente
+    hacia el crecimiento de largo plazo, igual que el caso base). Responde «¿cuánto tiene
+    que crecer la empresa para valer lo que cotiza?».
+
+    Devuelve {"g_ingresos": float|None, "g_base": float, "cagr_horizonte": float|None,
+              "motivo": str}.
+    """
+    out = {"g_ingresos": None, "g_base": None, "cagr_horizonte": None, "motivo": "sin_datos"}
+    try:
+        px = float(precio_objetivo)
+        acc = float((bridge_params or {}).get("acciones") or 0)
+    except (TypeError, ValueError):
+        return out
+    if df_hist is None or len(df_hist) < 2 or not (np.isfinite(px) and px > 0 and acc > 0):
+        return out
+    try:
+        _, meta = proyectar_por_drivers(df_hist, horizonte, tax=tax)
+        out["g_base"] = float(meta["g_ingresos"])
+    except Exception:
+        return out
+
+    def _proj(g0):
+        dfp, _ = proyectar_por_drivers(df_hist, horizonte, tax=tax, g_ingresos_inicial=g0)
+        return recalcular_fcff(dfp, tax=tax, capex_extra=capex_extra)
+
+    def _gap(g0):
+        dfp = _proj(g0)
+        v = valorar_con_bridge(dfp["FCFF"].values, wacc, g, bridge_params, mid_year=mid_year,
+                               g_max_macro=g_max_macro, nopat_final=_nopat_final(dfp))
+        return float(v["Equity_Value"]) * 1000.0 / acc - px
+
+    try:
+        f_lo, f_hi = _gap(lo), _gap(hi)
+        if not (np.isfinite(f_lo) and np.isfinite(f_hi)):
+            return out
+        if f_hi < 0:
+            out["motivo"] = "precio_exige_mas_de_60pct"
+            return out
+        if f_lo > 0:
+            out["motivo"] = "valor_supera_precio_aun_con_caida"
+            return out
+        g_sol = float(brentq(_gap, lo, hi, xtol=1e-5))
+        dfp = _proj(g_sol)
+        ing0 = float(df_hist["Ingresos"].iloc[-1])
+        n = len(dfp)
+        out.update(g_ingresos=g_sol, motivo="ok",
+                   cagr_horizonte=(float(dfp["Ingresos"].iloc[-1]) / ing0) ** (1.0 / n) - 1.0 if ing0 > 0 else None)
+        return out
+    except (ValueError, RuntimeError, ZeroDivisionError):
+        return out
 
 
 def _escalar_fcff(fcff, fac):
@@ -8034,6 +8112,19 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj),
         ) if _px_modelo else {"wacc": None, "motivo": "sin_precio_comparable"}
         wacc_impl = _wi.get("wacc")
+        _ci = crecimiento_implicito_mercado(
+            df_hist, horizonte, tax, wacc, g, bp, _px_modelo, capex_extra=capex_extra,
+            mid_year=bool(mid_year), g_max_macro=float(g_max_macro),
+        ) if _px_modelo else {"g_ingresos": None, "motivo": "sin_precio_comparable"}
+        if _ci.get("g_ingresos") is not None:
+            _ci_txt = (f"{_ci['g_ingresos']*100:.1f}% el año 1 (CAGR {horizonte} años "
+                       f"{_ci['cagr_horizonte']*100:.1f}%) vs {_ci['g_base']*100:.1f}% del caso base")
+        else:
+            _ci_txt = {
+                "precio_exige_mas_de_60pct": "N/D: el precio exige crecer más de 60% el año 1",
+                "valor_supera_precio_aun_con_caida": "N/D: el valor supera el precio aun con ingresos cayendo 10% anual",
+                "sin_precio_comparable": "N/D: sin precio en la moneda del modelo",
+            }.get(_ci.get("motivo"), "N/D")
         _wi_txt = {
             "precio_exige_mas_crecimiento": "N/D: el precio exige más crecimiento que el caso base (aun con WACC ≈ g + 1 pp)",
             "precio_bajo_aun_con_wacc_max": "N/D: el precio queda por debajo del valor aun con WACC de 40 %",
@@ -8046,6 +8137,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 "Fuente financiera", "Fuente mercado", "Ke (CAPM)", "WACC", "ROIC",
                 "ΔEV por CAPEX extra", "Equity base", "Equity pesimista", "MVA firma (EV − capital invertido)", "TIR implícita firma*",
                 "WACC implícito en el precio (DCF inverso)",
+                "Crecimiento de ingresos implícito en el precio",
             ],
             "Valor": [
                 decision, f"{score}/7", prov["nivel_calidad"], prov["fuente_financiera"], prov["fuente_mercado"],
@@ -8054,6 +8146,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 f"{vpn_p:,.1f}" if vpn_p == vpn_p else "N/D",
                 f"{tir_p*100:.2f}%" if (tir_p == tir_p) else "N/D",
                 (f"{wacc_impl*100:.2f}% ({(wacc_impl - wacc)*1e4:+,.0f} pb vs WACC)" if wacc_impl is not None else _wi_txt),
+                _ci_txt,
             ],
         })
 
@@ -8136,6 +8229,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "acciones": _finite_or_none(val_base.get("acciones")),
                     "wacc_calc": _finite_or_none(wacc),
                     "wacc_implicito_mercado": _finite_or_none(wacc_impl),
+                    "crecimiento_implicito_mercado": _finite_or_none(_ci.get("g_ingresos")),
+                    "crecimiento_base_ingresos": _finite_or_none(_ci.get("g_base")),
                     "ke_calc": _finite_or_none(ke),
                     "roic_calc": _finite_or_none(roic),
                     "roic_fuente": "NOPAT medio proyectado / capital invertido (pestaña 4)",

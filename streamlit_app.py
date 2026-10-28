@@ -3247,7 +3247,9 @@ def main():
                 "Otros claims", value=float(p.get("otros_claims", 0) or 0), step=50.0, key=f"oc_{ek}"
             )
             asociados = st.number_input(
-                "Asociados", value=float(p.get("asociados", 0) or 0), step=50.0, key=f"as_{ek}"
+                "Asociados e inversiones LP", value=float(p.get("asociados", 0) or 0), step=50.0, key=f"as_{ek}",
+                help="Activos no operativos que se suman al Equity: participaciones en asociadas/JV e "
+                     "inversiones financieras de largo plazo que no están en la caja.",
             )
             _acc0 = p.get("acciones")
             if _acc0 is None or float(_acc0 or 0) <= 0:
