@@ -3020,11 +3020,77 @@ def _aplicar_damodaran_a_capm():
         co["rf_fuente"] = f"TES 10a {co['rf_bruto']:.2%} − spread de default {rp_co['spread']:.2%} (Damodaran)"
 
 
+# ---------------------------------------------------------------------------
+# Tasas de mercado: referencia fechada del código vs datos_mercado.json (FRED, flujo semanal)
+# ---------------------------------------------------------------------------
+_RUTA_TASAS = Path(__file__).with_name("datos_mercado.json")
+# Referencias puntuales (fuente y fecha). Gana el dato MÁS RECIENTE entre esta tabla y el archivo:
+# un promedio mensual de la OCDE no reemplaza un TES diario del Banco de la República más nuevo.
+REFERENCIAS_TASAS = {
+    "us_rf": {"valor": 0.05, "fecha": "2026-10-27", "fuente": "Tesoro de EE. UU. a 10 años 4,99 % (Treasury, 27-oct-2026)"},
+    "us_inflacion_lp": {"valor": 0.0235, "fecha": "2026-10-09", "fuente": "UST10 5,22 % − tasa real 10a 2,87 % (9-oct-2026)"},
+    "co_rf_bruto": {"valor": 0.1318, "fecha": "2026-10-16", "fuente": "TES 10 años, curva cero cupón (Banco de la República, 16-oct-2026)"},
+    "co_inflacion_lp": {"valor": 0.0615, "fecha": "2026-08-21", "fuente": "Inflación implícita TES COP vs UVR a 10 años (Banco de la República, 21-ago-2026)"},
+}
+VIGENCIA_TASAS_DIAS = {"us_rf": 45, "co_rf_bruto": 75, "us_inflacion_lp": 120, "co_inflacion_lp": 200}
+NOMBRE_TASA = {"us_rf": "Tesoro de EE. UU. a 10 años", "co_rf_bruto": "TES a 10 años",
+               "us_inflacion_lp": "inflación de largo plazo de EE. UU.", "co_inflacion_lp": "inflación de largo plazo de Colombia"}
+
+
+def _leer_tasas(ruta=None):
+    try:
+        with open(ruta or _RUTA_TASAS, encoding="utf-8") as f:
+            return (json.load(f) or {}).get("tasas") or {}
+    except Exception:
+        return {}
+
+
+def tasas_vigentes(archivo=None, referencias=None):
+    """{clave: {"valor", "fecha", "fuente", "origen"}} con el dato más reciente de cada tasa."""
+    archivo = _leer_tasas() if archivo is None else archivo
+    out = {}
+    for k, ref in (referencias or REFERENCIAS_TASAS).items():
+        elegido = dict(ref, origen="referencia del código")
+        a = archivo.get(k) or {}
+        try:
+            v = float(a["valor"])
+            if 0.0 < v < 0.40 and str(a.get("fecha") or "") > str(ref.get("fecha") or ""):
+                elegido = {"valor": v, "fecha": a["fecha"], "fuente": a.get("fuente") or a.get("serie"), "origen": "datos_mercado.json"}
+        except (KeyError, TypeError, ValueError):
+            pass
+        out[k] = elegido
+    return out
+
+
+def tasas_vigencia(hoy=None, tasas=None):
+    """Avisos para las tasas más viejas que su vigencia (días)."""
+    hoy = hoy or datetime.now().date()
+    tasas = tasas or TASAS_MERCADO
+    avisos = []
+    for k, t in tasas.items():
+        try:
+            dias = (hoy - datetime.fromisoformat(str(t["fecha"])).date()).days
+        except Exception:
+            continue
+        if dias > VIGENCIA_TASAS_DIAS.get(k, 90):
+            avisos.append(f"{NOMBRE_TASA.get(k, k)} con {dias} días ({t['fecha']}): ejecuta el flujo «Actualizar tasas de "
+                          "mercado» o actualiza REFERENCIAS_TASAS.")
+    return avisos
+
+
+TASAS_MERCADO = tasas_vigentes()
+CAPM_POR_MERCADO["US"]["rf"] = round(TASAS_MERCADO["us_rf"]["valor"], 4)
+CAPM_POR_MERCADO["US"]["rf_fuente"] = f"{TASAS_MERCADO['us_rf']['fuente']} · {TASAS_MERCADO['us_rf']['fecha']}"
+CAPM_POR_MERCADO["CO"]["rf_bruto"] = round(TASAS_MERCADO["co_rf_bruto"]["valor"], 4)
+CAPM_POR_MERCADO["CO"]["rf_bruto_fuente"] = f"{TASAS_MERCADO['co_rf_bruto']['fuente']} · {TASAS_MERCADO['co_rf_bruto']['fecha']}"
+CAPM_POR_MERCADO["CO"]["rf"] = CAPM_POR_MERCADO["CO"]["rf_bruto"]  # sin Damodaran: rf = TES completo
+
 _aplicar_damodaran_a_capm()
 # Inflación de largo plazo implícita en el mercado (para Fisher / paridad):
 #   CO: breakeven TES COP vs UVR 10 años 6,15 % (BanRep, 21-ago-2026)
 #   US: UST10 5,22 % − tasa real 10 años 2,87 % = 2,35 % (9-oct-2026)
-INFLACION_LP = {"CO": 0.0615, "US": 0.0235}
+INFLACION_LP = {"CO": round(TASAS_MERCADO["co_inflacion_lp"]["valor"], 4),
+                "US": round(TASAS_MERCADO["us_inflacion_lp"]["valor"], 4)}
 MERCADO_POR_MONEDA = {"COP": "CO", "USD": "US", "BRL": "BR", "MXN": "MX", "CLP": "CL", "GBP": "GB"}
 TASA_ESTATUTARIA = {"CO": 0.35, "US": 0.21, "BR": 0.34, "MX": 0.30, "CL": 0.27, "GB": 0.25}
 
@@ -4295,6 +4361,192 @@ def empresa_es_ciclica(nombre_empresa):
         return False
 
 
+# ---------------------------------------------------------------------------
+# Correcciones del usuario sobre el histórico (cifras oficiales) y suma de partes de participadas
+# ---------------------------------------------------------------------------
+HISTORICO_EDITABLE = ["Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC"]
+
+
+def _ajustes_usuario():
+    return _almacen_estado().setdefault("ajustes_usuario", {"historico": {}, "suma_partes": {}})
+
+
+def completar_historico(df, tax):
+    """Recalcula ΔNWC, NOPAT y FCFF desde las partidas editables (misma identidad que la carga de Excel)."""
+    df = df[[c for c in HISTORICO_EDITABLE if c in df.columns]].astype(float).sort_index().copy()
+    df["CAPEX"] = df["CAPEX"].abs()
+    df["Delta_NWC"] = df["NWC"].diff().fillna(0.0)
+    df["NOPAT"] = calcular_nopat(df["EBIT"], float(tax))
+    df["FCFF"] = df["NOPAT"] + df["Depreciacion"] - df["CAPEX"] - df["Delta_NWC"]
+    return df
+
+
+def fijar_historico_usuario(nombre_empresa, df_editado, df_original=None, fuente_original=None, attrs=None):
+    """Guarda en la sesión el histórico corregido por el usuario (p. ej. el CAPEX oficial de ISA).
+
+    Solo se guardan las partidas editables; las derivadas se recalculan al usarlo. Devuelve la lista de
+    celdas cambiadas («CAPEX 2025: 1.706 → 6.300»).
+    """
+    df = df_editado.copy()
+    if "Año" in df.columns:
+        df = df.set_index("Año")
+    df.index = [int(x) for x in df.index]
+    df = df[[c for c in HISTORICO_EDITABLE if c in df.columns]].apply(pd.to_numeric, errors="coerce")
+    faltan = [c for c in HISTORICO_EDITABLE if c not in df.columns]
+    if faltan or df.isna().any().any() or len(df) < 3:
+        raise ValueError("El histórico corregido necesita al menos 3 años completos de: " + ", ".join(HISTORICO_EDITABLE))
+    if (df["Ingresos"] <= 0).any():
+        raise ValueError("Los ingresos deben ser positivos en todos los años.")
+    cambios = []
+    if df_original is not None:
+        o = df_original
+        for y in df.index:
+            for c in HISTORICO_EDITABLE:
+                try:
+                    a, b = float(o.loc[y, c]), float(df.loc[y, c])
+                except (KeyError, TypeError, ValueError):
+                    cambios.append(f"{c} {y}: nuevo")
+                    continue
+                if abs(a - b) > 1e-6 * max(1.0, abs(a)):
+                    cambios.append(f"{c} {y}: {a:,.1f} → {b:,.1f}")
+    _ajustes_usuario()["historico"][nombre_empresa] = {
+        "datos": {c: {int(y): float(df.loc[y, c]) for y in df.index} for c in HISTORICO_EDITABLE},
+        "cambios": cambios, "fuente_original": fuente_original or "fuente original",
+        "attrs": {k: v for k, v in (attrs or {}).items() if isinstance(v, (str, int, float, bool, type(None)))},
+    }
+    return cambios
+
+
+def historico_usuario(nombre_empresa):
+    return (_ajustes_usuario()["historico"] or {}).get(nombre_empresa)
+
+
+def borrar_historico_usuario(nombre_empresa):
+    _ajustes_usuario()["historico"].pop(nombre_empresa, None)
+
+
+METODOS_PARTICIPADA = {
+    "capitalizada": "Utilidad capitalizada al Ke (con ROE y g)",
+    "pu": "Múltiplo P/U",
+    "dividendos": "Dividendos recibidos (Gordon)",
+    "mercado": "Valor de mercado × participación",
+    "libros": "Valor en libros de la inversión",
+}
+
+
+def valorar_participada(fila, ke):
+    """Valor de UNA participada para el accionista de la matriz (moneda y unidad del modelo).
+
+    · capitalizada: U × p × (1 − g/ROE) / (Ke − g)  — con ROE = Ke y g = 0 es U × p / Ke (convención previa);
+    · pu: U × p × P/U;  · dividendos: D × (1 + g) / (Ke − g), D = dividendo que recibe la matriz;
+    · mercado: valor 100 % × p;  · libros: valor de la inversión en el balance de la matriz.
+    Devuelve (valor, texto) o (None, motivo).
+    """
+    def num(k, defecto=None):
+        try:
+            v = fila.get(k)
+            return defecto if v is None or (isinstance(v, float) and not np.isfinite(v)) or v == "" else float(v)
+        except (TypeError, ValueError):
+            return defecto
+    p = num("participacion", 100.0) / 100.0
+    met = str(fila.get("metodo") or "capitalizada")
+    ke = float(ke)
+    g = num("g", 0.0) / 100.0
+    if met == "capitalizada":
+        u, roe = num("utilidad"), num("roe", ke * 100) / 100.0
+        if u is None:
+            return None, "falta la utilidad"
+        if roe <= 0 or ke <= g + 0.005:
+            return None, "Ke debe superar a g y el ROE ser positivo"
+        v = u * p * (1 - g / roe) / (ke - g)
+        return v, f"{u:,.1f} × {p:.1%} × (1 − {g:.1%}/{roe:.1%}) / ({ke:.1%} − {g:.1%})"
+    if met == "pu":
+        u, m = num("utilidad"), num("pu")
+        if u is None or not m:
+            return None, "faltan la utilidad o el P/U"
+        return u * p * m, f"{u:,.1f} × {p:.1%} × {m:.1f}x"
+    if met == "dividendos":
+        d = num("dividendo")
+        if d is None:
+            return None, "falta el dividendo recibido"
+        if ke <= g + 0.005:
+            return None, "Ke debe superar a g"
+        return d * (1 + g) / (ke - g), f"{d:,.1f} × (1 + {g:.1%}) / ({ke:.1%} − {g:.1%})"
+    if met == "mercado":
+        v100 = num("valor")
+        if v100 is None:
+            return None, "falta el valor de mercado (100 %)"
+        return v100 * p, f"{v100:,.1f} × {p:.1%}"
+    if met == "libros":
+        v = num("valor")
+        return (v, "valor en libros") if v is not None else (None, "falta el valor en libros")
+    return None, f"método desconocido «{met}»"
+
+
+def suma_de_partes(filas, ke):
+    """Valora cada participada y suma. Devuelve {"total", "detalle": [...], "errores": [...]}."""
+    detalle, errores, total = [], [], 0.0
+    for f in filas or []:
+        nombre = str(f.get("participada") or "").strip()
+        if not nombre:
+            continue
+        v, txt = valorar_participada(f, ke)
+        if v is None:
+            errores.append(f"{nombre}: {txt}")
+            continue
+        total += v
+        detalle.append({"participada": nombre, "metodo": METODOS_PARTICIPADA.get(f.get("metodo"), f.get("metodo")),
+                        "valor": v, "calculo": txt})
+    return {"total": total, "detalle": detalle, "errores": errores}
+
+
+# Estructura conocida de participadas (fuentes públicas). Solo la parte verificable; el resto queda agregado.
+PARTICIPADAS_CURADAS = {
+    "GEB — Grupo Energía Bogotá": [
+        {"participada": "Enel Colombia", "participacion": 42.5, "metodo": "capitalizada", "utilidad": 3200.0,
+         "fuente": "Utilidad neta 2025 de 3,2 billones COP (Portafolio, feb-2026); participación 42,5 % (Portafolio, 2021)"},
+    ],
+}
+
+
+def participadas_sugeridas(nombre_empresa, params=None):
+    """Filas iniciales del editor de suma de partes: estructura curada + el resto agregado de Yahoo."""
+    p = params if params is not None else (params_empresa(nombre_empresa) or {})
+    filas = [dict(f) for f in PARTICIPADAS_CURADAS.get(nombre_empresa, [])]
+    ing = p.get("ingreso_participadas")
+    if ing:
+        resto = float(ing) - sum(float(f.get("utilidad") or 0) * float(f.get("participacion") or 0) / 100.0
+                                 for f in filas if f.get("metodo") in ("capitalizada", "pu"))
+        if resto > 0:
+            filas.append({"participada": "Resto de participadas (agregado)", "participacion": 100.0,
+                          "metodo": "capitalizada", "utilidad": round(resto, 1),
+                          "fuente": "Ingreso por participadas estimado de Yahoo menos las filas anteriores"})
+    elif p.get("asociados"):
+        filas.append({"participada": "Inversiones en asociadas (libros)", "participacion": 100.0,
+                      "metodo": "libros", "valor": float(p["asociados"]), "fuente": "Balance (Yahoo o catálogo)"})
+    return filas
+
+
+def fijar_suma_partes(nombre_empresa, filas, resultado, ke):
+    _ajustes_usuario()["suma_partes"][nombre_empresa] = {"filas": filas, "total": float(resultado["total"]),
+                                                          "detalle": resultado["detalle"], "ke": float(ke)}
+
+
+def suma_partes_sesion(nombre_empresa):
+    return (_ajustes_usuario()["suma_partes"] or {}).get(nombre_empresa)
+
+
+def borrar_suma_partes(nombre_empresa):
+    _ajustes_usuario()["suma_partes"].pop(nombre_empresa, None)
+
+
+def firma_ajustes_usuario(nombre_empresa):
+    """Huella de las correcciones del usuario (invalida resultados cuando cambian)."""
+    a = _ajustes_usuario()
+    return json.dumps({"h": (a["historico"].get(nombre_empresa) or {}).get("datos"),
+                       "s": (a["suma_partes"].get(nombre_empresa) or {}).get("total")}, sort_keys=True, default=str)
+
+
 def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
     """Carga el histórico (Excel/CSV o datos públicos) y anota la moneda/mercado.
 
@@ -4302,7 +4554,17 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
     nominal de convergencia del mercado de la empresa, que leen todas las proyecciones
     (pestañas 1–7), de modo que la moneda del modelo y su inflación sean coherentes.
     """
-    df, msg = _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=usar_datos_publicos)
+    _hu = historico_usuario(nombre_empresa) if archivo is None else None
+    if _hu:
+        _tax = float((params_empresa(nombre_empresa) or {}).get("tax") or 0.30)
+        df = completar_historico(pd.DataFrame(_hu["datos"]), _tax)
+        df.index.name = "Año"
+        df.attrs.update(_hu.get("attrs") or {})
+        _n = len(_hu.get("cambios") or [])
+        msg = (f"Histórico corregido por el usuario sobre {_hu.get('fuente_original')} ({_n} celda(s) cambiada(s)"
+               + (": " + "; ".join(_hu["cambios"][:6]) if _n else "") + ").")
+    else:
+        df, msg = _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=usar_datos_publicos)
     if df is not None and hasattr(df, "attrs"):
         try:
             df.attrs["g_convergencia"] = g_convergencia_empresa(nombre_empresa)
@@ -4333,6 +4595,59 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
         except Exception:
             pass
     return df, msg
+
+
+_PALABRAS_INGRESOS = ("ingreso", "revenue", "ventas", "sales")
+
+
+def _normalizar_formato_ancho(raw):
+    """Estados financieros oficiales suelen venir con las partidas en filas y los años en columnas.
+
+    Si ninguna columna parece «Ingresos» pero la primera columna contiene esa partida y el resto de
+    encabezados son años, se transpone. Devuelve (DataFrame, transpuesto: bool).
+    """
+    try:
+        cols = [str(c).strip().lower() for c in raw.columns]
+        if any(any(k in c for k in _PALABRAS_INGRESOS) for c in cols):
+            return raw, False
+        primera = raw.iloc[:, 0].astype(str).str.strip().str.lower()
+        if not primera.apply(lambda x: any(k in x for k in _PALABRAS_INGRESOS)).any():
+            return raw, False
+        anios = pd.to_numeric(pd.Series([str(c)[:4] for c in raw.columns[1:]]), errors="coerce")
+        if anios.notna().sum() < 2 or not anios.dropna().between(1990, 2100).all():
+            return raw, False
+        t = raw.set_index(raw.columns[0]).T
+        t.index = [int(str(c)[:4]) if str(c)[:4].isdigit() else c for c in t.index]
+        t = t.reset_index().rename(columns={"index": "Año"})
+        t.columns = [str(c).strip() for c in t.columns]
+        return t, True
+    except Exception:
+        return raw, False
+
+
+def _escala_respecto_referencia(clean, nombre_empresa):
+    """Detecta unidades distintas a las del modelo (miles de millones) comparando los ingresos del archivo con
+    los de la fuente pública de la misma empresa. Devuelve (factor, aviso)."""
+    try:
+        ref = None
+        emp = resolver_empresa(nombre_empresa) or {}
+        h = emp.get("historico") or {}
+        if h.get("Ingresos") and h.get("Año"):
+            serie = {int(a): v for a, v in zip(h["Año"], h["Ingresos"]) if v}
+            comunes = [a for a in clean.index if int(a) in serie]
+            if comunes:
+                a = comunes[-1]
+                ref = (float(serie[int(a)]), float(clean.loc[a, "Ingresos"]))
+        if ref is None:
+            return 1.0, None
+        r = ref[1] / ref[0]
+        for fac, unidad in ((1e-3, "millones"), (1e-6, "miles"), (1e-9, "unidades"), (1e3, "billones")):
+            if 0.7 <= r * fac <= 1.4:
+                return fac, (f"el archivo parece estar en {unidad} (ingresos {ref[1]:,.0f} vs {ref[0]:,.1f} de la fuente "
+                             f"pública): se convirtió a miles de millones")
+        return 1.0, None
+    except Exception:
+        return 1.0, None
 
 
 def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=True):
@@ -4402,6 +4717,7 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
         raise ValueError(f"No fue posible leer el archivo: {exc}") from exc
 
     raw = raw.dropna(how="all").dropna(axis=1, how="all")
+    raw, _transpuesto = _normalizar_formato_ancho(raw)
     aliases = {
         "Año": ["año", "ano", "year", "fecha"],
         "Ingresos": ["ingresos", "revenue", "ventas", "sales", "total revenue"],
@@ -4414,7 +4730,7 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
         "NOPAT": ["nopat"],
         "FCFF": ["fcff", "flujo de caja libre", "free cash flow"],
     }
-    avisos = []
+    avisos = ["formato ancho (partidas en filas, años en columnas): se transpuso"] if _transpuesto else []
     clean = pd.DataFrame(index=raw.index)
     cols_map = _mapear_columnas(list(raw.columns), aliases)
     for target, col in cols_map.items():
@@ -4455,6 +4771,11 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
         avisos.append("hay años con EBIT > EBITDA: revisar columnas y unidades")
     if len(clean) < 3:
         raise ValueError("Después de validar los datos quedan menos de 3 años utilizables.")
+    _fac, _txt_fac = _escala_respecto_referencia(clean, nombre_empresa)
+    if _fac != 1.0:
+        for _c in [c for c in clean.columns if c in ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC", "Delta_NWC", "NOPAT", "FCFF")]:
+            clean[_c] = clean[_c] * _fac
+        avisos.append(_txt_fac)
     try:
         avisos += diagnosticar_atipicos_historico(clean)
     except Exception:
@@ -5210,7 +5531,11 @@ def procedencia_datos(mensaje_carga, ticker_yf=None, mkt=None):
     """Clasifica la calidad/origen de los datos para gobernanza."""
     msg = (mensaje_carga or "").lower()
     es_curado = any(k in msg for k in ("curada", "curado", "pública curada", "publica_curada", "catálogo", "catalogo"))
-    if "excel" in msg and "error" not in msg and "insuficientes" not in msg and "respaldo" not in msg:
+    if "corregido por el usuario" in msg:
+        nivel, etiqueta = "MEDIA", ("Correcciones del usuario sobre la fuente pública: verifica que sean cifras "
+                                   "oficiales (" + (re.search(r"\((\d+) celda", msg).group(1) if re.search(r"\((\d+) celda", msg) else "?")
+                                   + " celdas)")
+    elif "excel" in msg and "error" not in msg and "insuficientes" not in msg and "respaldo" not in msg:
         nivel, etiqueta = "ALTA", "Estados / Excel del usuario"
     elif es_curado and not msg.startswith("descargado desde yahoo"):
         # El mensaje del catálogo dice «Yahoo no sustituye el catálogo»: antes caía
@@ -6448,7 +6773,7 @@ def conciliacion_mercado(m):
     sec = []
     if m.get("emisor_ciclico"):
         sec.append("MATERIA_PRIMA")
-    if peso_aso >= PARTICIPADAS_PESO_MIN:
+    if peso_aso >= PARTICIPADAS_PESO_MIN and not m.get("participadas_valoradas"):
         sec.append("LIMITACION_PARTICIPADAS")
     if wi is not None and abs(wi - w) <= DELTA_WACC_RAZONABLE and tasa_ok:
         sec.append("SUPUESTO_TASA")
@@ -6460,7 +6785,7 @@ def conciliacion_mercado(m):
         causa = "LIMITACION_CRECIMIENTO"
     elif m.get("emisor_ciclico"):
         causa = "MATERIA_PRIMA"
-    elif bajo_precio and peso_aso >= PARTICIPADAS_PESO_MIN:
+    elif bajo_precio and peso_aso >= PARTICIPADAS_PESO_MIN and not m.get("participadas_valoradas"):
         causa = "LIMITACION_PARTICIPADAS"
     elif wi is not None and abs(wi - w) <= DELTA_WACC_RAZONABLE and tasa_ok:
         causa = "SUPUESTO_TASA"
@@ -6475,6 +6800,8 @@ def conciliacion_mercado(m):
         datos.append("beta sustituida o de mercado (la regresión de la acción no era utilizable)")
     if m.get("vetos_calidad"):
         datos.append("veto de calidad del modelo activo")
+    if m.get("participadas_valoradas"):
+        datos.append("participadas valoradas por suma de partes con supuestos del usuario")
 
     razonables = [p for p in pal if p["razonable"]]
 
@@ -9181,6 +9508,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
             _dam = {"multiplo": None, "riesgo_pais": None, "vigencia": damodaran_vigencia()}
         if (_dam.get("vigencia") or {}).get("aviso"):
             motor.setdefault("alertas", []).append(_dam["vigencia"]["aviso"])
+        for _av in tasas_vigencia():
+            motor.setdefault("alertas", []).append("Tasa de mercado desactualizada: " + _av)
 
         _px_modelo = val_base.get("precio_moneda_modelo") if val_base.get("fx_aplicado") else (
             precio_p if (mon_modelo and mon_modelo == mon_precio) else None)
@@ -9213,6 +9542,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 "fuera_de_dominio_crecimiento": bool(meta_proj.get("fuera_de_dominio_crecimiento")),
                 "val_ev": val_base.get("EV"), "beta_fuente": (params_empresa(nombre_empresa) or {}).get("beta_fuente"),
                 "vetos_calidad": list(motor.get("vetos") or []),
+                "participadas_valoradas": suma_partes_sesion(nombre_empresa) is not None,
             })
         except Exception:
             _conc = None
@@ -9391,6 +9721,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "beta_industria_u": _finite_or_none((params_empresa(nombre_empresa) or {}).get("beta_industria_u")),
                     "beta_fuente": (params_empresa(nombre_empresa) or {}).get("beta_fuente"),
                     "conciliacion_mercado": _conc,
+                    "participadas_valoradas": suma_partes_sesion(nombre_empresa) is not None,
+                    "historico_corregido": historico_usuario(nombre_empresa) is not None,
                     "bridge": dict(bp),
                 },
             })
