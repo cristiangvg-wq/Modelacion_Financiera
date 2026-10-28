@@ -30,11 +30,14 @@ class TestTasas(unittest.TestCase):
         self.assertTrue(av and "Tesoro" in av[0])
         self.assertEqual(L.tasas_vigencia(hoy=dt.date(2026, 11, 1), tasas={"us_rf": {"valor": 0.05, "fecha": "2026-10-27"}}), [])
 
-    def test_lector_fred(self):
+    def test_lectores_tesoro_y_ocde(self):
         import scripts.actualizar_tasas as A
-        self.assertEqual(A.ultimo_dato("DGS10", "observation_date,DGS10\n2026-10-26,4.98\n2026-10-27,.\n"), ("2026-10-26", 0.0498))
-        f, v = A.ultimo_dato("COLIRLTLT01STM", "observation_date,X\n2026-09-01,12.73\n")
-        self.assertEqual((f, v), ("2026-09-15", 0.1273))
+        tes = 'Date,"1 Mo","10 Yr","30 Yr"\n10/27/2026,3.9,4.99,5.4\n10/26/2026,3.9,4.97,5.4\n'
+        self.assertEqual(A.ultimo_tesoro(tes), ("2026-10-27", 0.0499))
+        real = 'Date,"5 YR","10 YR"\n10/27/2026,2.37,2.64\n'
+        self.assertEqual(A.ultimo_tesoro(real), ("2026-10-27", 0.0264))
+        oc = "TIME_PERIOD,OBS_VALUE\n2026-08,12.18\n2026-09,12.73\n2026-01,12.73\n"
+        self.assertEqual(A.ultimo_ocde(oc), ("2026-09-15", 0.1273))
 
     def test_capm_usa_las_tasas_vigentes(self):
         self.assertEqual(L.CAPM_POR_MERCADO["CO"]["rf_bruto"], round(L.TASAS_MERCADO["co_rf_bruto"]["valor"], 4))

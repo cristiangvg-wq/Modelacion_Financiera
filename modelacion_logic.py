@@ -3021,7 +3021,7 @@ def _aplicar_damodaran_a_capm():
 
 
 # ---------------------------------------------------------------------------
-# Tasas de mercado: referencia fechada del código vs datos_mercado.json (FRED, flujo semanal)
+# Tasas de mercado: referencia fechada del código vs datos_mercado.json (Tesoro de EE. UU. y OCDE, flujo semanal)
 # ---------------------------------------------------------------------------
 _RUTA_TASAS = Path(__file__).with_name("datos_mercado.json")
 # Referencias puntuales (fuente y fecha). Gana el dato MÁS RECIENTE entre esta tabla y el archivo:
@@ -4514,6 +4514,15 @@ def participadas_sugeridas(nombre_empresa, params=None):
     p = params if params is not None else (params_empresa(nombre_empresa) or {})
     filas = [dict(f) for f in PARTICIPADAS_CURADAS.get(nombre_empresa, [])]
     ing = p.get("ingreso_participadas")
+    if ing and not filas and p.get("asociados") and p.get("asociados_libros") is None:
+        # La matriz ya usa el valor en libros porque supera a la utilidad capitalizada (ISA): se propone ese.
+        filas.append({"participada": "Inversiones en asociadas (libros)", "participacion": 100.0, "metodo": "libros",
+                      "valor": float(p["asociados"]),
+                      "fuente": f"Balance; la utilidad de participadas ({float(ing):,.1f}) capitalizada al Ke vale menos"})
+        filas.append({"participada": "Alternativa: utilidad de participadas", "participacion": 0.0,
+                      "metodo": "capitalizada", "utilidad": round(float(ing), 1),
+                      "fuente": "Pon la participación en 100 % y la de libros en 0 para usar este método"})
+        return filas
     if ing:
         resto = float(ing) - sum(float(f.get("utilidad") or 0) * float(f.get("participacion") or 0) / 100.0
                                  for f in filas if f.get("metodo") in ("capitalizada", "pu"))

@@ -2415,7 +2415,26 @@ def _cierres_desde_download(df, symbols):
     return out
 
 
-@st.dialog("Corregir el histórico con cifras oficiales", width="large")
+def _como_dialogo(titulo, width="large"):
+    """st.dialog si existe (Streamlit ≥ 1.34); si no, la función se ejecuta en línea.
+
+    Un diálogo es un fragmento: al pulsar un botón dentro de él Streamlit vuelve a ejecutar SOLO la
+    función, sin el inicio del script que vincula el estado de la lógica a la sesión. Sin re-vincular,
+    lo que guardara iría al almacén por defecto (compartido) y se perdería al recargar.
+    """
+    d = getattr(st, "dialog", None)
+
+    def envolver(f):
+        def con_sesion(*a, **k):
+            if hasattr(L, "vincular_estado_sesion"):
+                L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
+            return f(*a, **k)
+        con_sesion.__name__ = f.__name__
+        return d(titulo, width=width)(con_sesion) if callable(d) else con_sesion
+    return envolver
+
+
+@_como_dialogo("Corregir el histórico con cifras oficiales")
 def _dialogo_historico(empresa):
     """Editor del histórico (prellenado con la fuente pública) para corregir partidas puntuales."""
     st.caption("Escribe las cifras de los estados financieros oficiales (miles de millones de la moneda del modelo). "
@@ -2456,7 +2475,7 @@ def _dialogo_historico(empresa):
         st.rerun()
 
 
-@st.dialog("Valorar participadas por separado (suma de partes)", width="large")
+@_como_dialogo("Valorar participadas por separado (suma de partes)")
 def _dialogo_suma_partes(empresa, ke_defecto, asociados_actual):
     """Cada participada con su método; el total reemplaza «Asociados» en el puente a equity."""
     st.caption("Útil cuando buena parte del valor está en empresas donde la matriz tiene participación (GEB en Enel "
@@ -2473,8 +2492,12 @@ def _dialogo_suma_partes(empresa, ke_defecto, asociados_actual):
                         "metodo": etiquetas.get(f.get("metodo") or "capitalizada")} for f in filas] or
                       [{"participada": "", "participacion": 100.0, "metodo": etiquetas["capitalizada"]}])
     cols = ["participada", "participacion", "metodo", "utilidad", "dividendo", "valor", "pu", "roe", "g", "fuente"]
+    df = df.reindex(columns=cols)
+    for c in ("participacion", "utilidad", "dividendo", "valor", "pu", "roe", "g"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype(float)
+    df["fuente"] = df["fuente"].fillna("")
     editado = st.data_editor(
-        df.reindex(columns=cols), hide_index=True, num_rows="dynamic", width="stretch", key=f"ed_sdp_{empresa[:40]}",
+        df, hide_index=True, num_rows="dynamic", width="stretch", key=f"ed_sdp_{empresa[:40]}",
         column_config={
             "participada": st.column_config.TextColumn("Participada", required=True),
             "participacion": st.column_config.NumberColumn("Participación %", min_value=0.0, max_value=100.0, format="%.2f"),
@@ -3497,7 +3520,7 @@ def main():
                 _tm = L.TASAS_MERCADO
                 st.caption(
                     "Tasas de mercado: TES 10a {:.2%} ({}, {}) · Tesoro EE. UU. 10a {:.2%} ({}) · inflación LP CO {:.2%} / "
-                    "EE. UU. {:.2%}. Se actualizan cada semana (FRED) o con la referencia del código, la más reciente.".format(
+                    "EE. UU. {:.2%}. Se actualizan cada semana (Tesoro de EE. UU. y OCDE) o con la referencia del código, la más reciente.".format(
                         _tm["co_rf_bruto"]["valor"], _tm["co_rf_bruto"]["origen"], _tm["co_rf_bruto"]["fecha"],
                         _tm["us_rf"]["valor"], _tm["us_rf"]["fecha"], _tm["co_inflacion_lp"]["valor"], _tm["us_inflacion_lp"]["valor"]))
                 for _av in L.tasas_vigencia():

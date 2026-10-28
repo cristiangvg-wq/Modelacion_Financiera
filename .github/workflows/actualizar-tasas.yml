@@ -1,6 +1,6 @@
 name: Actualizar tasas de mercado
 
-# Tesoro de EE. UU., inflación implícita de EE. UU. y bono colombiano a 10 años (FRED).
+# Tesoro de EE. UU., inflación implícita de EE. UU. y bono colombiano a 10 años (Tesoro de EE. UU. y OCDE).
 on:
   schedule:
     - cron: "23 12 * * 1"   # lunes 7:23 a. m. hora de Bogotá
@@ -32,5 +32,5 @@ jobs:
           git commit -m "Actualiza tasas de mercado ($(date +%Y-%m-%d))"
           git push -f origin "$rama"
           gh pr create --base main --head "$rama" --title "Actualiza tasas de mercado ($(date +%Y-%m-%d))" \
-            --body "Datos regenerados con scripts/actualizar_tasas.py (FRED). Revisa la variación de las tasas antes de fusionar: cambian el WACC de todas las empresas." \
+            --body "Datos regenerados con scripts/actualizar_tasas.py (Tesoro de EE. UU. y OCDE). Revisa la variación de las tasas antes de fusionar: cambian el WACC de todas las empresas." \
             || echo "No se pudo abrir el PR automáticamente: ábrelo desde la rama $rama."
