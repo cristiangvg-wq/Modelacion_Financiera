@@ -362,22 +362,23 @@
       "descripcion": "La petrolera más grande de Colombia. Explora, produce y refina petróleo y gas. Controla ISA.",
       "calificacion": "BB+ internacional",
       "puente": {
-        "deuda_neta": 93726,
-        "caja": 11192,
-        "nci": 3000,
+        "deuda_neta": 110141,
+        "caja": 10118,
+        "nci": 26356,
         "otros_claims": 0,
-        "asociados": 2000,
+        "asociados": 8913,
         "acciones": 41117,
-        "fuente": "Catálogo previo (por verificar)"
+        "fuente": "Estados financieros intermedios condensados consolidados Ecopetrol al 30-jun-2025 (notas GEE): préstamos y financiaciones 120.259 (15.640 corriente + 104.619 no corriente) − efectivo 10.118 = deuda neta 110.141; participación no controladora 26.356 (principalmente minoritarios de ISA); inversiones en asociadas y negocios conjuntos 8.913. Acciones 41.116,7 M (circular 2T26). Antes: NCI 3.000 y asociados 2.000 eran valores de relleno sin fuente."
       },
       "supuestos": {
         "beta_u": 0.75,
         "tax": 0.35,
-        "de_ratio": 1,
+        "de_ratio": 1.05,
         "g": 0.03,
         "exit_multiple": 4.8,
         "capital_invertido": 150000,
-        "inversion_inicial": 15000
+        "inversion_inicial": 15000,
+        "fuente_de_ratio": "D/E ≈ 1,05: deuda bruta 120.259 / capitalización 114.921 (2.795 COP × 41.117 M acciones, cierre BVC 26-oct-2026)."
       },
       "historico": {
         "Año": [
@@ -424,7 +425,8 @@
         ]
       },
       "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
-      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+      "verificacion": "parcial: puente EV→equity verificado con EEFF consolidados 30-jun-2025; histórico de ingresos/EBITDA por verificar (catálogo previo). Ingresos 1S25 = 61.035 consistentes con 2025 ≈ 119.694.",
+      "ciclico": true
     }
   },
   "series": {
