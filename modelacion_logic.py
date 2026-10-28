@@ -7340,7 +7340,7 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
         if "VETO DE CALIDAD" not in upper and "RECALIBRAR" not in upper:
             errors.append("La respuesta omite el veto de calidad del modelo y la necesidad de recalibración")
     elif rec:
-        recomendacion = re.sub(r"\\s+", " ", rec.group(1)).strip()
+        recomendacion = re.sub(r"\s+", " ", rec.group(1)).strip()
         favorable_motor = ("FAVORABLE" in decision_motor or "POSITIVO" in decision_motor)
         prudente_motor = ("EVITAR" in decision_motor or "NEUTRAL" in decision_motor or "MONITOREAR" in decision_motor)
         diverge = (recomendacion in ("INVERTIR", "INVERTIR CONDICIONALMENTE") and prudente_motor) or (recomendacion == "NO INVERTIR" and favorable_motor)
