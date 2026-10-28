@@ -280,6 +280,8 @@ class TestEstresEstado(BaseOffline):
             if anterior and anterior != nombre:
                 self.assertIsNone(L.metricas_valoracion_sesion(anterior))
             m = _correr_pestanas(nombre)
+            import matplotlib.pyplot as _plt
+            _plt.close("all")  # la interfaz cierra cada figura al mostrarla; aquí nadie la muestra
             self.assertEqual(m["4"]["empresa"], nombre)
             # guardar con otra empresa purga lo previo (defensa en profundidad)
             L.guardar_resultado_tab("4", "OTRA", {"metricas": {"empresa": "OTRA"}})
