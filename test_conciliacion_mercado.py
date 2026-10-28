@@ -122,3 +122,25 @@ class TestComite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTablaAnclas(unittest.TestCase):
+    ANC = {"moneda": "COP", "anclas": [
+        {"id": "A1", "nombre": "DCF base del modelo", "vps_precio": 24388.39, "metodo": "FCFF descontado"},
+        {"id": "A3", "nombre": "DCF optimista", "vps_precio": 41043.6, "metodo": "Pestaña 2"}],
+        "descartadas": [{"id": "A2", "nombre": "DCF pesimista", "vps_precio": 6653.2, "motivo": "Atípica"}]}
+
+    def test_pesos_del_metodo(self):
+        t = "Promedio ponderado: 30 % DCF base del modelo (A1), 20 % DCF por paridad USD (A4) y 50 % Consenso (A7)."
+        self.assertEqual(CI._pesos_anclas(t), {"A1": 30.0, "A4": 20.0, "A7": 50.0})
+        self.assertEqual(CI._pesos_anclas("Se usa el DCF base (A1)"), {})
+
+    def test_formato_sin_cortes_y_con_total(self):
+        self.assertEqual(CI._fmt_px(24388.39), "24,388")
+        self.assertEqual(CI._fmt_px(173.333), "173.33")
+        html = CI._html_tabla_anclas(self.ANC, {"A1"}, "100 % DCF base del modelo (A1)", 25000.0, 27960.0, "COP")
+        self.assertIn("class='tf-num tf-movil-oculto'", html)   # cifras sin partir (CSS de la app)
+        self.assertIn("24,388", html)
+        self.assertIn("Precio objetivo 12 meses", html)
+        self.assertIn("(descartada)", html)
+        self.assertIn("-13 %", html)

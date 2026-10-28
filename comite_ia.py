@@ -925,9 +925,9 @@ def _html_conciliacion(c, cd, mon):
             return f"{p['exigido']:.2f}×", "1,00×"
         return _pct(p["exigido"]), _pct(p["modelo"])
     filas = "".join(
-        f"<tr><td>{_e(p['palanca'])}</td><td style='text-align:right'>{_e(val(p)[1])}</td>"
-        f"<td style='text-align:right'><b>{_e(val(p)[0])}</b></td>"
-        f"<td style='color:{'#10B981' if p['razonable'] else '#F59E0B'}'>{'razonable' if p['razonable'] else 'exigente'}</td></tr>"
+        f"<tr><td class='tf-texto'>{_e(p['palanca'])}</td><td class='tf-num'>{_e(val(p)[1])}</td>"
+        f"<td class='tf-num'><b>{_e(val(p)[0])}</b></td>"
+        f"<td class='tf-nowrap'><span style='color:{'#10B981' if p['razonable'] else '#F59E0B'}'>{'razonable' if p['razonable'] else 'exigente'}</span></td></tr>"
         for p in c.get("palancas") or [])
     extra = ""
     if c.get("secundarias"):
@@ -947,10 +947,81 @@ def _html_conciliacion(c, cd, mon):
     </div>
     <p style="margin:6px 0">{_e(cd.get('explicacion'))}</p>
     <p style="margin:4px 0;font-size:13px">{opp}</p>
-    {('<div style="overflow-x:auto"><table ' + tabla + '><tr><th>Qué exige el precio</th><th style="text-align:right">Modelo</th><th style="text-align:right">Precio</th><th>Juicio</th></tr>' + filas + '</table></div>') if filas else ''}
+    {('<div style="overflow-x:auto"><table ' + tabla + '><tr><th>Qué exige el precio</th><th class="tf-num">Modelo</th><th class="tf-num">Precio</th><th class="tf-nowrap">Juicio</th></tr>' + filas + '</table></div>') if filas else ''}
     <p style="color:#94A3B8;font-size:12px;margin:6px 0 0">Supuesto que iguala modelo y precio: {_e(c.get('supuesto_que_iguala'))}. Causa y cifras calculadas por el sistema (DCF inverso); el comité solo las interpreta.</p>
     {extra}
   </div>"""
+
+
+def _fmt_px(v):
+    """Precio por acción: sin decimales desde 1.000 (COP), dos decimales por debajo (USD)."""
+    n = _num(v)
+    if n is None:
+        return "N/D"
+    return f"{n:,.0f}" if abs(n) >= 1000 else f"{n:,.2f}"
+
+
+def _pesos_anclas(texto):
+    """Pesos declarados en el método del precio objetivo: «30 % DCF base del modelo (A1)» → {"A1": 30.0}."""
+    pesos = {}
+    for pct, aid in re.findall(r"(\d{1,3}(?:[.,]\d+)?)\s*%[^%()]{0,80}?\((A\d{1,2})\)", str(texto or "")):
+        pesos.setdefault(aid, float(pct.replace(",", ".")))
+    return pesos
+
+
+def _html_tabla_anclas(anc, usadas, metodo, po, px, mon):
+    """Tabla de anclas: valor sin cortes, distancia al precio, peso declarado y el método como nota.
+
+    Usa las clases tf-* del CSS de la app (las reglas generales de tablas llevan !important y anulan
+    los estilos en línea: partían «A1» y «24,388.39» en dos renglones). Los colores van en el contenido,
+    no en la celda, por la misma razón.
+    """
+    pesos = _pesos_anclas(metodo)
+    filas = []
+
+    def fila(a, estado):
+        v = _num(a.get("vps_precio"))
+        dif = f"{(v / px - 1) * 100:+.0f}\u00a0%" if (v and px) else "—"
+        usada = estado == "usada"
+        tono = "#F8FAFC" if usada else "#94A3B8"
+        badge = (f"<span style='display:inline-block;min-width:26px;padding:1px 6px;border-radius:6px;font-weight:700;"
+                 f"font-size:12px;text-align:center;background:{'#14B8A6' if usada else 'rgba(148,163,184,.25)'};"
+                 f"color:{'#0B1220' if usada else '#CBD5E1'}'>{_e(a['id'])}</span>")
+        etiqueta = " <span style='font-size:11px;color:#F59E0B'>(descartada)</span>" if estado == "descartada" else ""
+        peso = f"{pesos[a['id']]:.0f}\u00a0%" if a["id"] in pesos else ("✓" if usada else "")
+        nota = a.get("motivo") if estado == "descartada" else a.get("metodo")
+        w = 700 if usada else 500
+        movil = (f"<span class='tf-solo-movil' style='margin-top:3px;color:{tono};font-variant-numeric:tabular-nums'>"
+                 f"<b>{_fmt_px(v)}</b> · {dif} vs\u00a0precio{(' · peso\u00a0' + peso) if peso and peso != '✓' else ''}</span>")
+        filas.append(
+            f"<tr><td class='tf-centro'>{badge}</td>"
+            f"<td class='tf-texto'><span style='color:{tono};font-weight:{w}'>{_e(a['nombre'])}</span>{etiqueta}"
+            f"<br><span style='font-size:12px;color:#94A3B8'>{_e(nota)}</span>{movil}</td>"
+            f"<td class='tf-num tf-movil-oculto'><span style='color:{tono};font-weight:{w}'>{_fmt_px(v)}</span></td>"
+            f"<td class='tf-num tf-movil-oculto'><span style='color:{tono}'>{dif}</span></td>"
+            f"<td class='tf-centro tf-movil-oculto'><span style='color:{tono};font-weight:{w}'>{peso}</span></td></tr>")
+
+    for a in anc.get("anclas") or []:
+        fila(a, "usada" if a["id"] in usadas else "no usada")
+    for a in anc.get("descartadas") or []:
+        fila(a, "descartada")
+    if not filas:
+        return ""
+    if po is not None:
+        dif = f"{(po / px - 1) * 100:+.0f}\u00a0%" if px else "—"
+        filas.append(f"<tr class='tf-total'><td></td><td class='tf-texto'>Precio objetivo 12 meses"
+                     f"<span class='tf-solo-movil' style='font-variant-numeric:tabular-nums'>{_fmt_px(po)} · {dif} vs precio</span></td>"
+                     f"<td class='tf-num tf-movil-oculto'>{_fmt_px(po)}</td><td class='tf-num tf-movil-oculto'>{dif}</td>"
+                     f"<td class='tf-centro tf-movil-oculto'>{'100\u00a0%' if pesos else ''}</td></tr>")
+    ref = (f"<p style='color:#94A3B8;font-size:12px;margin:4px 0 0'>Precio de mercado: {_fmt_px(px)} {_e(mon)}. "
+           "«vs precio»: distancia de cada ancla a la cotización. En gris, anclas que el comité no usó.</p>") if px else ""
+    return (
+        "<div style='overflow-x:auto'><table class='tf-fija' style='width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed'>"
+        "<colgroup><col style='width:52px'><col><col class='tf-movil-oculto' style='width:104px'>"
+        "<col class='tf-movil-oculto' style='width:84px'><col class='tf-movil-oculto' style='width:64px'></colgroup>"
+        f"<tr><th class='tf-centro'>Id</th><th>Ancla y método</th><th class='tf-num tf-movil-oculto'>Valor ({_e(mon)})</th>"
+        "<th class='tf-num tf-movil-oculto'>vs precio</th><th class='tf-centro tf-movil-oculto'>Peso</th></tr>"
+        + "".join(filas) + "</table></div>" + ref)
 
 
 def dictamen_a_html(res):
@@ -962,13 +1033,7 @@ def dictamen_a_html(res):
     px = _num(res["metricas"].get("precio_mercado"))
     pot = f" ({(po / px - 1) * 100:+.1f} % vs precio)" if (po and px) else ""
     usadas = set(d.get("anclas_usadas") or [])
-    filas_anc = "".join(
-        f"<tr style='{'font-weight:700' if a['id'] in usadas else 'color:#94A3B8'}'><td>{_e(a['id'])}</td><td>{_e(a['nombre'])}</td>"
-        f"<td style='text-align:right'>{_fmt(a.get('vps_precio'))}</td><td>{_e(a['metodo'])}</td></tr>"
-        for a in anc.get("anclas") or []) + "".join(
-        f"<tr style='color:#64748B'><td>{_e(a['id'])}</td><td>{_e(a['nombre'])} <i>(descartada)</i></td>"
-        f"<td style='text-align:right'>{_fmt(a.get('vps_precio'))}</td><td>{_e(a.get('motivo'))}</td></tr>"
-        for a in anc.get("descartadas") or [])
+    tabla_anclas = _html_tabla_anclas(anc, usadas, d.get("metodo_precio_objetivo"), po, px, mon)
     hx = {h["id"]: h for h in hechos}
     citados = [hx[i] for i in (d.get("contexto_mercado") or {}).get("hechos_usados") or [] if i in hx]
 
@@ -976,8 +1041,8 @@ def dictamen_a_html(res):
         f = _e(h.get("fuente") or "")
         return f'<a href="{_e(h["url"])}" target="_blank" rel="noopener">{f}</a>' if h.get("url") else f
     filas_h = "".join(
-        f"<tr><td>{_e(h['id'])}</td><td>{_e(h['hecho'])}{(': <b>' + _e(h['valor']) + '</b>') if h.get('valor') else ''}</td>"
-        f"<td>{_e(h.get('fecha') or 's/f')}</td><td>{fuente(h)}</td></tr>" for h in citados)
+        f"<tr><td class='tf-nowrap'>{_e(h['id'])}</td><td class='tf-texto'>{_e(h['hecho'])}{(': <b>' + _e(h['valor']) + '</b>') if h.get('valor') else ''}</td>"
+        f"<td class='tf-nowrap'>{_e(h.get('fecha') or 's/f')}</td><td class='tf-texto'>{fuente(h)}</td></tr>" for h in citados)
     lista = lambda xs: "".join(f"<li>{_e(x)}</li>" for x in xs)
     riesgos = "".join(f"<li>{_e(r.get('riesgo'))} <span style='color:#94A3B8'>· indicador: {_e(r.get('indicador'))}</span></li>" for r in d.get("riesgos") or [])
     catal = "".join(f"<li>{_e(c.get('catalizador'))} <span style='color:#94A3B8'>· {_e(c.get('ventana'))}</span></li>" for c in d.get("catalizadores") or [])
@@ -1005,7 +1070,7 @@ def dictamen_a_html(res):
 <div class="section-card" style="border-left:4px solid {color}">
   <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
     <span style="padding:4px 14px;border-radius:999px;background:{color};color:#0B1220;font-weight:800;letter-spacing:.05em">{_e(rec)}</span>
-    <span style="font-size:1.05rem"><b>Objetivo 12 m:</b> {_fmt(po) + ' ' + _e(mon) if po is not None else 'N/D'}{_e(pot)}</span>
+    <span style="font-size:1.05rem"><b>Objetivo 12 m:</b> {_fmt_px(po) + ' ' + _e(mon) if po is not None else 'N/D'}{_e(pot)}</span>
     <span><b>Convicción:</b> {_e(d.get('conviccion'))}/10</span>
     <span style="color:#94A3B8;font-size:12px">{_e(res['metricas'].get('empresa'))} · {_e(res.get('proveedor'))} · {_e(estado_web)} · {_e(res.get('fecha'))}{' · reutilizado de caché' if res.get('cache') else ''}</span>
   </div>
@@ -1016,10 +1081,10 @@ def dictamen_a_html(res):
   {bloque_conc}
   <h4 style="margin:12px 0 4px">2 · Contexto de mercado</h4>
   <p>{_e((d.get('contexto_mercado') or {}).get('resumen'))}</p>
-  {('<div style="overflow-x:auto"><table ' + tabla + '><tr><th>Id</th><th>Hecho</th><th>Fecha</th><th>Fuente</th></tr>' + filas_h + '</table></div>') if filas_h else ''}
+  {('<div style="overflow-x:auto"><table ' + tabla + '><tr><th class="tf-nowrap">Id</th><th>Hecho</th><th class="tf-nowrap">Fecha</th><th>Fuente</th></tr>' + filas_h + '</table></div>') if filas_h else ''}
   <h4 style="margin:12px 0 4px">3 · Precio objetivo: anclas calculadas por el modelo</h4>
   <p style="color:#CBD5E1">{_e(d.get('metodo_precio_objetivo'))}</p>
-  <div style="overflow-x:auto"><table {tabla}><tr><th>Id</th><th>Ancla</th><th style="text-align:right">VPS ({_e(mon)})</th><th>Método</th></tr>{filas_anc}</table></div>
+  {tabla_anclas}
   <h4 style="margin:12px 0 4px">Tesis</h4><ul>{lista(d.get('tesis') or [])}</ul>
   <h4 style="margin:12px 0 4px">4 · Riesgos</h4><ul>{riesgos}</ul>
   <h4 style="margin:12px 0 4px">Catalizadores</h4><ul>{catal}</ul>

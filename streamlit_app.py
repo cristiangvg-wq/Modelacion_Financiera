@@ -897,6 +897,33 @@ div[role="radiogroup"] label:has(input:checked) {
 .tf-table-wrap tr:nth-child(even) td, .section-card table tr:nth-child(even) td {
   background: rgba(30, 41, 59, 0.55) !important;
 }
+/* Utilidades para tablas HTML con cifras (más específicas que las reglas generales de arriba):
+   sin cortes dentro de números ni ids, cifras a la derecha, ancho de columnas fijo cuando se pide. */
+.section-card table.tf-fija, .html-container table.tf-fija { table-layout: fixed !important; }
+.section-card table th.tf-num, .section-card table td.tf-num,
+.html-container table th.tf-num, .html-container table td.tf-num {
+  text-align: right !important; white-space: nowrap !important; word-break: normal !important;
+  font-variant-numeric: tabular-nums;
+}
+.section-card table th.tf-centro, .section-card table td.tf-centro,
+.html-container table th.tf-centro, .html-container table td.tf-centro {
+  text-align: center !important; white-space: nowrap !important; word-break: normal !important;
+}
+.section-card table th.tf-nowrap, .section-card table td.tf-nowrap,
+.html-container table th.tf-nowrap, .html-container table td.tf-nowrap {
+  white-space: nowrap !important; word-break: normal !important;
+}
+.section-card table td.tf-texto, .html-container table td.tf-texto { word-break: normal !important; overflow-wrap: anywhere; }
+.section-card table tr.tf-total td, .html-container table tr.tf-total td {
+  border-top: 2px solid #14B8A6 !important; font-weight: 800 !important;
+}
+/* Móvil: las columnas de cifras pasan a un renglón bajo el nombre (sin desplazamiento horizontal). */
+.tf-solo-movil { display: none; }
+@media (max-width: 640px) {
+  .section-card table .tf-movil-oculto, .html-container table .tf-movil-oculto { display: none !important; }
+  .section-card table.tf-fija, .html-container table.tf-fija { table-layout: auto !important; min-width: 0 !important; }
+  .tf-solo-movil { display: block; }
+}
 /* st.dataframe: se respeta la alineación nativa (texto izquierda, cifras derecha). */
 
 /* --- Auditoría UI/UX: lectura ejecutiva y alineación --- */
