@@ -33,6 +33,9 @@ jobs:
       - name: Ejecutar pruebas automatizadas
         run: pytest -q
 
+      - name: Banco de evaluación del comité IA (offline)
+        run: python scripts/evaluar_comite_ia.py
+
       - name: Smoke test de las aplicaciones Streamlit
         shell: bash
         run: |

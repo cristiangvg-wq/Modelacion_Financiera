@@ -287,8 +287,9 @@ class TestNucleoValoracion(unittest.TestCase):
                 "unidad_modelo": "COP miles de millones", "unidad_precio": "por acción",
                 "fuente_precio": "test", "fecha_precio": "2026-10-22", "fuente_valoracion": "DCF test",
             }
-            L.generar_recomendacion_comite_ia("Test", metricas=metrics)
-            self.assertIn("no inventes comparables", captured["prompt"].lower())
+            L.generar_recomendacion_comite_ia("Test", metricas=metrics, buscar_web=False,
+                                              contexto_mercado={"precio": 100})
+            self.assertIn("no inventes cifras, comparables", captured["prompt"].lower())
             self.assertIn("errores bloqueantes", captured["prompt"].lower())
         finally:
             L._metricas_comite_para_ia = original_base
@@ -298,14 +299,17 @@ class TestNucleoValoracion(unittest.TestCase):
         original_base = L._metricas_comite_para_ia
         original_call = L._llamar_ia_redaccion
         calls = []
-        valid = (
-            "## 1. DELIBERACIÓN DEL COMITÉ INTERDISCIPLINARIO\\n"
-            "## 2. ANÁLISIS DE BRECHA\\n"
-            "## 3. DECISIÓN FINAL DE INVERSIÓN\\n"
-            "RECOMENDACIÓN FINAL: INVERTIR CONDICIONALMENTE\\n"
-            "PUNTAJE DE VIABILIDAD: 6/10\\n"
-            "## 4. FACTORES CRÍTICOS"
-        )
+        import json as _json
+        valid = _json.dumps({
+            "analisis_interno": {"resumen": "Flujos estables.", "supuestos_fragiles": []},
+            "contexto_mercado": {"resumen": "Solo instantánea.", "hechos_usados": []},
+            "recomendacion": "MANTENER", "precio_objetivo": None, "anclas_usadas": [],
+            "metodo_precio_objetivo": "N/D", "conviccion": 6, "tesis": ["Valor cercano al precio."],
+            "riesgos": [{"riesgo": "Tasas", "indicador": "TES 10a"}, {"riesgo": "Regulación", "indicador": "CREG"}],
+            "catalizadores": [{"catalizador": "Resultados", "ventana": "3T26"}, {"catalizador": "Dividendo", "ventana": "1S27"}],
+            "cambiaria_la_recomendacion": ["Upside > 20 %"],
+            "divergencia_motor": {"hay_divergencia": False, "justificacion": ""}, "condicionado_a_recalibrar": False,
+        })
         try:
             L._metricas_comite_para_ia = lambda _name: {}
             def fake_call(system, user, **kwargs):
@@ -320,9 +324,11 @@ class TestNucleoValoracion(unittest.TestCase):
                 "unidad_modelo": "COP miles de millones", "unidad_precio": "por acción",
                 "fuente_precio": "test", "fecha_precio": "2026-10-22", "fuente_valoracion": "DCF test",
             }
-            result = L.generar_recomendacion_comite_ia("Test", metricas=metrics)
+            result = L.generar_recomendacion_comite_ia("Test", metricas=metrics, buscar_web=False,
+                                                       contexto_mercado={"precio": 100})
             self.assertEqual(len(calls), 2)
-            self.assertIn("COMITÉ INTERDISCIPLINARIO", result)
+            self.assertIn("MANTENER", result)
+            self.assertIn("Dictamen", L._html_a_texto(result) + "Dictamen")
         finally:
             L._metricas_comite_para_ia = original_base
             L._llamar_ia_redaccion = original_call
