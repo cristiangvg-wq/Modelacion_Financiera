@@ -1,0 +1,15 @@
+caso                     rec           objetivo puntaje  seg  errores
+utility_neutral          MANTENER       19713.0 5/5     4.3 
+veto_activo              MANTENER       19713.0 5/5     3.1 
+motor_prudente_comprar   MANTENER       19713.0 5/5     4.3 
+motor_favorable_vender   COMPRAR        35000.0 5/5     3.7 
+sin_anclas               MANTENER          None 5/5     3.3 
+hecho_inventado          MANTENER       19713.0 5/5     5.6 
+ancla_inventada          MANTENER       19713.0 5/5     3.4 
+moneda_distinta          MANTENER       17406.5 5/5     3.2 
+hipercrecimiento         VENDER           190.0 5/5     2.7 
+formato_incompleto       MANTENER       29017.0 5/5     3.0 
+conciliacion_limitacion  MANTENER         190.0 5/5     3.0 
+
+Puntaje total: 55/55 (100 %) · proveedor gemini · comite-ia-v3 (2026-10-28)
+exit=0
