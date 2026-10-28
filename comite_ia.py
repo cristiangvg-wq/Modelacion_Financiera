@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 
 import modelacion_logic as L
 
-VERSION_COMITE = "comite-ia-v2 (2026-10-27)"
+VERSION_COMITE = "comite-ia-v3 (2026-10-28)"
 VOCAB = ("COMPRAR", "MANTENER", "VENDER")
 HECHOS_TTL_SEG = 6 * 3600          # los hechos web de un emisor se reutilizan 6 h
 HECHO_MAX_DIAS = 400               # un hecho más viejo que esto no describe la coyuntura
@@ -519,11 +519,17 @@ ESQUEMA_DICTAMEN = {
             "hay_divergencia": {"type": "BOOLEAN"}, "justificacion": {"type": "STRING"}},
             "required": ["hay_divergencia", "justificacion"]},
         "condicionado_a_recalibrar": {"type": "BOOLEAN"},
+        "conciliacion_mercado": {"type": "OBJECT", "properties": {
+            "explicacion": {"type": "STRING"}, "es_oportunidad": {"type": "BOOLEAN"}},
+            "required": ["explicacion", "es_oportunidad"]},
     },
     "required": ["analisis_interno", "contexto_mercado", "recomendacion", "precio_objetivo", "anclas_usadas",
                  "metodo_precio_objetivo", "conviccion", "tesis", "riesgos", "catalizadores",
-                 "cambiaria_la_recomendacion", "divergencia_motor", "condicionado_a_recalibrar"],
+                 "cambiaria_la_recomendacion", "divergencia_motor", "condicionado_a_recalibrar",
+                 "conciliacion_mercado"],
 }
+# Campos cuya ausencia la auditoría trata por separado (la conciliación solo se exige si el sistema la calculó).
+_REQ_CONDICIONALES = {"conciliacion_mercado"}
 
 _SISTEMA_DICTAMEN = (
     "Eres el comité de inversión institucional de renta variable de una gestora. Decides con rigor de analista "
@@ -565,6 +571,44 @@ def _txt_proyeccion(m):
     return txt
 
 
+def conciliacion_de(m):
+    """Conciliación determinista (pestaña 4) o, si no viene en las métricas, calculada aquí."""
+    c = m.get("conciliacion_mercado")
+    if isinstance(c, dict) and c.get("causa"):
+        return c
+    try:
+        return L.conciliacion_mercado(m)
+    except Exception:
+        return None
+
+
+def _texto_conciliacion(c, mon):
+    if not c:
+        return "- N/D (sin insumos para el DCF inverso): conciliacion_mercado.explicacion puede ser breve."
+    inv = c.get("inverso") or {}
+    lineas = [
+        f"- Brecha: valor del modelo {_fmt(inv.get('vps_modelo'))} vs precio {_fmt(inv.get('precio'))} {mon} "
+        f"({_fmt((inv.get('brecha') or 0) * 100, 1, ' %')})",
+        f"- CAUSA PRINCIPAL (fijada por el sistema, no la cambies): {c['causa']} · tipo {c['tipo']} · {c['descripcion']}",
+    ]
+    for p in c.get("palancas") or []:
+        if p["palanca"] == "WACC":
+            v = f"{_pct(p['exigido'])} (modelo {_pct(p['modelo'])})"
+        elif p["palanca"].startswith("Flujos"):
+            v = f"{p['exigido']:.2f} × los del modelo"
+        else:
+            v = f"{_pct(p['exigido'])} anual (el modelo implica {_pct(p['modelo'])})"
+        lineas.append(f"- Precio exige · {p['palanca']}: {v} → {'razonable' if p['razonable'] else 'NO razonable'}")
+    if c.get("erp_implicita") is not None and c.get("erp_modelo"):
+        lineas.append(f"- Prima de mercado implícita en el precio {_pct(c['erp_implicita'])} vs {_pct(c['erp_modelo'])} del modelo")
+    lineas.append(f"- Supuesto que iguala modelo y precio: {c.get('supuesto_que_iguala')}")
+    if c.get("secundarias"):
+        lineas.append("- Causas secundarias: " + ", ".join(c["secundarias"]))
+    if c.get("advertencias_datos"):
+        lineas.append("- Advertencias de datos: " + "; ".join(c["advertencias_datos"]))
+    return "\n".join(lineas)
+
+
 def construir_prompt_dictamen(m, anclas, hechos, contexto_mercado=None):
     mon, mon_px = m.get("moneda") or "", m.get("moneda_precio") or m.get("moneda") or ""
     veto, favorable, prudente = _motor(m)
@@ -598,6 +642,9 @@ C. ANCLAS DE VALOR POR ACCIÓN (calculadas por el sistema, en {mon_px})
 D. HOJA DE HECHOS (solo puedes citar estos ids)
 {_texto_hechos(hechos)}
 
+E. CONCILIACIÓN MODELO VS MERCADO (DCF inverso y causa calculados por el sistema)
+{_texto_conciliacion(conciliacion_de(m), mon)}
+
 REGLAS
 1. No inventes cifras, comparables, consensos ni eventos: lo que no esté en A–D no existe para este dictamen.
 2. Si hubiera errores bloqueantes en los datos, no recomiendes: no es el caso de este contexto, que ya pasó la auditoría previa.
@@ -607,6 +654,9 @@ REGLAS
 6. Si el WACC del modelo difiere > 150 pb del implícito en el precio, explica en analisis_interno qué supuesto produce la brecha (tasa local vs. paridad, crecimiento/RONIC, puente) antes de concluir caro o barato.
 7. contexto_mercado.hechos_usados: los ids de D en los que se apoya el resumen (al menos 2 si existen).
 8. Al menos 2 riesgos (con el indicador que los mide) y 2 catalizadores (con ventana temporal). conviccion: entero 1–10.
+9. conciliacion_mercado.explicacion: 2–4 frases que expliquen por qué el modelo difiere del precio, usando SOLO la causa y las cifras de E (cita al menos una). No cambies la causa ni inventes otras; si hay causas secundarias o advertencias de datos, menciónalas.
+10. conciliacion_mercado.es_oportunidad = true solo si crees que el PRECIO está equivocado (no el modelo). COMPRAR o VENDER exigen es_oportunidad = true; si la palanca que iguala es razonable o la causa es una prima de calidad, justifica en la explicación por qué igual es una oportunidad.
+11. Si el tipo de la causa es limitacion_modelo, la recomendación debe ser MANTENER (el modelo no sirve para decidir comprar o vender) y la explicación dice qué haría falta para valorarla bien.
 
 Devuelve SOLO este JSON:
 {{"analisis_interno": {{"resumen": "...", "supuestos_fragiles": [{{"supuesto": "...", "impacto": "..."}}]}},
@@ -615,7 +665,8 @@ Devuelve SOLO este JSON:
  "metodo_precio_objetivo": "...", "conviccion": 5, "tesis": ["..."],
  "riesgos": [{{"riesgo": "...", "indicador": "..."}}], "catalizadores": [{{"catalizador": "...", "ventana": "..."}}],
  "cambiaria_la_recomendacion": ["..."], "divergencia_motor": {{"hay_divergencia": false, "justificacion": ""}},
- "condicionado_a_recalibrar": false}}"""
+ "condicionado_a_recalibrar": false,
+ "conciliacion_mercado": {{"explicacion": "...", "es_oportunidad": false}}}}"""
 
 
 def normalizar_dictamen(d, anclas=None):
@@ -654,6 +705,9 @@ def normalizar_dictamen(d, anclas=None):
     for k in ("anclas_usadas",):
         if isinstance(d.get(k), str):
             d[k] = re.findall(r"A\d{1,2}", d[k])
+    if isinstance(d.get("conciliacion_mercado"), str):
+        d["conciliacion_mercado"] = {"explicacion": d["conciliacion_mercado"], "es_oportunidad": False}
+        notas.append("conciliacion_mercado venía como texto; es_oportunidad = false")
     ctx = d.get("contexto_mercado")
     if isinstance(ctx, dict) and isinstance(ctx.get("hechos_usados"), str):
         ctx = dict(ctx)
@@ -668,7 +722,7 @@ def validar_dictamen(d, m, anclas, ids_hechos):
     if not isinstance(d, dict):
         return {"ok": False, "errors": ["La respuesta no es un objeto JSON"], "warnings": []}
     for k in ESQUEMA_DICTAMEN["required"]:
-        if k not in d:
+        if k not in d and k not in _REQ_CONDICIONALES:
             errors.append(f"Falta el campo «{k}»")
     rec = str(d.get("recomendacion") or "").strip().upper()
     if rec not in VOCAB:
@@ -730,6 +784,25 @@ def validar_dictamen(d, m, anclas, ids_hechos):
         errors.append("Se requieren al menos 2 catalizadores con su ventana")
     if not [t for t in d.get("tesis") or [] if str(t).strip()]:
         errors.append("Falta la tesis de inversión")
+    conc = conciliacion_de(m)
+    if conc:
+        cd = d.get("conciliacion_mercado") if isinstance(d.get("conciliacion_mercado"), dict) else None
+        if cd is None:
+            errors.append("Falta conciliacion_mercado (explicación de la brecha modelo vs mercado)")
+        else:
+            expl = str(cd.get("explicacion") or "").strip()
+            if conc["causa"] != "ALINEADO" and (len(expl) < 60 or not re.search(r"\d", expl)):
+                errors.append("La conciliación con el mercado debe explicar la brecha con al menos una cifra de la sección E")
+            opp = cd.get("es_oportunidad")
+            if not isinstance(opp, bool):
+                errors.append("conciliacion_mercado.es_oportunidad debe ser true o false")
+            elif rec in ("COMPRAR", "VENDER") and conc["causa"] != "ALINEADO" and not opp:
+                errors.append(f"Recomienda {rec} pero declara que la brecha no es una oportunidad (es_oportunidad = false)")
+            otras = [c for c in L.CAUSAS_BRECHA if c != conc["causa"] and c not in (conc.get("secundarias") or []) and c in expl]
+            if otras:
+                errors.append(f"La explicación cambia la causa calculada por el sistema ({', '.join(otras)})")
+        if conc["tipo"] == "limitacion_modelo" and rec in ("COMPRAR", "VENDER"):
+            errors.append(f"Causa {conc['causa']}: el modelo no sirve para decidir; la recomendación debe ser MANTENER")
     w_m, w_i = _num(m.get("wacc_calc")), _num(m.get("wacc_implicito_mercado"))
     if w_m and w_i and abs(w_m - w_i) > 0.015:
         txt = str((d.get("analisis_interno") or {}).get("resumen") or "").upper()
@@ -788,7 +861,7 @@ def razonar_dictamen(m, anclas, hechos, api_key=None, proveedor="gemini", contex
 # ---------------------------------------------------------------------------
 
 
-def dictamen_a_markdown(d, anclas, hechos):
+def dictamen_a_markdown(d, anclas, hechos, conciliacion=None):
     """Texto canónico (secciones estables para el PDF de la pestaña 7 y el extractor)."""
     mon = anclas.get("moneda") or ""
     hx = {h["id"]: h for h in hechos}
@@ -796,6 +869,14 @@ def dictamen_a_markdown(d, anclas, hechos):
     lineas = ["## 1. ANÁLISIS INTERNO DEL MODELO", str(ai.get("resumen") or "")]
     for s in ai.get("supuestos_fragiles") or []:
         lineas.append(f"- {s.get('supuesto')}: {s.get('impacto')}")
+    cd = d.get("conciliacion_mercado") if isinstance(d.get("conciliacion_mercado"), dict) else {}
+    if conciliacion or cd:
+        c = conciliacion or {}
+        lineas.append(f"- CONCILIACIÓN CON EL MERCADO ({c.get('causa', 'N/D')}: {c.get('descripcion', '')}): "
+                      f"{cd.get('explicacion') or ''}"
+                      + (" La brecha se considera una oportunidad." if cd.get("es_oportunidad") else ""))
+        if c.get("supuesto_que_iguala"):
+            lineas.append(f"- Supuesto que iguala modelo y precio: {c['supuesto_que_iguala']}")
     lineas += ["", "## 2. CONTEXTO DE MERCADO REAL", str(ctx.get("resumen") or "")]
     for i in ctx.get("hechos_usados") or []:
         h = hx.get(i)
@@ -822,6 +903,54 @@ def dictamen_a_markdown(d, anclas, hechos):
 
 def _e(x):
     return _html.escape(str(x if x is not None else ""))
+
+
+_COLOR_TIPO = {"alineado": "#10B981", "supuesto_modelo": "#38BDF8", "expectativa_mercado": "#A78BFA",
+               "prima_calidad": "#F59E0B", "limitacion_modelo": "#EF4444"}
+_TXT_TIPO = {"alineado": "Modelo y mercado alineados", "supuesto_modelo": "Supuesto discutible del modelo",
+             "expectativa_mercado": "Expectativa del mercado", "prima_calidad": "Prima por calidad",
+             "limitacion_modelo": "Limitación del modelo"}
+
+
+def _html_conciliacion(c, cd, mon):
+    if not c:
+        return ""
+    cd = cd if isinstance(cd, dict) else {}
+    col = _COLOR_TIPO.get(c.get("tipo"), "#64748B")
+
+    def val(p):
+        if p["palanca"] == "WACC":
+            return _pct(p["exigido"]), _pct(p["modelo"])
+        if p["palanca"].startswith("Flujos"):
+            return f"{p['exigido']:.2f}×", "1,00×"
+        return _pct(p["exigido"]), _pct(p["modelo"])
+    filas = "".join(
+        f"<tr><td>{_e(p['palanca'])}</td><td style='text-align:right'>{_e(val(p)[1])}</td>"
+        f"<td style='text-align:right'><b>{_e(val(p)[0])}</b></td>"
+        f"<td style='color:{'#10B981' if p['razonable'] else '#F59E0B'}'>{'razonable' if p['razonable'] else 'exigente'}</td></tr>"
+        for p in c.get("palancas") or [])
+    extra = ""
+    if c.get("secundarias"):
+        extra += f"<p style='color:#94A3B8;font-size:12px'>Causas secundarias: {_e(', '.join(c['secundarias']))}</p>"
+    if c.get("advertencias_datos"):
+        extra += f"<p style='color:#F59E0B;font-size:12px'>Advertencias de datos: {_e('; '.join(c['advertencias_datos']))}</p>"
+    opp = ("<span style='color:#10B981'>El comité la considera una oportunidad (el precio estaría equivocado).</span>"
+           if cd.get("es_oportunidad") else
+           "<span style='color:#94A3B8'>El comité no la considera una oportunidad: la brecha se explica.</span>")
+    tabla = "style='width:100%;border-collapse:collapse;font-size:13px'"
+    return f"""
+  <div style="margin:10px 0;padding:10px 12px;border:1px solid {col};border-radius:8px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+      <b>Modelo vs mercado</b>
+      <span style="padding:2px 10px;border-radius:999px;background:{col};color:#0B1220;font-weight:700;font-size:12px">{_e(_TXT_TIPO.get(c.get('tipo'), c.get('tipo')))}</span>
+      <span style="color:#CBD5E1;font-size:13px">{_e(c.get('descripcion'))}</span>
+    </div>
+    <p style="margin:6px 0">{_e(cd.get('explicacion'))}</p>
+    <p style="margin:4px 0;font-size:13px">{opp}</p>
+    {('<div style="overflow-x:auto"><table ' + tabla + '><tr><th>Qué exige el precio</th><th style="text-align:right">Modelo</th><th style="text-align:right">Precio</th><th>Juicio</th></tr>' + filas + '</table></div>') if filas else ''}
+    <p style="color:#94A3B8;font-size:12px;margin:6px 0 0">Supuesto que iguala modelo y precio: {_e(c.get('supuesto_que_iguala'))}. Causa y cifras calculadas por el sistema (DCF inverso); el comité solo las interpreta.</p>
+    {extra}
+  </div>"""
 
 
 def dictamen_a_html(res):
@@ -859,6 +988,7 @@ def dictamen_a_html(res):
         avisos += f"<p style='color:#F59E0B'><b>Divergencia frente al motor cuantitativo:</b> {_e(div.get('justificacion'))}</p>"
     if d.get("condicionado_a_recalibrar"):
         avisos += "<p style='color:#F59E0B'><b>Veto de calidad:</b> dictamen condicionado a recalibrar el modelo.</p>"
+    bloque_conc = _html_conciliacion(res.get("conciliacion"), d.get("conciliacion_mercado"), mon)
     b = res.get("busqueda") or {}
     estado_web = ("con búsqueda web" + (" (hechos en caché)" if b.get("cache") else "")) if b.get("usada") else (
         "búsqueda web sin fuentes: solo hechos de la app" if b.get("solicitada") else "sin búsqueda web")
@@ -883,6 +1013,7 @@ def dictamen_a_html(res):
   <h4 style="margin:12px 0 4px">1 · Análisis interno del modelo</h4>
   <p>{_e((d.get('analisis_interno') or {}).get('resumen'))}</p>
   {('<ul>' + frag + '</ul>') if frag else ''}
+  {bloque_conc}
   <h4 style="margin:12px 0 4px">2 · Contexto de mercado</h4>
   <p>{_e((d.get('contexto_mercado') or {}).get('resumen'))}</p>
   {('<div style="overflow-x:auto"><table ' + tabla + '><tr><th>Id</th><th>Hecho</th><th>Fecha</th><th>Fuente</th></tr>' + filas_h + '</table></div>') if filas_h else ''}
@@ -991,6 +1122,9 @@ def generar_dictamen(nombre_empresa, api_key=None, proveedor="gemini", metricas=
         except Exception:
             cm = {}
     anclas = calcular_anclas(nombre_empresa, m, cm)
+    res["conciliacion"] = conciliacion_de(m)
+    if res["conciliacion"] and not m.get("conciliacion_mercado"):
+        m["conciliacion_mercado"] = res["conciliacion"]
     paso1 = recopilar_hechos(nombre_empresa, m, cm, api_key=api_key, proveedor=proveedor, buscar_web=buscar_web)
     res.update({"anclas": anclas, "hechos": paso1["hechos"], "fuentes": paso1["fuentes"],
                 "descartados": paso1["descartados"], "busqueda": paso1["busqueda"],
@@ -1016,7 +1150,7 @@ def generar_dictamen(nombre_empresa, api_key=None, proveedor="gemini", metricas=
         res["html"] = _html_error(titulo, detalle) + html_diagnostico(res, (paso2["auditoria"] or {}).get("extracto"))
         return res
     res.update({"ok": True, "dictamen": paso2["dictamen"]})
-    res["markdown"] = dictamen_a_markdown(paso2["dictamen"], anclas, paso1["hechos"])
+    res["markdown"] = dictamen_a_markdown(paso2["dictamen"], anclas, paso1["hechos"], res.get("conciliacion"))
     res["html"] = dictamen_a_html(res)
     guardado = {k: v for k, v in res.items() if k != "html"}
     cache[clave] = guardado
