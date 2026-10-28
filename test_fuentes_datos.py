@@ -108,7 +108,7 @@ class TestOrdenDeFuentes(BaseFuentes):
             self.assertEqual(est["fuente"], "curado")
             self.assertIn("Respaldo curado", est["detalle"])
             df, _ = L.cargar_y_limpiar_excel(None, ISA, True)
-            self.assertEqual(list(df.index), [2022, 2023, 2024, 2025])
+            self.assertEqual(list(df.index), [2023, 2024, 2025])
         finally:
             for p in parches:
                 p.stop()

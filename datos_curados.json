@@ -1,470 +1,463 @@
 {
- "version": 1,
- "as_of": "2026-10-27",
- "moneda": "COP",
- "unidad": "miles de millones",
- "nota": "Respaldo cuando no hay estados financieros del usuario ni descarga de Yahoo. Los años 2016-2021 del catálogo anterior eran cifras de relleno (valores redondos y crecimientos constantes) y se eliminaron.",
- "reglas": {
-  "kd": "rf del mercado + spread por calificación",
-  "spread_kd_por_calificacion": {
-   "AAA (col)": 0.01,
-   "AA+ (col)": 0.015,
-   "BB+ internacional": 0.02
+  "version": 1,
+  "as_of": "2026-10-27",
+  "moneda": "COP",
+  "unidad": "miles de millones",
+  "nota": "Respaldo cuando no hay estados financieros del usuario ni descarga de Yahoo. Los años 2016-2021 del catálogo anterior eran cifras de relleno (valores redondos y crecimientos constantes) y se eliminaron.",
+  "reglas": {
+    "kd": "rf del mercado + spread por calificación",
+    "spread_kd_por_calificacion": {
+      "AAA (col)": 0.01,
+      "AA+ (col)": 0.015,
+      "BB+ internacional": 0.02
+    }
+  },
+  "empresas": {
+    "ISA — Interconexión Eléctrica": {
+      "ticker_bvc": "ISA",
+      "ticker_yf": "ISA.CL",
+      "sector": "Transmisión de energía / Infraestructura",
+      "descripcion": "Transporta electricidad a alta tensión en Colombia y Latinoamérica. También opera carreteras y telecomunicaciones.",
+      "calificacion": "AAA (col)",
+      "puente": {
+        "deuda_neta": 30430,
+        "caja": 3725,
+        "nci": 10539,
+        "otros_claims": 0,
+        "asociados": 4332,
+        "acciones": 1108,
+        "fuente": "Informe consolidado ISA 2T26: deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539; inversiones en negocios conjuntos y asociadas 4.332 (valor contable, jun-2026)."
+      },
+      "supuestos": {
+        "beta_u": 0.42,
+        "tax": 0.22,
+        "de_ratio": 1.09,
+        "g": 0.05,
+        "exit_multiple": 8.4,
+        "capital_invertido": 45000,
+        "inversion_inicial": 5000,
+        "fuente_de_ratio": "WACC: deuda financiera bruta nominal 34.155 / capitalización de mercado (28.300 COP × 1.107,7 M acciones), cotización BVC 27-oct-2026; D/E ≈ 1,09."
+      },
+      "historico": {
+        "Año": [
+          2023,
+          2024,
+          2025
+        ],
+        "Ingresos": [
+          14168,
+          15829,
+          16034
+        ],
+        "EBITDA": [
+          8584,
+          9207,
+          8186
+        ],
+        "EBIT": [
+          7068,
+          7870,
+          6842
+        ],
+        "Depreciacion": [
+          1268,
+          1072,
+          1078
+        ],
+        "CAPEX": [
+          4600,
+          4785,
+          6278
+        ],
+        "NWC": [
+          1750,
+          1850,
+          1950
+        ]
+      },
+      "fuente_historico": "Informes oficiales de resultados consolidados ISA 4T23, 4T24 y 4T25. EBITDA y EBIT ajustados excluyendo resultados de co-controladas y asociadas (2023: 530; 2024: 540; 2025: 494) porque el DCF valora el negocio operativo y el puente agrega las inversiones en participadas. Depreciación, ingresos y CAPEX tomados de los informes oficiales. NWC estimado; requiere validación con balances detallados.",
+      "verificacion": "parcial: ingresos, EBITDA/EBIT ajustados, depreciación y CAPEX 2023–2025 contrastados con informes oficiales; NWC estimado; valor de participadas a valor contable, no de mercado."
+    },
+    "GEB — Grupo Energía Bogotá": {
+      "ticker_bvc": "GEB",
+      "ticker_yf": "GEB.CL",
+      "sector": "Transmisión y distribución de energía / Gas",
+      "descripcion": "Grupo energético de Bogotá: transmisión eléctrica, gas natural y distribución.",
+      "calificacion": "AAA (col)",
+      "puente": {
+        "deuda_neta": 17170,
+        "caja": 2430,
+        "nci": 1500,
+        "otros_claims": 0,
+        "asociados": 800,
+        "acciones": 9181,
+        "fuente": "1T26 GEB: deuda neta 17,54 billones (coincide)"
+      },
+      "supuestos": {
+        "beta_u": 0.4,
+        "tax": 0.18,
+        "de_ratio": 0.63,
+        "g": 0.05,
+        "exit_multiple": 13.6,
+        "capital_invertido": 38000,
+        "inversion_inicial": 3500,
+        "fuente_tax": "tasa efectiva 1T26 (126/694 = 18 %)",
+        "fuente_de_ratio": "mercado: 17.540 / 27.770, oct-2026"
+      },
+      "historico": {
+        "Año": [
+          2022,
+          2023,
+          2024,
+          2025
+        ],
+        "Ingresos": [
+          6874.6,
+          7953.7,
+          7971.6,
+          8015.6
+        ],
+        "EBITDA": [
+          5400,
+          5737.8,
+          5394.8,
+          6153.3
+        ],
+        "EBIT": [
+          4563.8,
+          4758.9,
+          4425.7,
+          5118.5
+        ],
+        "Depreciacion": [
+          836.2,
+          979,
+          969.1,
+          1034.8
+        ],
+        "CAPEX": [
+          1906.7,
+          1351.5,
+          1896.3,
+          1973.3
+        ],
+        "NWC": [
+          550,
+          636.3,
+          637.7,
+          641.3
+        ]
+      },
+      "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
+      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+    },
+    "CELSIA — Celsia S.A. E.S.P.": {
+      "ticker_bvc": "CELSIA",
+      "ticker_yf": "CELSIA.CL",
+      "sector": "Generación renovable y distribución",
+      "descripcion": "Genera y vende electricidad con énfasis en renovables (solar, eólica, hídrica). Parte del Grupo Argos.",
+      "calificacion": "AAA (col)",
+      "puente": {
+        "deuda_neta": 5030,
+        "caja": 300,
+        "nci": 200,
+        "otros_claims": 0,
+        "asociados": 100,
+        "acciones": 1033,
+        "fuente": "Catálogo previo (por verificar)"
+      },
+      "supuestos": {
+        "beta_u": 0.45,
+        "tax": 0.35,
+        "de_ratio": 1.1,
+        "g": 0.05,
+        "exit_multiple": 7.9,
+        "capital_invertido": 18000,
+        "inversion_inicial": 2000
+      },
+      "historico": {
+        "Año": [
+          2022,
+          2023,
+          2024,
+          2025
+        ],
+        "Ingresos": [
+          5584.5,
+          6229.9,
+          6806.7,
+          5395.1
+        ],
+        "EBITDA": [
+          1710.1,
+          1751.7,
+          1481.5,
+          1580.1
+        ],
+        "EBIT": [
+          1281.7,
+          1370.3,
+          1075.4,
+          1140.7
+        ],
+        "Depreciacion": [
+          428.5,
+          381.4,
+          406.1,
+          439.4
+        ],
+        "CAPEX": [
+          2083.8,
+          1219.4,
+          1751.1,
+          1331.8
+        ],
+        "NWC": [
+          446.8,
+          498.4,
+          544.5,
+          431.6
+        ]
+      },
+      "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
+      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+    },
+    "EPM — Empresas Públicas de Medellín": {
+      "ticker_bvc": "EPM",
+      "ticker_yf": null,
+      "sector": "Generación, distribución, agua y gas",
+      "descripcion": "Empresa pública de Medellín. Genera y distribuye energía, agua y gas.",
+      "calificacion": "AAA (col)",
+      "puente": {
+        "deuda_neta": 42000,
+        "caja": 4000,
+        "nci": 0,
+        "otros_claims": 0,
+        "asociados": 0,
+        "acciones": null
+      },
+      "supuestos": {
+        "beta_u": 0.45,
+        "tax": 0.35,
+        "de_ratio": 1.45,
+        "g": 0.05,
+        "exit_multiple": 8,
+        "capital_invertido": 70000,
+        "inversion_inicial": 8000
+      },
+      "historico": null,
+      "fuente_historico": null,
+      "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario."
+    },
+    "ENEL Colombia": {
+      "ticker_bvc": "ENELAM",
+      "ticker_yf": null,
+      "sector": "Generación y distribución eléctrica",
+      "descripcion": "Operación colombiana del grupo Enel. Genera y distribuye electricidad.",
+      "calificacion": "AAA (col)",
+      "puente": {
+        "deuda_neta": 15000,
+        "caja": 1500,
+        "nci": 500,
+        "otros_claims": 0,
+        "asociados": 0,
+        "acciones": null
+      },
+      "supuestos": {
+        "beta_u": 0.58,
+        "tax": 0.35,
+        "de_ratio": 1.3,
+        "g": 0.05,
+        "exit_multiple": 8,
+        "capital_invertido": 28000,
+        "inversion_inicial": 3000
+      },
+      "historico": null,
+      "fuente_historico": null,
+      "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario."
+    },
+    "BVC — Bolsa de Valores de Colombia": {
+      "ticker_bvc": "BVC",
+      "ticker_yf": "BVC.CL",
+      "sector": "Servicios financieros / Bolsa de valores",
+      "descripcion": "Opera la Bolsa de Valores de Colombia: compra-venta de acciones, bonos y otros títulos.",
+      "calificacion": "AA+ (col)",
+      "puente": {
+        "deuda_neta": 61,
+        "caja": 148,
+        "nci": 0,
+        "otros_claims": 0,
+        "asociados": 0,
+        "acciones": 60.5,
+        "fuente": "Catálogo previo (por verificar)"
+      },
+      "supuestos": {
+        "beta_u": 0.35,
+        "tax": 0.35,
+        "de_ratio": 0.06,
+        "g": 0.05,
+        "exit_multiple": 5.5,
+        "capital_invertido": 800,
+        "inversion_inicial": 100,
+        "fuente_de_ratio": "mercado: deuda neta 61 / capitalización 1.016, oct-2026"
+      },
+      "historico": {
+        "Año": [
+          2021,
+          2022,
+          2023,
+          2024,
+          2025
+        ],
+        "Ingresos": [
+          199.8,
+          239,
+          287.4,
+          320,
+          359.8
+        ],
+        "EBITDA": [
+          76,
+          86.1,
+          129.6,
+          160,
+          210.5
+        ],
+        "EBIT": [
+          59.5,
+          65.9,
+          108.9,
+          140,
+          186
+        ],
+        "Depreciacion": [
+          16.5,
+          20.2,
+          20.7,
+          22,
+          24.4
+        ],
+        "CAPEX": [
+          22,
+          17.4,
+          17,
+          15,
+          12.7
+        ],
+        "NWC": [
+          16,
+          19.1,
+          23,
+          26,
+          28.8
+        ]
+      },
+      "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
+      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+    },
+    "ECOPETROL": {
+      "ticker_bvc": "ECOPETROL",
+      "ticker_yf": "ECOPETROL.CL",
+      "sector": "Petróleo, gas y energía",
+      "descripcion": "La petrolera más grande de Colombia. Explora, produce y refina petróleo y gas. Controla ISA.",
+      "calificacion": "BB+ internacional",
+      "puente": {
+        "deuda_neta": 93726,
+        "caja": 11192,
+        "nci": 3000,
+        "otros_claims": 0,
+        "asociados": 2000,
+        "acciones": 41117,
+        "fuente": "Catálogo previo (por verificar)"
+      },
+      "supuestos": {
+        "beta_u": 0.75,
+        "tax": 0.35,
+        "de_ratio": 1,
+        "g": 0.03,
+        "exit_multiple": 4.8,
+        "capital_invertido": 150000,
+        "inversion_inicial": 15000
+      },
+      "historico": {
+        "Año": [
+          2022,
+          2023,
+          2024,
+          2025
+        ],
+        "Ingresos": [
+          159611.1,
+          143189,
+          133330,
+          119694
+        ],
+        "EBITDA": [
+          73813.5,
+          59832,
+          55747,
+          45128
+        ],
+        "EBIT": [
+          61684.5,
+          46020,
+          40550,
+          29021
+        ],
+        "Depreciacion": [
+          12129,
+          13812,
+          15197,
+          16107
+        ],
+        "CAPEX": [
+          21877.8,
+          24090,
+          20928,
+          20827
+        ],
+        "NWC": [
+          12768.9,
+          11455.1,
+          10666.4,
+          9575.5
+        ]
+      },
+      "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
+      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+    }
+  },
+  "series": {
+    "NUTRESA — Grupo Nutresa S.A.": {
+      "fuente": "EEFF consolidados oficiales Grupo Nutresa 2025/2024 (ingresos, EBIT, CAPEX y balance); D&A redondeada de MarketScreener; NWC derivado del balance",
+      "años": [
+        2024,
+        2025
+      ],
+      "Ingresos": [
+        18589.956,
+        20578.988
+      ],
+      "EBITDA": [
+        2324.996,
+        2866.358
+      ],
+      "EBIT": [
+        1840.996,
+        2403.358
+      ],
+      "Depreciacion": [
+        484,
+        463
+      ],
+      "CAPEX": [
+        591.091,
+        422.916
+      ],
+      "NWC": [
+        2361.536,
+        2100.025
+      ]
+    }
   }
- },
- "empresas": {
-  "ISA — Interconexión Eléctrica": {
-   "ticker_bvc": "ISA",
-   "ticker_yf": "ISA.CL",
-   "sector": "Transmisión de energía / Infraestructura",
-   "descripcion": "Transporta electricidad a alta tensión en Colombia y Latinoamérica. También opera carreteras y telecomunicaciones.",
-   "calificacion": "AAA (col)",
-   "puente": {
-    "deuda_neta": 30430,
-    "caja": 3725,
-    "nci": 10539,
-    "otros_claims": 0,
-    "asociados": 4500,
-    "acciones": 1108,
-    "fuente": "Informe 2T26 ISA (jun-2026): deuda financiera nominal 34.155 − caja 3.725; NCI 10.539"
-   },
-   "supuestos": {
-    "beta_u": 0.42,
-    "tax": 0.22,
-    "de_ratio": 0.95,
-    "g": 0.05,
-    "exit_multiple": 8.4,
-    "capital_invertido": 45000,
-    "inversion_inicial": 5000,
-    "fuente_de_ratio": "mercado: 30.430 / (29.000 COP × 1.107,7 M acciones), oct-2026"
-   },
-   "historico": {
-    "Año": [
-     2022,
-     2023,
-     2024,
-     2025
-    ],
-    "Ingresos": [
-     13356,
-     14171,
-     14935,
-     15918
-    ],
-    "EBITDA": [
-     7821,
-     9114,
-     9747,
-     8680
-    ],
-    "EBIT": [
-     6869,
-     7598,
-     8409,
-     7336
-    ],
-    "Depreciacion": [
-     952,
-     1516,
-     1338,
-     1344
-    ],
-    "CAPEX": [
-     953,
-     4600,
-     4785,
-     6278
-    ],
-    "NWC": [
-     1600,
-     1750,
-     1850,
-     1950
-    ]
-   },
-   "fuente_historico": "Informes ISA (isa.co). EBITDA 2025 (8,7 billones) e inversiones 2024-2025 (4,8 y 6,3 billones) contrastados con prensa, oct-2026.",
-   "verificacion": "parcial: 2024-2025 contrastados; NWC estimado"
-  },
-  "GEB — Grupo Energía Bogotá": {
-   "ticker_bvc": "GEB",
-   "ticker_yf": "GEB.CL",
-   "sector": "Transmisión y distribución de energía / Gas",
-   "descripcion": "Grupo energético de Bogotá: transmisión eléctrica, gas natural y distribución.",
-   "calificacion": "AAA (col)",
-   "puente": {
-    "deuda_neta": 17170,
-    "caja": 2430,
-    "nci": 1500,
-    "otros_claims": 0,
-    "asociados": 800,
-    "acciones": 9181,
-    "fuente": "1T26 GEB: deuda neta 17,54 billones (coincide)"
-   },
-   "supuestos": {
-    "beta_u": 0.4,
-    "tax": 0.18,
-    "de_ratio": 0.63,
-    "g": 0.05,
-    "exit_multiple": 13.6,
-    "capital_invertido": 38000,
-    "inversion_inicial": 3500,
-    "fuente_tax": "tasa efectiva 1T26 (126/694 = 18 %)",
-    "fuente_de_ratio": "mercado: 17.540 / 27.770, oct-2026"
-   },
-   "historico": {
-    "Año": [
-     2022,
-     2023,
-     2024,
-     2025
-    ],
-    "Ingresos": [
-     6874.6,
-     7953.7,
-     7971.6,
-     8015.6
-    ],
-    "EBITDA": [
-     5400.0,
-     5737.8,
-     5394.8,
-     6153.3
-    ],
-    "EBIT": [
-     4563.8,
-     4758.9,
-     4425.7,
-     5118.5
-    ],
-    "Depreciacion": [
-     836.2,
-     979.0,
-     969.1,
-     1034.8
-    ],
-    "CAPEX": [
-     1906.7,
-     1351.5,
-     1896.3,
-     1973.3
-    ],
-    "NWC": [
-     550.0,
-     636.3,
-     637.7,
-     641.3
-    ]
-   },
-   "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
-   "verificacion": "pendiente: verificar contra estados financieros consolidados"
-  },
-  "CELSIA — Celsia S.A. E.S.P.": {
-   "ticker_bvc": "CELSIA",
-   "ticker_yf": "CELSIA.CL",
-   "sector": "Generación renovable y distribución",
-   "descripcion": "Genera y vende electricidad con énfasis en renovables (solar, eólica, hídrica). Parte del Grupo Argos.",
-   "calificacion": "AAA (col)",
-   "puente": {
-    "deuda_neta": 5030,
-    "caja": 300,
-    "nci": 200,
-    "otros_claims": 0,
-    "asociados": 100,
-    "acciones": 1033,
-    "fuente": "Catálogo previo (por verificar)"
-   },
-   "supuestos": {
-    "beta_u": 0.45,
-    "tax": 0.35,
-    "de_ratio": 1.1,
-    "g": 0.05,
-    "exit_multiple": 7.9,
-    "capital_invertido": 18000,
-    "inversion_inicial": 2000
-   },
-   "historico": {
-    "Año": [
-     2022,
-     2023,
-     2024,
-     2025
-    ],
-    "Ingresos": [
-     5584.5,
-     6229.9,
-     6806.7,
-     5395.1
-    ],
-    "EBITDA": [
-     1710.1,
-     1751.7,
-     1481.5,
-     1580.1
-    ],
-    "EBIT": [
-     1281.7,
-     1370.3,
-     1075.4,
-     1140.7
-    ],
-    "Depreciacion": [
-     428.5,
-     381.4,
-     406.1,
-     439.4
-    ],
-    "CAPEX": [
-     2083.8,
-     1219.4,
-     1751.1,
-     1331.8
-    ],
-    "NWC": [
-     446.8,
-     498.4,
-     544.5,
-     431.6
-    ]
-   },
-   "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
-   "verificacion": "pendiente: verificar contra estados financieros consolidados"
-  },
-  "EPM — Empresas Públicas de Medellín": {
-   "ticker_bvc": "EPM",
-   "ticker_yf": null,
-   "sector": "Generación, distribución, agua y gas",
-   "descripcion": "Empresa pública de Medellín. Genera y distribuye energía, agua y gas.",
-   "calificacion": "AAA (col)",
-   "puente": {
-    "deuda_neta": 42000,
-    "caja": 4000,
-    "nci": 0,
-    "otros_claims": 0,
-    "asociados": 0,
-    "acciones": null
-   },
-   "supuestos": {
-    "beta_u": 0.45,
-    "tax": 0.35,
-    "de_ratio": 1.45,
-    "g": 0.05,
-    "exit_multiple": 8.0,
-    "capital_invertido": 70000,
-    "inversion_inicial": 8000
-   },
-   "historico": null,
-   "fuente_historico": null,
-   "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario."
-  },
-  "ENEL Colombia": {
-   "ticker_bvc": "ENELAM",
-   "ticker_yf": null,
-   "sector": "Generación y distribución eléctrica",
-   "descripcion": "Operación colombiana del grupo Enel. Genera y distribuye electricidad.",
-   "calificacion": "AAA (col)",
-   "puente": {
-    "deuda_neta": 15000,
-    "caja": 1500,
-    "nci": 500,
-    "otros_claims": 0,
-    "asociados": 0,
-    "acciones": null
-   },
-   "supuestos": {
-    "beta_u": 0.58,
-    "tax": 0.35,
-    "de_ratio": 1.3,
-    "g": 0.05,
-    "exit_multiple": 8.0,
-    "capital_invertido": 28000,
-    "inversion_inicial": 3000
-   },
-   "historico": null,
-   "fuente_historico": null,
-   "verificacion": "sin serie: la serie anterior era ilustrativa (crecimientos constantes). Requiere estados financieros del usuario."
-  },
-  "BVC — Bolsa de Valores de Colombia": {
-   "ticker_bvc": "BVC",
-   "ticker_yf": "BVC.CL",
-   "sector": "Servicios financieros / Bolsa de valores",
-   "descripcion": "Opera la Bolsa de Valores de Colombia: compra-venta de acciones, bonos y otros títulos.",
-   "calificacion": "AA+ (col)",
-   "puente": {
-    "deuda_neta": 61,
-    "caja": 148,
-    "nci": 0,
-    "otros_claims": 0,
-    "asociados": 0,
-    "acciones": 60.5,
-    "fuente": "Catálogo previo (por verificar)"
-   },
-   "supuestos": {
-    "beta_u": 0.35,
-    "tax": 0.35,
-    "de_ratio": 0.06,
-    "g": 0.05,
-    "exit_multiple": 5.5,
-    "capital_invertido": 800,
-    "inversion_inicial": 100,
-    "fuente_de_ratio": "mercado: deuda neta 61 / capitalización 1.016, oct-2026"
-   },
-   "historico": {
-    "Año": [
-     2021,
-     2022,
-     2023,
-     2024,
-     2025
-    ],
-    "Ingresos": [
-     199.8,
-     239.0,
-     287.4,
-     320.0,
-     359.8
-    ],
-    "EBITDA": [
-     76.0,
-     86.1,
-     129.6,
-     160.0,
-     210.5
-    ],
-    "EBIT": [
-     59.5,
-     65.9,
-     108.9,
-     140.0,
-     186.0
-    ],
-    "Depreciacion": [
-     16.5,
-     20.2,
-     20.7,
-     22.0,
-     24.4
-    ],
-    "CAPEX": [
-     22.0,
-     17.4,
-     17.0,
-     15.0,
-     12.7
-    ],
-    "NWC": [
-     16.0,
-     19.1,
-     23.0,
-     26.0,
-     28.8
-    ]
-   },
-   "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
-   "verificacion": "pendiente: verificar contra estados financieros consolidados"
-  },
-  "ECOPETROL": {
-   "ticker_bvc": "ECOPETROL",
-   "ticker_yf": "ECOPETROL.CL",
-   "sector": "Petróleo, gas y energía",
-   "descripcion": "La petrolera más grande de Colombia. Explora, produce y refina petróleo y gas. Controla ISA.",
-   "calificacion": "BB+ internacional",
-   "puente": {
-    "deuda_neta": 93726,
-    "caja": 11192,
-    "nci": 3000,
-    "otros_claims": 0,
-    "asociados": 2000,
-    "acciones": 41117,
-    "fuente": "Catálogo previo (por verificar)"
-   },
-   "supuestos": {
-    "beta_u": 0.75,
-    "tax": 0.35,
-    "de_ratio": 1.0,
-    "g": 0.03,
-    "exit_multiple": 4.8,
-    "capital_invertido": 150000,
-    "inversion_inicial": 15000
-   },
-   "historico": {
-    "Año": [
-     2022,
-     2023,
-     2024,
-     2025
-    ],
-    "Ingresos": [
-     159611.1,
-     143189.0,
-     133330.0,
-     119694.0
-    ],
-    "EBITDA": [
-     73813.5,
-     59832.0,
-     55747.0,
-     45128.0
-    ],
-    "EBIT": [
-     61684.5,
-     46020.0,
-     40550.0,
-     29021.0
-    ],
-    "Depreciacion": [
-     12129.0,
-     13812.0,
-     15197.0,
-     16107.0
-    ],
-    "CAPEX": [
-     21877.8,
-     24090.0,
-     20928.0,
-     20827.0
-    ],
-    "NWC": [
-     12768.9,
-     11455.1,
-     10666.4,
-     9575.5
-    ]
-   },
-   "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
-   "verificacion": "pendiente: verificar contra estados financieros consolidados"
-  }
- },
- "series": {
-  "NUTRESA — Grupo Nutresa S.A.": {
-   "fuente": "EEFF consolidados oficiales Grupo Nutresa 2025/2024 (ingresos, EBIT, CAPEX y balance); D&A redondeada de MarketScreener; NWC derivado del balance",
-   "años": [
-    2024,
-    2025
-   ],
-   "Ingresos": [
-    18589.956,
-    20578.988
-   ],
-   "EBITDA": [
-    2324.996,
-    2866.358
-   ],
-   "EBIT": [
-    1840.996,
-    2403.358
-   ],
-   "Depreciacion": [
-    484.0,
-    463.0
-   ],
-   "CAPEX": [
-    591.091,
-    422.916
-   ],
-   "NWC": [
-    2361.536,
-    2100.025
-   ]
-  }
- }
 }
