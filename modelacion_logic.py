@@ -3441,7 +3441,9 @@ def resolver_precio_mercado(nombre_empresa=None, precio_ui=None):
     # instantanea_precio_mercado: misma llave de caché → mismo precio en todo el app.
     tk = (ticker_yf_empresa(nombre_empresa) if nombre_empresa else None) or emp.get("ticker_yf")
     if not tk:
-        return None
+        # Empresa cargada desde Excel con precio en la hoja Parámetros (no cotiza o no tiene ticker).
+        pr = (emp.get("params") or {}).get("precio_referencia")
+        return float(pr) if pr else None
     try:
         mkt = obtener_datos_mercado_bvc(tk, ticker_bvc=emp.get("ticker_bvc"))
         if mkt and mkt.get("ok") and mkt.get("precio") is not None:
@@ -4607,6 +4609,139 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
 
 
 _PALABRAS_INGRESOS = ("ingreso", "revenue", "ventas", "sales")
+_CAMPOS_ENCABEZADO = ("ano", "year", "ingresos", "revenue", "ventas", "ebitda", "ebit", "capex", "nwc",
+                      "capital de trabajo", "depreciacion", "fcff", "nopat", "utilidad operativa")
+_HOJAS_NO_DATOS = ("instrucciones", "ejemplo", "parametros", "leeme", "readme")
+
+# Ejemplo de la plantilla (para avisar si se carga sin reemplazarlo)
+_EJEMPLO_PLANTILLA = {"Ingresos": [8500, 7800, 9200, 10500, 11200, 12000], "EBITDA": [3200, 2900, 3500, 4100, 4500, 4900]}
+_EJEMPLO_PLANTILLA_V2 = {"Ingresos": [9200, 10500, 11200, 12000, 12900], "EBITDA": [3500, 4100, 4500, 4900, 5300]}
+
+
+def _es_ejemplo_plantilla(clean):
+    try:
+        ing = [round(float(x)) for x in clean["Ingresos"].values]
+        eb = [round(float(x)) for x in clean["EBITDA"].values]
+        return any(ing == e["Ingresos"] and eb == e["EBITDA"] for e in (_EJEMPLO_PLANTILLA, _EJEMPLO_PLANTILLA_V2))
+    except Exception:
+        return False
+
+
+def _tabla_desde_hoja(df0):
+    """Convierte una hoja leída SIN encabezado en tabla con columnas = partidas.
+
+    Busca en las primeras 25 filas: (a) una fila con ≥ 3 nombres de partidas (formato largo: años en filas),
+    o (b) una fila con ≥ 2 años y partidas en la primera columna debajo (formato ancho de los estados
+    oficiales). Así funcionan los archivos con título, notas o filas en blanco arriba. Devuelve
+    (DataFrame, transpuesto) o (DataFrame vacío, False).
+    """
+    df0 = df0.dropna(how="all").dropna(axis=1, how="all").reset_index(drop=True)
+    if df0.empty:
+        return df0, False
+    for i in range(min(25, len(df0))):
+        celdas = [_norm_col(x) for x in df0.iloc[i].tolist() if pd.notna(x)]
+        n = sum(1 for c in celdas if c in _CAMPOS_ENCABEZADO or any(c.startswith(k + " ") for k in ("ingresos", "capex", "ebitda")))
+        if n >= 3:
+            t = df0.iloc[i + 1:].copy()
+            t.columns = [str(x).strip() if pd.notna(x) else f"col{j}" for j, x in enumerate(df0.iloc[i].tolist())]
+            return t.reset_index(drop=True), False
+    for i in range(min(25, len(df0))):
+        fila = df0.iloc[i].tolist()
+        anios = pd.to_numeric(pd.Series([str(x)[:4] for x in fila[1:]]), errors="coerce")
+        if anios.between(1990, 2100).sum() >= 2:
+            debajo = df0.iloc[i + 1:, 0].astype(str).map(_norm_col)
+            if debajo.apply(lambda x: any(k in x for k in _PALABRAS_INGRESOS)).any():
+                t = df0.iloc[i + 1:].copy()
+                t.columns = ["Partida"] + [str(x)[:4] if pd.notna(x) else f"col{j}" for j, x in enumerate(fila[1:], 1)]
+                t = t[t["Partida"].notna()]
+                larga, _ = _normalizar_formato_ancho(t)
+                return larga, True
+    return pd.DataFrame(), False
+
+
+def _elegir_hoja_datos(xls):
+    """Hoja con más años utilizables (se ignoran Instrucciones, Ejemplo y Parámetros)."""
+    mejor = (None, False, None, -1)
+    for hoja in xls.sheet_names:
+        if _norm_col(hoja).split(" ")[0] in _HOJAS_NO_DATOS:
+            continue
+        t, transp = _tabla_desde_hoja(pd.read_excel(xls, sheet_name=hoja, header=None))
+        if t.empty:
+            continue
+        cols = {_norm_col(c) for c in t.columns}
+        col_ing = next((c for c in t.columns if any(k in _norm_col(c) for k in _PALABRAS_INGRESOS)), None)
+        filas = int(pd.to_numeric(t[col_ing], errors="coerce").notna().sum()) if col_ing is not None else 0
+        if filas > mejor[3] and cols:
+            mejor = (t, transp, hoja, filas)
+    if mejor[0] is None or mejor[3] <= 0:
+        raise ValueError("No se encontró una hoja con la tabla de estados financieros (encabezados Año, Ingresos, "
+                         "EBITDA, EBIT, CAPEX, NWC). Usa la hoja «Datos» de la plantilla.")
+    return mejor[0], mejor[1], mejor[2]
+
+
+_UNIDADES_ARCHIVO = {"miles de millones": 1.0, "millones": 1e-3, "miles": 1e-6, "unidades": 1e-9}
+_CLAVES_PARAMETROS = {
+    "moneda": "moneda", "unidad": "unidad", "pais": "pais", "tasa de impuestos": "tax", "impuestos": "tax",
+    "deuda financiera": "deuda", "deuda": "deuda", "caja": "caja", "efectivo": "caja",
+    "interes minoritario": "nci", "minoritarios": "nci", "inversiones en asociadas": "asociados", "asociadas": "asociados",
+    "acciones en circulacion": "acciones", "acciones": "acciones", "precio por accion": "precio", "precio": "precio",
+    "beta": "beta",
+}
+
+
+def _leer_hoja_parametros(xls):
+    """Hoja opcional «Parámetros» (columna A = concepto, B = valor). Devuelve dict normalizado o {}."""
+    hoja = next((h for h in xls.sheet_names if _norm_col(h).startswith("parametros")), None)
+    if hoja is None:
+        return {}
+    df = pd.read_excel(xls, sheet_name=hoja, header=None)
+    out = {}
+    for _, r in df.iterrows():
+        if len(r) < 2 or pd.isna(r.iloc[0]) or pd.isna(r.iloc[1]):
+            continue
+        etiqueta = _norm_col(str(r.iloc[0]).split("(")[0])
+        clave = next((v for k, v in _CLAVES_PARAMETROS.items() if etiqueta == k or etiqueta.startswith(k + " ")), None)
+        if clave is None or clave in out:
+            continue
+        val = r.iloc[1]
+        if clave in ("moneda", "unidad", "pais"):
+            out[clave] = str(val).strip()
+        else:
+            v = _numero_texto_es_en(str(val)) if isinstance(val, str) else float(val)
+            if v is None:
+                continue
+            if clave == "tax" and v > 1:  # 35 → 0,35
+                v = v / 100.0
+            out[clave] = float(v)
+    if out.get("unidad"):
+        u = _norm_col(out["unidad"])
+        out["factor_unidad"] = next((f for k, f in _UNIDADES_ARCHIVO.items() if u == _norm_col(k)), None)
+    if out.get("moneda"):
+        out["moneda"] = out["moneda"].upper()[:3]
+    return out
+
+
+def _info_desde_parametros(meta, fac=1.0):
+    """Datos de la hoja Parámetros con la forma de `info` de Yahoo (montos en unidades), para reutilizar
+    derivar_params_desde_cero: tasa, deuda neta, D/E de mercado, acciones y beta."""
+    if not meta:
+        return None
+    mm = 1e9 * float(fac)  # montos del archivo → miles de millones → unidades
+    info = {"country": meta.get("pais") or "", "currency": meta.get("moneda"), "financialCurrency": meta.get("moneda")}
+    if meta.get("tax") is not None:
+        info["effectiveTaxRate"] = float(meta["tax"])
+    if meta.get("deuda") is not None:
+        info["totalDebt"] = float(meta["deuda"]) * mm
+    if meta.get("caja") is not None:
+        info["totalCash"] = float(meta["caja"]) * mm
+    if meta.get("acciones"):
+        info["sharesOutstanding"] = float(meta["acciones"]) * 1e6
+        if meta.get("precio"):
+            info["regularMarketPrice"] = float(meta["precio"])
+            info["marketCap"] = float(meta["precio"]) * float(meta["acciones"]) * 1e6
+    if meta.get("beta"):
+        info["beta"] = float(meta["beta"])
+    return info
 
 
 def _normalizar_formato_ancho(raw):
@@ -4708,25 +4843,19 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
         raise ValueError("Empresa personalizada: usa el buscador de ticker Yahoo o carga un Excel/CSV propio. No hay histórico de respaldo para este nombre.")
 
     path = archivo.name if hasattr(archivo, "name") else str(archivo)
+    meta_xlsx = {}
     try:
         if str(path).lower().endswith(".csv"):
-            raw = pd.read_csv(path)
+            raw, _transpuesto = _tabla_desde_hoja(pd.read_csv(path, header=None))
         else:
             xls = pd.ExcelFile(path)
-            raw = None
-            for hoja in xls.sheet_names:
-                temp = pd.read_excel(xls, sheet_name=hoja)
-                cols_lower = [str(c).strip().lower() for c in temp.columns]
-                if any(any(k in c for k in ["ingreso", "revenue", "ventas", "fcff"]) for c in cols_lower):
-                    raw = temp
-                    break
-            if raw is None:
-                raw = pd.read_excel(xls, sheet_name=0)
+            raw, _transpuesto, hoja_usada = _elegir_hoja_datos(xls)
+            meta_xlsx = _leer_hoja_parametros(xls)
+    except ValueError:
+        raise
     except Exception as exc:
         raise ValueError(f"No fue posible leer el archivo: {exc}") from exc
-
     raw = raw.dropna(how="all").dropna(axis=1, how="all")
-    raw, _transpuesto = _normalizar_formato_ancho(raw)
     aliases = {
         "Año": ["año", "ano", "year", "fecha"],
         "Ingresos": ["ingresos", "revenue", "ventas", "sales", "total revenue"],
@@ -4754,8 +4883,12 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
     if year_col is not None:
         years = pd.to_numeric(raw[year_col], errors="coerce")
         if years.isna().any():
-            # Fechas completas se convierten a año cuando es posible.
-            years = pd.to_datetime(raw[year_col], errors="coerce").dt.year
+            # Fechas completas («31/12/2024») se convierten a año, SOLO en las celdas no numéricas: antes una fila
+            # de notas convertía toda la columna con to_datetime y 2021 pasaba a 1970 (nanosegundos desde 1970).
+            faltan = years.isna()
+            fechas = pd.to_datetime(raw.loc[faltan, year_col].astype(str), errors="coerce", dayfirst=True)
+            years = years.where(~faltan, fechas.dt.year)
+        years = years.where(years.between(1900, 2100))
         clean["Año"] = years
         clean = clean.dropna(subset=["Año"]).set_index("Año")
     else:
@@ -4769,6 +4902,8 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
     if clean.index.has_duplicates:
         avisos.append("años duplicados: se conservó la última fila de cada año")
         clean = clean[~clean.index.duplicated(keep="last")]
+    if _es_ejemplo_plantilla(clean):
+        raise ValueError("La hoja todavía tiene los números de ejemplo de la plantilla: reemplázalos por los de tu empresa.")
     sin_ingresos = clean["Ingresos"] <= 0
     if sin_ingresos.any():
         avisos.append(f"se descartaron {int(sin_ingresos.sum())} fila(s) con Ingresos ≤ 0")
@@ -4780,7 +4915,12 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
         avisos.append("hay años con EBIT > EBITDA: revisar columnas y unidades")
     if len(clean) < 3:
         raise ValueError("Después de validar los datos quedan menos de 3 años utilizables.")
-    _fac, _txt_fac = _escala_respecto_referencia(clean, nombre_empresa)
+    if meta_xlsx.get("factor_unidad") is not None:
+        _fac = float(meta_xlsx["factor_unidad"])
+        _txt_fac = (f"cifras en {meta_xlsx['unidad']} (hoja Parámetros): se convirtieron a miles de millones"
+                    if _fac != 1.0 else None)
+    else:
+        _fac, _txt_fac = _escala_respecto_referencia(clean, nombre_empresa)
     if _fac != 1.0:
         for _c in [c for c in clean.columns if c in ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC", "Delta_NWC", "NOPAT", "FCFF")]:
             clean[_c] = clean[_c] * _fac
@@ -4798,7 +4938,11 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
     if "FCFF" not in clean.columns:
         clean["FCFF"] = np.nan
     # Los valores faltantes se calculan contablemente; no se imputan con datos de otra empresa.
-    tax_proxy = float(params_empresa(nombre_empresa).get("tax", 0.30))
+    # Tasa para el NOPAT histórico: la de la hoja Parámetros, la de la empresa o 25 % (antes 0 % para una empresa
+    # nueva: NOPAT = EBIT y un FCFF histórico inflado frente a la proyección, que usaba 25 %).
+    tax_proxy = meta_xlsx.get("tax")
+    if tax_proxy is None:
+        tax_proxy = float(params_empresa(nombre_empresa).get("tax") or 0.0) or 0.25
     clean["NOPAT"] = clean["NOPAT"].where(clean["NOPAT"].notna(), clean["EBIT"] * (1 - tax_proxy))
     fcff_calc = clean["NOPAT"] + clean["Depreciacion"] - clean["CAPEX"] - clean["Delta_NWC"]
     clean["FCFF"] = clean["FCFF"].where(clean["FCFF"].notna(), fcff_calc)
@@ -4808,8 +4952,16 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
         raise ValueError("Hay valores no numéricos o infinitos en columnas financieras obligatorias.")
     # Empresa no catalogada: registrar histórico y params derivados desde este archivo (sin catálogo)
     if nombre_empresa not in EMPRESAS:
-        params_xlsx = derivar_params_desde_cero(clean, info=None, ticker_yf=None)
+        params_xlsx = derivar_params_desde_cero(clean, info=_info_desde_parametros(meta_xlsx, _fac), ticker_yf=None)
         params_xlsx["origen_params"] = "excel_desde_cero"
+        for _k_m, _k_p in (("nci", "nci"), ("asociados", "asociados")):
+            if meta_xlsx.get(_k_m) is not None:
+                params_xlsx[_k_p] = round(float(meta_xlsx[_k_m]) * _fac, 4)
+        if meta_xlsx.get("precio"):
+            params_xlsx["precio_referencia"] = float(meta_xlsx["precio"])
+        if meta_xlsx.get("tax") is not None:
+            params_xlsx["tax"] = round(float(meta_xlsx["tax"]), 4)
+            params_xlsx["tax_fuente"] = "hoja Parámetros del archivo"
         # Tax: si el usuario no tiene país, conservar 0 y recalcular NOPAT cuando calibre tax en UI
         hist = {"Año": [int(a) for a in clean.index]}
         for col in clean.columns:
@@ -4823,9 +4975,14 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
             "historico": hist,
             "peers": [],
             "fuente": "Excel/CSV del usuario",
-            "moneda": "definir",
-            "pais": "",
+            "moneda": meta_xlsx.get("moneda") or "definir",
+            "moneda_precio": meta_xlsx.get("moneda") or None,
+            "pais": meta_xlsx.get("pais") or "",
         }
+    if meta_xlsx:
+        avisos.append("hoja Parámetros leída (" + ", ".join(k for k in ("moneda", "unidad", "pais", "tax", "deuda", "caja",
+                                                                         "nci", "asociados", "acciones", "precio")
+                                                                if meta_xlsx.get(k) is not None) + ")")
     msg_avisos = ("Avisos de limpieza: " + " | ".join(avisos) + ". ") if avisos else ""
     return clean, (
         f"Archivo propio validado para {nombre_empresa}: {len(clean)} observaciones. {msg_avisos}"
@@ -12025,10 +12182,19 @@ CUSTOM_CSS = """
 APP_THEME = None  # Gradio only
 
 
-def asegurar_plantilla_excel(ruta=None):
-    """Crea (si no existe) la plantilla Excel de EEFF para carga independiente."""
-    from openpyxl import Workbook
+VERSION_PLANTILLA_EEFF = "2"
+
+
+def asegurar_plantilla_excel(ruta=None, forzar=False):
+    """Crea (o actualiza si es de una versión anterior) la plantilla Excel de EEFF para carga independiente.
+
+    Versión 2: hoja «Datos» vacía para llenar (el ejemplo pasa a la hoja «Ejemplo», que el cargador ignora),
+    hoja «Parámetros» con moneda, unidad, tasa de impuestos y datos del puente a patrimonio (con listas
+    desplegables), e instrucciones sobre formatos aceptados.
+    """
+    from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.worksheet.datavalidation import DataValidation
 
     if ruta is None:
         try:
@@ -12037,97 +12203,146 @@ def asegurar_plantilla_excel(ruta=None):
             base = Path.cwd()
         ruta = base / "Plantilla_EEFF_Modelacion_Financiera.xlsx"
     ruta = Path(ruta)
-    if ruta.exists() and ruta.stat().st_size > 2000:
-        return str(ruta)
+    if ruta.exists() and ruta.stat().st_size > 2000 and not forzar:
+        try:
+            wb0 = load_workbook(ruta, read_only=True)
+            ver = str(wb0["Instrucciones"]["A30"].value or "") if "Instrucciones" in wb0.sheetnames else ""
+            wb0.close()
+            if ver.endswith(f"versión {VERSION_PLANTILLA_EEFF}"):
+                return str(ruta)
+        except Exception:
+            pass
+
+    headers = ["Año", "Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC", "Delta_NWC", "NOPAT", "FCFF"]
+    required = {"Año", "Ingresos", "EBITDA", "EBIT", "CAPEX", "NWC"}
+    oscuro, verde, gris = "0B1F33", "0F766E", "334155"
+    thin = Border(left=Side(style="thin", color="CBD5E1"), right=Side(style="thin", color="CBD5E1"),
+                  top=Side(style="thin", color="CBD5E1"), bottom=Side(style="thin", color="CBD5E1"))
+    anchos = [10, 13, 13, 13, 15, 13, 13, 13, 13, 13]
+
+    def encabezados(ws, fila):
+        for col, h in enumerate(headers, start=1):
+            c = ws.cell(fila, col, h)
+            c.font = Font(bold=True, color="FFFFFF", size=11)
+            c.fill = PatternFill("solid", fgColor=oscuro if h in required else gris)
+            c.border = thin
+            c.alignment = Alignment(horizontal="center")
+        for k, w in enumerate(anchos, start=1):
+            ws.column_dimensions[chr(64 + k)].width = w
 
     wb = Workbook()
-    ws_i = wb.active
-    ws_i.title = "Instrucciones"
-    ws_i["A1"] = "Plantilla de estados financieros — Modelación Financiera Multisectorial"
-    ws_i["A1"].font = Font(bold=True, size=14, color="0B1F33")
-    lineas = [
-        "",
-        "Cómo usar esta plantilla",
-        "1. Ve a la hoja «Datos».",
-        "2. Reemplaza las filas de ejemplo por los datos de TU empresa (mínimo 3 años; recomendado 5–10).",
-        "3. Todas las cifras deben estar en LA MISMA moneda y unidad (p. ej. miles de millones COP o millones USD).",
-        "4. No mezcles empresas ni cambies los nombres de columna de la fila de encabezados.",
-        "5. Guarda (.xlsx o .csv) y cárgalo en «Estados financieros propios» de la plataforma.",
-        "",
-        "Columnas obligatorias: Año, Ingresos, EBITDA, EBIT, CAPEX, NWC.",
-        "Opcionales (si vacías, el modelo las estima): Depreciacion, Delta_NWC, NOPAT, FCFF.",
-        "FCFF = NOPAT + Depreciacion − CAPEX − Delta_NWC.",
-        "No uses el año calendario en curso si el ejercicio aún no cierra.",
-        "Un salto de ingresos >300% suele indicar error de unidades.",
-    ]
-    for i, t in enumerate(lineas, start=2):
-        ws_i[f"A{i}"] = t
-        if t.startswith("Cómo") or t.startswith("Columnas") or t.startswith("Opcionales"):
-            ws_i[f"A{i}"].font = Font(bold=True, color="0F766E")
-    ws_i.column_dimensions["A"].width = 100
-
-    ws = wb.create_sheet("Datos", 0)
-    headers = ["Año", "Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC", "Delta_NWC", "NOPAT", "FCFF"]
-    example = [
-        [2019, 8500, 3200, 2400, 800, 1500, 900, 0, 1560, 860],
-        [2020, 7800, 2900, 2100, 800, 1200, 950, 50, 1365, 915],
-        [2021, 9200, 3500, 2700, 800, 1600, 1000, 50, 1755, 905],
-        [2022, 10500, 4100, 3200, 900, 1800, 1100, 100, 2080, 1080],
-        [2023, 11200, 4500, 3600, 900, 1900, 1150, 50, 2340, 1290],
-        [2024, 12000, 4900, 4000, 900, 2000, 1200, 50, 2600, 1450],
-    ]
-    header_fill = PatternFill("solid", fgColor="0B1F33")
-    header_font = Font(bold=True, color="FFFFFF", size=11)
-    req_fill = PatternFill("solid", fgColor="0F766E")
-    opt_fill = PatternFill("solid", fgColor="64748B")
-    example_fill = PatternFill("solid", fgColor="F8FAFC")
-    thin = Border(
-        left=Side(style="thin", color="CBD5E1"), right=Side(style="thin", color="CBD5E1"),
-        top=Side(style="thin", color="CBD5E1"), bottom=Side(style="thin", color="CBD5E1"),
-    )
-    required = {"Año", "Ingresos", "EBITDA", "EBIT", "CAPEX", "NWC"}
+    # --- Datos (para llenar) ---
+    ws = wb.active
+    ws.title = "Datos"
     ws.merge_cells("A1:J1")
-    ws["A1"] = "PLANTILLA EEFF — reemplaza el ejemplo por los datos de tu empresa (misma moneda y unidad)"
-    ws["A1"].font = Font(bold=True, size=12, color="0B1F33")
+    ws["A1"] = "ESTADOS FINANCIEROS — un año por fila, del más antiguo al más reciente (mínimo 3 años; ideal 5–10)"
+    ws["A1"].font = Font(bold=True, size=12, color=oscuro)
     ws.merge_cells("A2:F2")
-    ws["A2"] = "Obligatorias →"
-    ws["A2"].fill = req_fill
+    ws["A2"] = "Obligatorias (azul oscuro)"
+    ws["A2"].fill = PatternFill("solid", fgColor=verde)
     ws["A2"].font = Font(bold=True, color="FFFFFF", size=9)
     ws.merge_cells("G2:J2")
-    ws["G2"] = "Opcionales (estimables) →"
-    ws["G2"].fill = opt_fill
+    ws["G2"] = "Opcionales: si quedan vacías se calculan"
+    ws["G2"].fill = PatternFill("solid", fgColor="64748B")
     ws["G2"].font = Font(bold=True, color="FFFFFF", size=9)
-    for col, h in enumerate(headers, start=1):
-        cell = ws.cell(3, col, h)
-        cell.font = header_font
-        cell.fill = header_fill if h in required else PatternFill("solid", fgColor="334155")
-        cell.border = thin
-        cell.alignment = Alignment(horizontal="center")
-    for r, row in enumerate(example, start=4):
-        for c, val in enumerate(row, start=1):
-            cell = ws.cell(r, c, val)
-            cell.border = thin
-            cell.fill = example_fill
-            if c > 1:
-                cell.number_format = "#,##0.0"
-    ws.merge_cells("A11:J11")
-    ws["A11"] = "NOTA: filas 4–9 son ejemplo ilustrativo. Unidad sugerida CO: miles de millones COP. US: miles de millones USD."
-    ws["A11"].font = Font(italic=True, size=9, color="64748B")
-    for i, w in enumerate([10, 12, 12, 12, 14, 12, 12, 12, 12, 12], start=1):
-        ws.column_dimensions[chr(64 + i)].width = w
-
-    ws_e = wb.create_sheet("Datos_vacios")
-    ws_e["A1"] = "Hoja vacía: solo encabezados, sin números de ejemplo."
-    for col, h in enumerate(headers, start=1):
-        cell = ws_e.cell(2, col, h)
-        cell.font = header_font
-        cell.fill = header_fill if h in required else PatternFill("solid", fgColor="334155")
-        cell.border = thin
-    for r in range(3, 13):
+    encabezados(ws, 3)
+    for r in range(4, 19):
         for c in range(1, 11):
-            ws_e.cell(r, c).border = thin
-    for i, w in enumerate([10, 12, 12, 12, 14, 12, 12, 12, 12, 12], start=1):
-        ws_e.column_dimensions[chr(64 + i)].width = w
+            cell = ws.cell(r, c)
+            cell.border = thin
+            cell.number_format = "0" if c == 1 else "#,##0.0"
+    ws["A20"] = ("Unidad y moneda: indícalas en la hoja «Parámetros». CAPEX en positivo. NWC = activo corriente − "
+                 "pasivo corriente (sin caja ni deuda financiera). No incluyas el año en curso si no ha cerrado.")
+    ws["A20"].font = Font(italic=True, size=9, color="64748B")
+    ws.freeze_panes = "B4"
+
+    # --- Parámetros ---
+    wp = wb.create_sheet("Parametros")
+    wp["A1"] = "PARÁMETROS — completa lo que tengas; lo vacío lo estima el modelo o lo tomas de la fuente pública"
+    wp["A1"].font = Font(bold=True, size=12, color=oscuro)
+    filas = [
+        ("Moneda", "COP", "COP, USD u otra (código de 3 letras)"),
+        ("Unidad de las cifras", "miles de millones", "miles de millones · millones · miles · unidades (se convierte a miles de millones)"),
+        ("País", "Colombia", "Define la tasa libre de riesgo y la prima de mercado (Colombia, United States, …)"),
+        ("Tasa de impuestos (%)", None, "Tasa efectiva o legal, p. ej. 35"),
+        ("Deuda financiera", None, "Último cierre, en la misma unidad de las cifras"),
+        ("Caja y equivalentes", None, "Último cierre"),
+        ("Interés minoritario", None, "Patrimonio de minoritarios en el balance consolidado"),
+        ("Inversiones en asociadas", None, "Valor en libros de asociadas y negocios conjuntos"),
+        ("Acciones en circulación (millones)", None, "Para el valor por acción"),
+        ("Precio por acción", None, "Opcional: para comparar el valor con el mercado si la empresa no cotiza en Yahoo"),
+        ("Beta", None, "Opcional: beta apalancada observada; si falta, se usa 1,0"),
+    ]
+    for k, (etq, val, nota) in enumerate(filas, start=3):
+        wp.cell(k, 1, etq).font = Font(bold=True, color=oscuro)
+        c = wp.cell(k, 2, val)
+        c.border = thin
+        c.fill = PatternFill("solid", fgColor="ECFDF5")
+        wp.cell(k, 3, nota).font = Font(size=9, color="64748B")
+    wp.column_dimensions["A"].width = 36
+    wp.column_dimensions["B"].width = 22
+    wp.column_dimensions["C"].width = 90
+    dv_mon = DataValidation(type="list", formula1='"COP,USD,EUR,BRL,MXN,CLP,PEN"', allow_blank=True)
+    dv_uni = DataValidation(type="list", formula1='"miles de millones,millones,miles,unidades"', allow_blank=False)
+    wp.add_data_validation(dv_mon)
+    wp.add_data_validation(dv_uni)
+    dv_mon.add("B3")
+    dv_uni.add("B4")
+    wp["A16"] = ("Si la empresa ya está en el catálogo o se descargó de Yahoo, el modelo usa sus datos de mercado y de esta "
+                 "hoja solo toma la unidad y la tasa de impuestos.")
+    wp["A16"].font = Font(italic=True, size=9, color="64748B")
+
+    # --- Ejemplo (el cargador lo ignora) ---
+    we = wb.create_sheet("Ejemplo")
+    we["A1"] = "EJEMPLO ILUSTRATIVO (miles de millones COP) — esta hoja no se carga"
+    we["A1"].font = Font(bold=True, size=12, color=oscuro)
+    encabezados(we, 2)
+    ejemplo = [
+        [2021, 9200, 3500, 2700, 800, 1600, 1000, None, None, None],
+        [2022, 10500, 4100, 3200, 900, 1800, 1100, None, None, None],
+        [2023, 11200, 4500, 3600, 900, 1900, 1150, None, None, None],
+        [2024, 12000, 4900, 4000, 900, 2000, 1200, None, None, None],
+        [2025, 12900, 5300, 4350, 950, 2100, 1260, None, None, None],
+    ]
+    for r, fila in enumerate(ejemplo, start=3):
+        for c, v in enumerate(fila, start=1):
+            cell = we.cell(r, c, v)
+            cell.border = thin
+            cell.number_format = "0" if c == 1 else "#,##0.0"
+
+    # --- Instrucciones ---
+    wi = wb.create_sheet("Instrucciones")
+    wi["A1"] = "Plantilla de estados financieros — Modelación Financiera"
+    wi["A1"].font = Font(bold=True, size=14, color=oscuro)
+    lineas = [
+        "", "Cómo usar esta plantilla",
+        "1. Llena la hoja «Datos»: un año por fila (mínimo 3, ideal 5–10), del más antiguo al más reciente.",
+        "2. Completa la hoja «Parámetros»: moneda, unidad de las cifras y tasa de impuestos como mínimo.",
+        "3. Guarda como .xlsx (o .csv solo con la tabla) y cárgalo en «Estados financieros» de la barra lateral.",
+        "", "Columnas",
+        "Obligatorias: Año, Ingresos, EBITDA, EBIT (utilidad operativa), CAPEX (inversiones, en positivo), NWC (capital de trabajo).",
+        "Opcionales: Depreciacion (si falta = EBITDA − EBIT), Delta_NWC, NOPAT (= EBIT × (1 − impuestos)) y "
+        "FCFF (= NOPAT + Depreciacion − CAPEX − Delta_NWC).",
+        "", "Formatos aceptados",
+        "· La tabla puede tener títulos o filas en blanco arriba: el cargador busca la fila de encabezados.",
+        "· También se acepta el formato de los estados oficiales: partidas en filas y años en columnas.",
+        "· Los nombres pueden ir en español o inglés (Ingresos/Revenue, CAPEX/Inversiones, Capital de trabajo/NWC…).",
+        "· Si tus cifras están en millones o en pesos, indícalo en «Unidad de las cifras»: se convierten solas.",
+        "", "Buenas prácticas",
+        "· Usa estados consolidados auditados y la misma moneda y unidad en todas las celdas.",
+        "· No incluyas el año en curso si el ejercicio no ha cerrado.",
+        "· EBIT sin el método de participación: el valor de las asociadas se suma aparte en el puente a patrimonio.",
+        "· Un salto de ingresos de más de 300 % entre años suele indicar un error de unidades.",
+        "· Para corregir solo una partida de la fuente pública (p. ej. el CAPEX) usa el botón "
+        "«Corregir histórico (cifras oficiales)» de la app, sin cargar archivo.",
+    ]
+    for k, t in enumerate(lineas, start=2):
+        wi[f"A{k}"] = t
+        if t in ("Cómo usar esta plantilla", "Columnas", "Formatos aceptados", "Buenas prácticas"):
+            wi[f"A{k}"].font = Font(bold=True, color=verde)
+    wi["A30"] = f"Plantilla EEFF · versión {VERSION_PLANTILLA_EEFF}"
+    wi["A30"].font = Font(size=8, color="94A3B8")
+    wi.column_dimensions["A"].width = 120
 
     ruta.parent.mkdir(parents=True, exist_ok=True)
     wb.save(ruta)
