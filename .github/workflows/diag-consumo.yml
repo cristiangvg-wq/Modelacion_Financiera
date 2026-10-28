@@ -15,7 +15,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: |
           mkdir -p out
-          python diag/consumo.py > out/consumo.json 2> out/err.txt || true
+          python diag/consumo.py KO PEP PG CL MDLZ KMB HSY MCD WMT COST PM GIS AAPL MSFT NVDA > out/consumo.json 2> out/err.txt || true; python diag/valorar_activos.py ISA > out/valoracion.json 2>> out/err.txt || true
           cd out && git init -q && git checkout -q -b diag/consumo-resultados
           git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
           git add -A && git commit -q -m "Resultados" && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/consumo-resultados
