@@ -22,6 +22,12 @@ with sync_playwright() as pw:
         log.append("emisor: " + sel.inner_text()[:80].replace("\n", " "))
     except Exception as e:
         log.append(f"no seleccionó: {e}")
+    try:
+        pg.get_by_role("button", name=re.compile("Generar todo")).first.click(timeout=10000)
+        pg.wait_for_timeout(90000)
+        log.append("generar todo ok")
+    except Exception as e:
+        log.append(f"generar todo error {e}")
     body = pg.inner_text("body")
     open(f"{OUT}/inicio.txt", "w").write(body)
     for i in range(1, 10):
