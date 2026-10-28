@@ -24,6 +24,15 @@ def correr(nombre, ancho, alto, tabs):
             except Exception:
                 pass
         pg.screenshot(path=f"{OUT}/{nombre}_00_inicio.png")
+        if ancho < 700:  # en móvil el menú lateral tapa la app: cerrarlo como haría el usuario
+            for sel in ['[data-testid="stSidebarCollapseButton"] button', 'button[kind="headerNoPadding"]', '[data-testid="stSidebarCollapseButton"]']:
+                try:
+                    pg.locator(sel).first.click(timeout=3000)
+                    pg.wait_for_timeout(1500)
+                    break
+                except Exception:
+                    pass
+            pg.screenshot(path=f"{OUT}/{nombre}_00b_sin_menu.png")
         t0 = time.time()
         pg.get_by_role("button", name="▶ Generar todo").first.click(timeout=20000)
         estado = "timeout"
@@ -55,7 +64,14 @@ def correr(nombre, ancho, alto, tabs):
         b.close()
 
 
-correr("escritorio", 1440, 3200, set(range(1, 10)))
-correr("movil", 390, 4200, {1, 2, 4, 6})
+import sys as _s
+modo = _s.argv[3] if len(_s.argv) > 3 else "ambos"
+try:
+    if modo in ("ambos", "escritorio"):
+        correr("escritorio", 1440, 3200, set(range(1, 10)))
+    if modo in ("ambos", "movil"):
+        correr("movil", 390, 4200, {1, 2, 4, 6})
+except Exception as e:
+    log.append(f"ERROR: {e}")
 open(f"{OUT}/log.txt", "w", encoding="utf-8").write("\n".join(log))
 print("\n".join(log))
