@@ -69,7 +69,7 @@ st.set_page_config(
     page_title="Modelación Financiera · Terminal",
     page_icon="◈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",  # en móvil el menú abierto tapaba toda la app
     menu_items={
         "About": "Terminal de modelación financiera multisectorial · apoyo a decisión · no es asesoría de inversión.",
     },
@@ -3406,18 +3406,9 @@ def main():
                 except Exception as e:
                     st.error(str(e))
 
+        # «Modo claro (experimental)» se retiró: inyectaba un <script> que Streamlit no ejecuta
+        # (st.markdown no corre JavaScript) y no existía CSS claro, así que no hacía nada.
         st.markdown('<p class="tf-sidebar-label">Experiencia</p>', unsafe_allow_html=True)
-        tema = st.toggle("Modo claro (experimental)", value=False, key="tema_claro")
-        if tema:
-            st.markdown(
-                "<script>document.documentElement.setAttribute('data-theme','light');</script>",
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                "<script>document.documentElement.setAttribute('data-theme','dark');</script>",
-                unsafe_allow_html=True,
-            )
         if st.button("Repetir tour guiado", use_container_width=True, key="btn_retour"):
             st.session_state["tour_done"] = False
             st.session_state["tour_step"] = 1
