@@ -17,6 +17,25 @@ jobs:
       - run: python diag/filas_yahoo.py > res/filas_yahoo.json 2> res/filas_yahoo.err || true
       - uses: actions/upload-artifact@v4
         with: {name: valoracion, path: res}
+  versiones:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: |
+          mkdir -p res
+          cp diag/versiones.py /tmp/versiones.py
+          for c in f5a5a3e 856e2ad HEAD; do
+            git worktree add -f /tmp/w_$c $c >/dev/null 2>&1
+            echo "### $c" >> res/versiones.txt
+            (cd /tmp/w_$c && python /tmp/versiones.py 2>/dev/null | tail -1) >> res/versiones.txt || true
+          done
+      - uses: actions/upload-artifact@v4
+        with: {name: versiones, path: res}
   gemini:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -51,7 +70,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: {name: ui, path: res}
   publicar:
-    needs: [valoracion, gemini, ui]
+    needs: [valoracion, versiones, gemini, ui]
     if: always()
     runs-on: ubuntu-latest
     steps:
