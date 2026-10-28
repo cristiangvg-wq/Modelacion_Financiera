@@ -953,6 +953,9 @@ def _html_conciliacion(c, cd, mon):
   </div>"""
 
 
+_NBSP = "\u00a0"
+
+
 def _fmt_px(v):
     """Precio por acción: sin decimales desde 1.000 (COP), dos decimales por debajo (USD)."""
     n = _num(v)
@@ -992,7 +995,7 @@ def _html_tabla_anclas(anc, usadas, metodo, po, px, mon):
         nota = a.get("motivo") if estado == "descartada" else a.get("metodo")
         w = 700 if usada else 500
         movil = (f"<span class='tf-solo-movil' style='margin-top:3px;color:{tono};font-variant-numeric:tabular-nums'>"
-                 f"<b>{_fmt_px(v)}</b> · {dif} vs\u00a0precio{(' · peso\u00a0' + peso) if peso and peso != '✓' else ''}</span>")
+                 f"<b>{_fmt_px(v)}</b> · {dif} vs{_NBSP}precio{(' · peso' + _NBSP + peso) if peso and peso != '✓' else ''}</span>")
         filas.append(
             f"<tr><td class='tf-centro'>{badge}</td>"
             f"<td class='tf-texto'><span style='color:{tono};font-weight:{w}'>{_e(a['nombre'])}</span>{etiqueta}"
@@ -1012,7 +1015,7 @@ def _html_tabla_anclas(anc, usadas, metodo, po, px, mon):
         filas.append(f"<tr class='tf-total'><td></td><td class='tf-texto'>Precio objetivo 12 meses"
                      f"<span class='tf-solo-movil' style='font-variant-numeric:tabular-nums'>{_fmt_px(po)} · {dif} vs precio</span></td>"
                      f"<td class='tf-num tf-movil-oculto'>{_fmt_px(po)}</td><td class='tf-num tf-movil-oculto'>{dif}</td>"
-                     f"<td class='tf-centro tf-movil-oculto'>{'100\u00a0%' if pesos else ''}</td></tr>")
+                     f"<td class='tf-centro tf-movil-oculto'>{('100' + _NBSP + '%') if pesos else ''}</td></tr>")
     ref = (f"<p style='color:#94A3B8;font-size:12px;margin:4px 0 0'>Precio de mercado: {_fmt_px(px)} {_e(mon)}. "
            "«vs precio»: distancia de cada ancla a la cotización. En gris, anclas que el comité no usó.</p>") if px else ""
     return (
