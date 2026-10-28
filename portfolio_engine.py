@@ -191,16 +191,30 @@ def optimizar_portafolio(
     }
 
 
-def proyectar_pesos(pesos, peso_maximo: float, tol: float = 1e-12) -> np.ndarray:
+def proyectar_pesos(pesos, peso_maximo: float, tol: float = 1e-12, tol_residuo: float = 1e-5) -> np.ndarray:
     """Lleva un vector casi factible a 0 ≤ w ≤ peso_maximo con Σw = 1 sin violar el tope.
 
-    Corrige solo residuos numéricos del optimizador: el déficit o exceso se reparte
-    proporcionalmente entre los activos con holgura (nunca se escala un peso ya topado).
+    Solo corrige residuos numéricos del optimizador (hasta `tol_residuo`): el déficit o
+    exceso se reparte entre los activos con holgura (nunca se escala un peso ya topado).
+    Entradas materialmente incorrectas (vacías, no finitas, negativas, por encima del
+    tope o que no suman ~100 %) se rechazan: no se «reparan» en silencio.
     """
-    w = np.clip(np.asarray(pesos, dtype=float), 0.0, float(peso_maximo))
-    cap = float(peso_maximo)
+    try:
+        cap = float(peso_maximo)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Peso máximo inválido.") from exc
+    if not np.isfinite(cap) or not 0.0 < cap <= 1.0:
+        raise ValueError("El peso máximo debe estar entre 0 y 100 %.")
+    w = np.asarray(pesos, dtype=float)
+    if w.ndim != 1 or len(w) == 0:
+        raise ValueError("Vector de pesos vacío o con dimensiones inválidas.")
+    if not np.isfinite(w).all():
+        raise ValueError("Los pesos contienen valores no finitos.")
     if len(w) * cap < 1.0 - 1e-9:
         raise ValueError("Peso máximo inviable: n × máximo < 100 %.")
+    if w.min() < -tol_residuo or w.max() > cap + tol_residuo or abs(float(w.sum()) - 1.0) > tol_residuo:
+        raise ValueError("Pesos fuera de las restricciones más allá del residuo numérico: hay que volver a optimizar.")
+    w = np.clip(w, 0.0, cap)
     for _ in range(len(w) + 2):
         resto = 1.0 - float(w.sum())
         if abs(resto) <= tol:
@@ -217,42 +231,71 @@ def proyectar_pesos(pesos, peso_maximo: float, tol: float = 1e-12) -> np.ndarray
     return w
 
 
+def _pesos_validados(pesos, columnas, tol: float = 1e-6) -> np.ndarray:
+    """Pesos long-only alineados con `columnas`, finitos y que suman 100 % (si no, error explícito)."""
+    cols = [str(c) for c in columnas]
+    if isinstance(pesos, (pd.Series, dict)):
+        ser = pd.Series(pesos, dtype=float)
+        ser.index = [str(i) for i in ser.index]
+        faltan, sobran = sorted(set(cols) - set(ser.index)), sorted(set(ser.index) - set(cols))
+        if faltan or sobran:
+            raise ValueError("Los pesos no corresponden a los activos: "
+                             + (f"faltan {', '.join(faltan)}" if faltan else "")
+                             + ("; " if faltan and sobran else "") + (f"sobran {', '.join(sobran)}" if sobran else ""))
+        w = ser.reindex(cols).to_numpy(dtype=float)
+    else:
+        w = np.asarray(pesos, dtype=float)
+        if w.ndim != 1 or len(w) != len(cols):
+            raise ValueError("El número de pesos no coincide con el de activos.")
+    if not np.isfinite(w).all():
+        raise ValueError("Los pesos contienen valores no finitos.")
+    if (w < -tol).any():
+        raise ValueError("Pesos negativos: estas métricas son para carteras sin ventas en corto.")
+    if abs(float(w.sum()) - 1.0) > tol:
+        raise ValueError(f"Los pesos suman {float(w.sum()):.2%}, no 100 %: la cartera no está totalmente invertida.")
+    return np.clip(w, 0.0, None)
+
+
 def metricas_riesgo_historicas(rendimientos: pd.DataFrame, pesos, confianza: float = 0.95,
                                periodos_anuales: int = 252) -> dict:
     """Riesgo de pérdidas con los rendimientos diarios observados de la cartera.
 
     - VaR y CVaR históricos diarios (pérdidas en positivo) al nivel de confianza.
-    - Caída máxima desde un pico (drawdown) del capital acumulado.
+    - Caída máxima desde un pico (drawdown) del capital acumulado, medida desde el
+      capital inicial (1,0): una pérdida el primer día también cuenta.
     - Rendimiento compuesto anual (geométrico) frente a la media aritmética anualizada:
       el aritmético es el insumo del optimizador; el compuesto es lo que creció el capital.
-    Son descripciones del pasado, no garantías sobre pérdidas futuras.
+    Los pesos deben ser long-only, finitos, uno por activo y sumar 100 %.
+    Son descripciones del pasado (pesos fijos en toda la ventana), no garantías futuras.
     """
-    r = pd.DataFrame(rendimientos).apply(pd.to_numeric, errors="coerce").dropna()
-    w = pd.Series(pesos, dtype=float)
-    if isinstance(pesos, (pd.Series, dict)):
-        w = w.reindex(r.columns).fillna(0.0)
-    else:
-        w.index = r.columns
-    if len(r) < 2 or not np.isfinite(r.to_numpy()).all():
-        raise ValueError("Rendimientos insuficientes o no finitos.")
+    try:
+        per = float(periodos_anuales)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Periodos por año inválidos.") from exc
+    if not np.isfinite(per) or per <= 0:
+        raise ValueError("Los periodos por año deben ser positivos.")
     if not 0.5 < float(confianza) < 1.0:
         raise ValueError("Nivel de confianza inválido.")
-    rp = r.to_numpy(dtype=float) @ w.to_numpy(dtype=float)
+    r = pd.DataFrame(rendimientos).apply(pd.to_numeric, errors="coerce").dropna()
+    if len(r) < 2 or r.shape[1] == 0 or not np.isfinite(r.to_numpy()).all():
+        raise ValueError("Rendimientos insuficientes o no finitos.")
+    w = _pesos_validados(pesos, r.columns)
+    rp = r.to_numpy(dtype=float) @ w
     if (rp < -1).any():
         raise ValueError("Un rendimiento simple no puede ser inferior a −100 %.")
     q = float(np.quantile(rp, 1.0 - float(confianza)))
     cola = rp[rp <= q]
-    riqueza = np.cumprod(1.0 + rp)
+    riqueza = np.concatenate([[1.0], np.cumprod(1.0 + rp)])
     dd = riqueza / np.maximum.accumulate(riqueza) - 1.0
-    años = len(rp) / float(periodos_anuales)
-    geo = float(riqueza[-1] ** (1.0 / años) - 1.0) if años > 0 and riqueza[-1] > 0 else None
+    años = len(rp) / per
+    geo = float(riqueza[-1] ** (1.0 / años) - 1.0) if riqueza[-1] > 0 else -1.0
     return {
         "var_diario": max(0.0, -q),
         "cvar_diario": max(0.0, -float(cola.mean())) if len(cola) else None,
         "confianza": float(confianza),
         "max_drawdown": float(dd.min()),
         "retorno_compuesto_anual": geo,
-        "retorno_aritmetico_anual": float(rp.mean() * periodos_anuales),
+        "retorno_aritmetico_anual": float(rp.mean() * per),
         "observaciones": int(len(rp)),
     }
 

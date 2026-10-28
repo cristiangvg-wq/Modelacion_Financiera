@@ -3648,6 +3648,12 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
         acc = float(acciones_millones)
         acciones_used = acc
         vps = (eq * 1000.0) / acc
+        if eq <= 0:
+            # Responsabilidad limitada: el accionista no pierde más que su aporte. Un valor por acción
+            # negativo no tiene sentido económico (antes salía, p. ej., −366.641 por acción).
+            vps = 0.0
+            nota = ("Patrimonio ≤ 0 tras restar deuda y otros derechos: con estos supuestos la acción no "
+                    "tiene valor (se muestra 0; el patrimonio negativo se conserva en el puente).")
 
         mm = (moneda_modelo or "").upper().strip()
         mp = (moneda_precio or "").upper().strip()
@@ -3672,7 +3678,7 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
             # el VPS al precio. Si hay una diferencia extrema, conservar el VPS
             # calculado y bloquear el upside hasta verificar las unidades.
             ratio = (vps / px) if (vps is not None and px > 0) else None
-            if ratio is not None and (ratio < 0.01 or ratio > 100.0):
+            if ratio is not None and vps > 0 and (ratio < 0.01 or ratio > 100.0):
                 nota = (
                     f"VPS ({vps:,.2f}) y precio de mercado ({px:,.2f}) difieren "
                     "más de 100x; upside bloqueado hasta verificar unidades y fuente."
@@ -5316,7 +5322,7 @@ def driver_robusto(serie, ventana=5, k=3.5, ciclo_medio=False):
         # de 2022 con volúmenes valorados a precios de 2025 (Mineros: margen 27 % vs 30 % real).
         return float(s.iloc[-1]), {"n": int(len(s_n)), "atipicos": [],
                                    "estimador": "último ejercicio (coherente con el precio de los ingresos base)"}
-    if len(s_n) >= 4:
+    if len(s_n) >= 4 and float(np.ptp(s_n.to_numpy())) > 0:  # serie constante: sin tendencia (y sin aviso de SciPy)
         rho = _sps.spearmanr(np.arange(len(s_n)), s_n.to_numpy())[0]
         if np.isfinite(rho) and abs(rho) >= 0.8:
             # tendencia persistente: la mediana "rebotaría" hacia niveles ya abandonados; se mantiene el nivel actual
@@ -6563,6 +6569,9 @@ def validar_inputs_valoracion(wacc, g, fcff_series=None, g_max_macro=0.05, accio
     return msgs
 
 
+BRECHA_WACC_G_SENSIBLE = 0.02  # diferencia WACC − g por debajo de la cual se advierte sensibilidad alta
+
+
 def valoracion_dcf(
     fcff_series,
     wacc,
@@ -6612,6 +6621,9 @@ def valoracion_dcf(
         raise ValueError("La serie FCFF está vacía; no se puede calcular un DCF.")
     # Validar todos los componentes del puente antes de valorar; NaN no debe
     # propagarse silenciosamente hasta el Equity Value.
+    # Partidas del puente no informadas (None) cuentan como 0, igual que en la barra lateral.
+    deuda_neta, caja, nci, otros_claims, asociados = (0.0 if x is None else x
+                                                      for x in (deuda_neta, caja, nci, otros_claims, asociados))
     bridge_inputs = (deuda_neta, caja, nci, otros_claims, asociados)
     if not all(np.isfinite(float(x or 0)) for x in bridge_inputs):
         raise ValueError("Deuda, caja, NCI, otros claims y asociados deben ser finitos.")
@@ -6711,6 +6723,11 @@ def valoracion_dcf(
     else:
         equity = ev - deuda_neta - nci - otros_claims + asociados
     tv_pct_ev = (pv_tv / ev) if ev and ev > 0 else None
+    # WACC muy cerca de g: el valor terminal 1/(WACC − g) se vuelve muy sensible (±0,5 pp mueven el TV >25 %).
+    _brecha = float(wacc) - float(g_use)
+    if tv and _brecha < BRECHA_WACC_G_SENSIBLE:
+        nota_tv = ((nota_tv + " ") if nota_tv else "") + (
+            f"WACC − g = {_brecha * 100:.1f} pp: el valor terminal es muy sensible a ambos supuestos; revisa la tabla WACC × g.")
     mult_terminal = (tv / float(ebitda_salida)) if (ebitda_salida and float(ebitda_salida) > 0) else None
     bridge = {
         "Enterprise Value": ev,
