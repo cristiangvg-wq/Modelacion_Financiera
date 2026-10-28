@@ -409,9 +409,8 @@ def _es_candidato_bvc_valido(cand, info):
 
 def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
     """
-    Devuelve (moneda_modelo, moneda_precio) SIEMPRE iguales según el emisor.
-    BVC / .CL / catálogo CO → (COP, COP)
-    US / AAPL… → (USD, USD)
+    Devuelve (moneda_modelo, moneda_precio) sin confundir moneda contable y cotización.
+    BVC/.CL cotiza en COP; los estados pueden estar en COP o USD si Yahoo lo confirma.
     """
     tk = ticker
     if emp is None and nombre_empresa:
@@ -421,57 +420,76 @@ def monedas_alineadas_por_ticker(ticker=None, nombre_empresa=None, emp=None):
         tk = emp.get("ticker_yf") or emp.get("ticker_bvc")
     if tk:
         tk = asegurar_sufijo_cl_bvc(tk)
-    # Catálogo BVC estático (no runtime): la unidad contable y la cotización son COP.
-    if nombre_empresa and (nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE or nombre_empresa in EMPRESAS):
-        return "COP", "COP"
-    # Runtime Yahoo: respetar por separado la moneda real de los EEFF y la de
-    # cotización (p. ej. ADR EC: EEFF COP y precio USD). Incluso para .CL, si
-    # Yahoo etiqueta la cotización en otra divisa, no ocultar la discrepancia.
+
     fuente_emp = str(emp.get("fuente") or "")
     params_emp = emp.get("params") or {}
-    if fuente_emp.lower().startswith("yahoo"):
-        mm_runtime = str(
-            params_emp.get("moneda") or emp.get("moneda") or
-            params_emp.get("financialCurrency") or ""
-        ).upper().replace("US$", "USD").replace("COL", "COP")
-        mp_runtime = str(
-            params_emp.get("moneda_precio") or params_emp.get("precio_moneda") or
-            emp.get("moneda_precio") or params_emp.get("currency") or ""
-        ).upper().replace("US$", "USD").replace("COL", "COP")
-        if str(tk or "").upper().endswith(".CL") or emp.get("ticker_bvc"):
-            return mm_runtime or "COP", mp_runtime or "COP"
+
+    def _norm_currency(value):
+        value = str(value or "").strip().upper()
+        value = value.replace("US$", "USD").replace("U$S", "USD")
+        if value in ("COL", "COL$", "COP$"):
+            return "COP"
+        if value in ("US", "USA", "US DOLLAR"):
+            return "USD"
+        return value
+
+    # financialCurrency describe los estados; currency normalmente describe la
+    # cotización. Priorizar el campo explícito de Yahoo sobre la moneda heredada
+    # del catálogo, que puede ser solo un valor por defecto.
+    mm_runtime = _norm_currency(
+        params_emp.get("financialCurrency") or emp.get("financialCurrency") or
+        params_emp.get("moneda") or emp.get("moneda")
+    )
+    mp_runtime = _norm_currency(
+        params_emp.get("currency") or params_emp.get("moneda_precio") or
+        params_emp.get("precio_moneda") or emp.get("currency") or emp.get("moneda_precio")
+    )
+    es_bvc = bool(
+        str(tk or "").upper().endswith(".CL") or emp.get("ticker_bvc") or
+        (tk and es_ticker_bvc(tk))
+    )
+
+    # No dejar que la rama del catálogo tape metadatos Yahoo explícitos.
+    if fuente_emp.lower().startswith("yahoo") and (mm_runtime or mp_runtime):
+        if es_bvc:
+            # La acción local BVC se cotiza en COP aunque los EEFF consolidados
+            # del emisor estén en USD. El precio se convierte al comparar VPS.
+            return mm_runtime or "COP", "COP"
         if mm_runtime and mp_runtime:
             return mm_runtime, mp_runtime
-    if emp and (emp.get("ticker_bvc") or str(tk or "").endswith(".CL") or es_ticker_bvc(tk)):
-        if str(tk or "").endswith(".CL") or emp.get("ticker_bvc") or es_ticker_bvc(tk):
-            # Ticker local BVC: precio y modelo se expresan en COP. Los EEFF Yahoo
-            # en otra moneda se bloquean en descargar_financieros_yfinance; nunca se
-            # corrige la etiqueta sin convertir los importes.
-            if str(tk or "").endswith(".CL") or (emp.get("ticker_bvc") and es_ticker_bvc(emp.get("ticker_bvc"))):
-                return "COP", "COP"
-    if tk and str(tk).upper().endswith(".CL"):
+        if mm_runtime:
+            return mm_runtime, mp_runtime or mm_runtime
+
+    if nombre_empresa and (
+        nombre_empresa in _EMPRESAS_CATALOGO_INMUTABLE or nombre_empresa in EMPRESAS
+    ):
         return "COP", "COP"
+
+    if es_bvc:
+        # Si no hay moneda contable explícita, el respaldo curado BVC está en COP.
+        return "COP", "COP"
+
     if tk:
         base = str(tk).upper().split(".")[0]
-        if base in _TICKERS_NUNCA_CL or (base.isalpha() and 1 <= len(base) <= 5 and "." not in str(tk)):
-            # bare US-style ticker
-            if base in _TICKERS_NUNCA_CL or not es_ticker_bvc(base):
-                if base in _TICKERS_NUNCA_CL:
-                    return "USD", "USD"
-    # País / moneda ya en ficha
+        if base in _TICKERS_NUNCA_CL:
+            return "USD", "USD"
+        if base.isalpha() and 1 <= len(base) <= 5 and "." not in str(tk):
+            if not es_ticker_bvc(base):
+                if fuente_emp.lower().startswith("yahoo"):
+                    return mm_runtime or "USD", mp_runtime or mm_runtime or "USD"
+
     pais = str(emp.get("pais") or "").upper()
     if "COLOMBIA" in pais or pais in ("CO", "COL"):
         return "COP", "COP"
-    mon = str(emp.get("moneda") or (emp.get("params") or {}).get("moneda") or "").upper()
-    if mon in ("COP", "COL"):
+    mon = _norm_currency(emp.get("moneda") or params_emp.get("moneda"))
+    if mon == "COP":
         return "COP", "COP"
-    if mon in ("USD", "US$", "U$S"):
+    if mon == "USD":
         return "USD", "USD"
-    # Default: si tiene ticker_bvc → COP; si Yahoo sin .CL → USD
     if emp.get("ticker_bvc"):
         return "COP", "COP"
-    if emp.get("fuente", "").startswith("Yahoo"):
-        return "USD", "USD"
+    if fuente_emp.lower().startswith("yahoo"):
+        return mm_runtime or "USD", mp_runtime or mm_runtime or "USD"
     return "COP", "COP"
 
 
@@ -5254,11 +5272,13 @@ def valoracion_dcf(
         if nopat_n1 > 0 and ronic > 0:
             reinv_term = min(max(g_use / ronic, 0.0), 0.95)
             tv_gordon = nopat_n1 * (1 - reinv_term) / (wacc - g_use)
-            nota_tv = (nota_tv + " " if nota_tv else "") + "TV normalizado por valor-conductor."
+            # Si el último FCFF era negativo pero hay NOPAT terminal normalizado positivo,
+            # el DCF sí calcula TV; no conservar la advertencia antigua que decía TV = 0.
+            nota_tv = "TV normalizado por valor-conductor (NOPAT terminal y reinversión coherentes con g/RONIC)."
         else:
             tv_gordon = 0.0
             reinv_term = 0.0
-            nota_tv = "NOPAT final ≤ 0: TV = 0 (no se perpetúan pérdidas)."
+            nota_tv = "NOPAT terminal no positivo o no válido: TV = 0 (no se perpetúan pérdidas)."
         tv_metodo = "normalizado (valor-conductor)"
     pv_tv_gordon = tv_gordon * df_tv
     ev_gordon = pv_fcff + pv_tv_gordon
@@ -5759,6 +5779,30 @@ def self_test_valuation_core():
         ok = True
         detail = "D/E negativo rechazado correctamente"
     results.append(("WACC rechaza D/E negativo", ok, detail))
+    try:
+        moneda = monedas_alineadas_por_ticker(
+            ticker="ISA.CL",
+            nombre_empresa="ISA — Interconexión Eléctrica",
+            emp={
+                "ticker_yf": "ISA.CL", "ticker_bvc": "ISA",
+                "fuente": "Yahoo Finance",
+                "params": {"financialCurrency": "USD", "currency": "COP"},
+            },
+        )
+        ok = moneda == ("USD", "COP")
+        results.append(("Moneda contable USD y cotización BVC COP", ok, f"monedas={moneda}"))
+    except Exception as e:
+        results.append(("Moneda contable USD y cotización BVC COP", False, str(e)))
+    try:
+        val = valoracion_dcf(
+            [100.0, -10.0], wacc=0.10, g=0.02, mid_year=False,
+            nopat_final=100.0,
+        )
+        nota = str((val.get("bridge") or {}).get("Nota TV", ""))
+        ok = val["TV_Gordon"] > 0 and "normalizado" in nota.lower() and "TV Gordon = 0" not in nota
+        results.append(("TV normalizado no conserva advertencia FCFF negativa", ok, f"TV={val['TV_Gordon']:.2f}; nota={nota}"))
+    except Exception as e:
+        results.append(("TV normalizado no conserva advertencia FCFF negativa", False, str(e)))
     return results
 
 
