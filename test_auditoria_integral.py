@@ -417,6 +417,7 @@ class TestGemini(BaseOffline):
             "catalizadores": [{"catalizador": "Resultados", "ventana": "3T26"}, {"catalizador": "OPA GEB", "ventana": "2027"}],
             "cambiaria_la_recomendacion": ["WACC < 11 %"],
             "divergencia_motor": {"hay_divergencia": False, "justificacion": ""}, "condicionado_a_recalibrar": False,
+            "conciliacion_mercado": {"explicacion": "El precio exige un WACC 308 pb menor que el del modelo; la brecha se explica por la tasa local.", "es_oportunidad": False},
         })
 
         def fake_llm(sistema, user, **k):

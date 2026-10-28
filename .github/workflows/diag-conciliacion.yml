@@ -1,0 +1,23 @@
+name: Diagnóstico conciliación
+on:
+  push:
+    branches: [diag/conciliacion]
+permissions:
+  contents: write
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: |
+          mkdir -p out
+          python diag/conc.py ISA PLTR KO AAPL > out/conc.json 2> out/err.txt || true
+          cd out && git init -q && git checkout -q -b diag/conciliacion-resultados
+          git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
+          git add -A && git commit -q -m "Resultados" && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/conciliacion-resultados
