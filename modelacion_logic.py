@@ -1213,6 +1213,34 @@ def resolver_empresa(nombre_empresa):
 _PARAMS_PUENTE_CURADO = ("nci", "asociados", "otros_claims")
 
 
+def _deuda_y_caja_balance(bs):
+    """(deuda total, caja) del renglón más reciente del balance Yahoo, en unidades de la moneda (o None)."""
+    if bs is None or not hasattr(bs, "index") or getattr(bs, "empty", True):
+        return None, None
+    idx = {str(i).strip().lower(): i for i in bs.index}
+
+    def _primero(nombres):
+        for n in nombres:
+            k = idx.get(n.lower())
+            if k is None:
+                continue
+            for v in bs.loc[k].values:
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if fv == fv:
+                    return fv
+        return None
+    deuda = _primero(["Total Debt"])
+    if deuda is None:
+        partes = [_primero([n]) for n in ("Long Term Debt", "Current Debt", "Short Term Debt")]
+        partes = [x for x in partes if x is not None]
+        deuda = sum(partes) if partes else None
+    caja = _primero(["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
+    return deuda, caja
+
+
 def preparar_empresa(nombre_empresa, forzar=False):
     """Obtiene los datos de una empresa precargada: Yahoo primero, curado como respaldo.
 
@@ -1243,6 +1271,15 @@ def preparar_empresa(nombre_empresa, forzar=False):
                 if not float(p.get(k) or 0) and float(pc.get(k) or 0):
                     p[k] = pc[k]
                     completados.append(k)
+            # Sin deuda reportada por Yahoo (ni en info ni en el balance) no se puede suponer
+            # deuda 0: se usa la del catálogo curado, con su caja, para que el puente cuadre.
+            if p.get("deuda_bruta") is None and pc.get("deuda_neta") is not None:
+                p["deuda_neta"] = pc["deuda_neta"]
+                p["deuda_es_bruta"] = False
+                p["deuda_fuente"] = "catálogo curado (Yahoo sin deuda)"
+                completados.append("deuda_neta")
+                if pc.get("caja") is not None:
+                    p["caja"] = pc["caja"]
             if str(p.get("beta_fuente", "")).startswith("proxy") and pc.get("beta_u"):
                 p["beta_u"] = pc["beta_u"]
                 p["beta_fuente"] = "catálogo (Yahoo sin β)"
@@ -3587,10 +3624,13 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
                         f" Upside extremo ({upside:+.0f} pp): revisa WACC, g, bridge o escala de EEFF."
                     )
             elif not monedas_ok:
-                nota = (nota or "") + (
-                    f" Moneda modelo ({mm}) ≠ cotización ({mp}): upside no comparable sin FX."
-                )
-                upside = None
+                if mm and mp:
+                    nota = (nota or "") + f" Moneda modelo ({mm}) ≠ cotización ({mp}): upside no comparable sin FX."
+                elif mm or mp:
+                    nota = (nota or "") + (
+                        f" Moneda sin confirmar (modelo: {mm or 'N/D'}, cotización: {mp or 'N/D'}): upside no calculado."
+                    )
+                upside = None  # sin moneda en ambos lados: sin upside y sin nota (lo compara quien llama)
     except Exception as e:
         nota = f"VPS no calculable: {e}"
         vps, upside = None, None
@@ -3912,6 +3952,19 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["deuda_neta"] = round((total_debt - (cash or 0)) / 1e9, 4)
         p["deuda_es_bruta"] = False
         p["deuda_bruta"] = round(total_debt / 1e9, 4)
+    else:
+        # Yahoo a veces devuelve `info` incompleto (sin totalDebt). Sin este respaldo la deuda
+        # neta quedaba en 0 y el puente EV → patrimonio no restaba la deuda: ISA pasaba de
+        # −11 % a +76 % frente al precio. Se toma del balance anual, si viene.
+        db_bs, caja_bs = _deuda_y_caja_balance(info.get("_balance_sheet"))
+        if db_bs is not None:
+            caja_ref = cash if cash is not None else caja_bs
+            if cash is None and caja_bs is not None:
+                p["caja"] = round(caja_bs / 1e9, 4)
+            p["deuda_neta"] = round((db_bs - (caja_ref or 0)) / 1e9, 4)
+            p["deuda_es_bruta"] = False
+            p["deuda_bruta"] = round(db_bs / 1e9, 4)
+            p["deuda_fuente"] = "balance anual Yahoo (info sin totalDebt)"
     # Moneda de los EEFF (deuda, caja, flujos) vs moneda de cotización (precio,
     # marketCap). En ADRs difieren (EC: EEFF COP, precio USD por ADS de 20 acciones).
     fin_cur_p = str(info.get("financialCurrency") or info.get("currency") or "").upper()
