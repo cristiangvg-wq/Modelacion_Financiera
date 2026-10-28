@@ -2786,7 +2786,9 @@ CAPM_POR_MERCADO = {
     "US": {"rf": 0.05, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.04, "kd_spread": 0.015, "g_lp": 0.03},
     # CO: TES 10 años en COP por encima de 13 % (La República, 21-oct-2026). Antes 12 %.
     # Inflación implícita (breakeven TES COP vs UVR) a 10 años: 6,15 % (BanRep, 21-ago-2026).
-    "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.06, "kd_spread": 0.01, "g_lp": 0.06},
+    # rf_bruto = TES 10 años 13,18 % (BanRep, curva cero cupón, 16-oct-2026). Con datos de Damodaran,
+    # _aplicar_damodaran_a_capm() fija rf = TES − spread de default y ERP = madura + riesgo país.
+    "CO": {"rf": 0.13,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.06, "kd_spread": 0.01, "g_lp": 0.06, "rf_bruto": 0.1318},
     "BR": {"rf": 0.12,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.05, "kd_spread": 0.025, "g_lp": 0.05},
     "MX": {"rf": 0.09,  "erp": 0.055, "crp": 0.0, "g_max_macro": 0.045, "kd_spread": 0.02, "g_lp": 0.045},
     "CL": {"rf": 0.055, "erp": 0.05, "crp": 0.0, "g_max_macro": 0.035, "kd_spread": 0.015, "g_lp": 0.035},
@@ -2918,18 +2920,47 @@ def damodaran_multiplo(sector="", industry="", mercado=None, explicita=None):
     fila = (bloque.get("industrias") or {}).get(ind)
     if not fila or not fila.get("ev_ebitda") or not (1.0 <= float(fila["ev_ebitda"]) <= 50.0):
         return None
-    return {"industria": ind, "region": region, "ev_ebitda": float(fila["ev_ebitda"]),
-            "ev_ebit": fila.get("ev_ebit"), "n_firmas": fila.get("n_firmas"), "fecha": bloque.get("fecha"),
-            "fuente": f"Damodaran {bloque.get('archivo')} ({bloque.get('fecha')})"}
+    out = {"industria": ind, "region": region, "ev_ebitda": float(fila["ev_ebitda"]),
+           "ev_ebitda_industria": float(fila["ev_ebitda"]), "ajuste_pais": None,
+           "ev_ebit": fila.get("ev_ebit"), "n_firmas": fila.get("n_firmas"), "fecha": bloque.get("fecha"),
+           "fuente": f"Damodaran {bloque.get('archivo')} ({bloque.get('fecha')})"}
+    # Ajuste por país (modelo del curso): la bolsa local paga menos por cada peso de EBITDA que el
+    # promedio emergente → múltiplo de la industria × (1 − descuento del mercado local).
+    aj = ((DAMODARAN.get("ajuste_pais") or {}).get(str(mercado or "").upper()) or {}) if region == "Emergentes" else {}
+    desc = aj.get("descuento")
+    if desc is not None and -0.5 < float(desc) < 0.8:
+        out["ev_ebitda"] = float(fila["ev_ebitda"]) * (1 - float(desc))
+        out["ajuste_pais"] = {"descuento": float(desc), "mediana_local": aj.get("mediana_local"), "n": aj.get("n"),
+                              "referencia_emergentes": aj.get("referencia_emergentes"), "fecha": aj.get("fecha")}
+    return out
 
 
 def _aplicar_damodaran_a_capm():
-    """Prima de mercado de EE. UU. desde Damodaran (antes 5 % fijo). Las tasas locales en COP no cambian."""
+    """Primas de Damodaran sobre las anclas CAPM.
+
+    · EE. UU.: ERP implícita de Damodaran (antes 5 % fijo).
+    · Colombia (método de Damodaran para tasas en moneda local, como en el modelo del curso):
+        rf = TES 10 años − spread de default de Colombia (el TES incluye el riesgo de impago);
+        ERP = ERP madura + prima de riesgo país (ya incluye el riesgo país, CRP = 0 aparte);
+        Kd = TES (bruto) + spread de la empresa.
+      Antes: rf = TES completo y ERP 5,5 % sin riesgo país explícito.
+    """
+    for k, v in CAPM_POR_MERCADO.items():
+        v.setdefault("rf_bruto", v["rf"])
     rp_us = damodaran_riesgo_pais("US")
     if rp_us and rp_us.get("erp_us"):
         for k in ("US", "DEFAULT"):
             CAPM_POR_MERCADO[k]["erp"] = round(float(rp_us["erp_us"]), 4)
             CAPM_POR_MERCADO[k]["erp_fuente"] = rp_us["fuente"]
+    rp_co = damodaran_riesgo_pais("CO")
+    if rp_co and rp_co.get("spread") is not None and rp_co.get("erp_total") is not None:
+        co = CAPM_POR_MERCADO["CO"]
+        co["rf"] = round(float(co["rf_bruto"]) - float(rp_co["spread"]), 4)
+        co["erp"] = round(float(rp_co["erp_total"]), 4)
+        co["crp"] = 0.0
+        co["erp_fuente"] = (f"{rp_co['fuente']}: ERP madura {rp_co['erp_madura']:.2%} + riesgo país "
+                            f"{rp_co['crp']:.2%} (Colombia {rp_co['rating']})")
+        co["rf_fuente"] = f"TES 10a {co['rf_bruto']:.2%} − spread de default {rp_co['spread']:.2%} (Damodaran)"
 
 
 _aplicar_damodaran_a_capm()
@@ -3050,13 +3081,13 @@ def es_sector_ciclico(sector="", industry=""):
 
 def _aplicar_reglas_catalogo():
     """Kd del catálogo = rf del mercado CO + spread según calificación (datos_curados.json)."""
-    rf = CAPM_POR_MERCADO["CO"]["rf"]
+    rf = CAPM_POR_MERCADO["CO"].get("rf_bruto", CAPM_POR_MERCADO["CO"]["rf"])  # Kd sobre el TES completo
     spreads = ((_DATOS_CURADOS.get("reglas") or {}).get("spread_kd_por_calificacion") or {})
     for catalogo in (EMPRESAS, _EMPRESAS_CATALOGO_INMUTABLE):
         for emp in catalogo.values():
             sp = float(spreads.get(emp.get("calificacion"), CAPM_POR_MERCADO["CO"]["kd_spread"]))
             emp["params"]["kd"] = round(rf + sp, 4)
-            emp["params"]["kd_fuente"] = f"rf CO {rf:.1%} + spread {sp:.1%} ({emp.get('calificacion') or 'sin calificación'})"
+            emp["params"]["kd_fuente"] = f"TES 10a {rf:.2%} + spread {sp:.1%} ({emp.get('calificacion') or 'sin calificación'})"
 
 
 _aplicar_reglas_catalogo()
@@ -3855,7 +3886,7 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         if ie is not None and total_debt and total_debt > 0:
             p["kd"] = round(float(np.clip(abs(ie) / total_debt, 0.01, 0.25)), 4)
         else:
-            p["kd"] = round(float(capm["rf"] + capm["kd_spread"] + capm.get("crp_deuda", 0.0)), 4)
+            p["kd"] = round(float(capm.get("rf_bruto", capm["rf"]) + capm["kd_spread"] + capm.get("crp_deuda", 0.0)), 4)
 
     # Beta unlevered de ESTA acción; si Yahoo no trae beta, 1.0 (mercado) con marca
     tax = p["tax"]
@@ -4084,6 +4115,18 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
         except Exception:
             pass
         try:
+            if "NOPAT" not in df.columns and "EBIT" in df.columns:
+                _t = float((params_empresa(nombre_empresa) or {}).get("tax") or 0.35)
+                _nop = df["EBIT"].astype(float) * (1 - _t)
+            else:
+                _nop = None
+            _dfr = df if _nop is None else df.assign(NOPAT=_nop)
+            _roic = roic_observado(_dfr, (params_empresa(nombre_empresa) or {}).get("capital_invertido"))
+            df.attrs["roic_observado"] = _roic
+            fijar_roic_referencia(nombre_empresa, _roic)
+        except Exception:
+            pass
+        try:
             df.attrs["ciclico"] = empresa_es_ciclica(nombre_empresa)
             if df.attrs["ciclico"]:
                 _p = params_empresa(nombre_empresa) or {}
@@ -4287,8 +4330,12 @@ RONIC_SPREAD = 0.0      # rentabilidad marginal en perpetuidad = WACC + spread (
 RONIC_SPREAD_MAX = 0.20
 
 
+RONIC_CONVERGENCIA = 0.5   # el retorno de la nueva inversión recorre la mitad del camino ROIC → WACC
+MODOS_RONIC = ("roic", "wacc", "manual")
+
+
 def fijar_ronic_spread(valor=None):
-    """Spread RONIC − WACC en perpetuidad para la sesión (None = valor por defecto).
+    """Spread RONIC − WACC MANUAL en perpetuidad para la sesión (None = vuelve al modo por defecto).
 
     Con spread 0 (supuesto conservador de McKinsey) el crecimiento terminal no crea
     valor: TV = NOPAT/WACC. Es razonable para negocios regulados o commodities, pero
@@ -4299,17 +4346,70 @@ def fijar_ronic_spread(valor=None):
     alm = _almacen_estado()
     if valor is None:
         alm.pop("_ronic_spread", None)
+        alm.pop("_ronic_modo", None)
         return RONIC_SPREAD
     v = float(valor)
     if not (0.0 <= v <= RONIC_SPREAD_MAX):
         raise ValueError(f"El spread RONIC − WACC debe estar entre 0 y {RONIC_SPREAD_MAX:.0%}.")
     alm["_ronic_spread"] = v
+    alm["_ronic_modo"] = "manual"
     return v
 
 
-def ronic_spread_sesion():
+def fijar_modo_ronic(modo):
+    """Retorno de la nueva inversión en el valor terminal (por sesión):
+      «roic»   → RONIC = WACC + ½·(ROIC observado − WACC), sin bajar del WACC (por defecto);
+      «wacc»   → RONIC = WACC: el crecimiento no crea valor (conservador);
+      «manual» → WACC + el spread fijado con fijar_ronic_spread().
+    """
+    if modo not in MODOS_RONIC:
+        raise ValueError(f"Modo RONIC desconocido: {modo}")
+    _almacen_estado()["_ronic_modo"] = modo
+    return modo
+
+
+def modo_ronic_sesion():
+    return _almacen_estado().get("_ronic_modo") or "roic"
+
+
+def fijar_roic_referencia(nombre_empresa, roic):
+    """ROIC observado (histórico) de la empresa en análisis; lo usa el modo «roic»."""
+    r = _finite_or_none(roic)
+    _almacen_estado()["_roic_referencia"] = {"empresa": nombre_empresa, "roic": r}
+    return r
+
+
+def roic_referencia_sesion():
+    return (_almacen_estado().get("_roic_referencia") or {}).get("roic")
+
+
+def roic_observado(df_hist, capital_invertido, ventana=3):
+    """Mediana del NOPAT de los últimos años ÷ capital invertido (None si falta algo)."""
     try:
-        return float(_almacen_estado().get("_ronic_spread", RONIC_SPREAD))
+        cap = float(capital_invertido or 0)
+        if cap <= 0 or df_hist is None or "NOPAT" not in df_hist.columns:
+            return None
+        nop = pd.to_numeric(df_hist["NOPAT"], errors="coerce").dropna().iloc[-ventana:]
+        if nop.empty:
+            return None
+        r = float(np.median(nop)) / cap
+        return r if np.isfinite(r) and -1.0 < r < 3.0 else None
+    except Exception:
+        return None
+
+
+def ronic_spread_sesion(wacc=None):
+    """Spread RONIC − WACC que usa el valor terminal según el modo de la sesión."""
+    modo = modo_ronic_sesion()
+    try:
+        if modo == "manual":
+            return float(_almacen_estado().get("_ronic_spread", RONIC_SPREAD))
+        if modo == "wacc":
+            return 0.0
+        roic = roic_referencia_sesion()
+        if roic is None or wacc is None:
+            return RONIC_SPREAD
+        return float(np.clip(RONIC_CONVERGENCIA * (float(roic) - float(wacc)), 0.0, RONIC_SPREAD_MAX))
     except (TypeError, ValueError):
         return RONIC_SPREAD
 
@@ -4611,6 +4711,13 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
         "atipicos_normalizados": atip,
         "ciclico": ciclico,
         "base_ltm": base_ltm,
+        # EBITDA «normal» para múltiplos (criterio de ciclo medio del modelo del curso: margen
+        # representativo × tamaño actual), no el de un año raro. Mismo margen que la proyección.
+        "ebitda_normalizado": float(ing_base * m_ebitda),
+        "ebitda_normalizado_metodo": (
+            "EBITDA de los últimos doce meses (materia prima)" if base_ltm else
+            f"margen EBITDA representativo {m_ebitda:.1%} ({info_m['ebitda'].get('estimador')}) × ingresos "
+            f"{'del último periodo' if not ciclico else 'del último ejercicio'}"),
         "g_ingresos_historico": g_hist,
         # Fuera de dominio: crecimiento observado muy por encima del techo del motor (12 %).
         # Un DCF de 5 años con convergencia rápida subestima sistemáticamente a estos emisores.
@@ -5697,7 +5804,7 @@ def valoracion_dcf(
     reinv_term = None
     ronic = None
     if nopat_final is not None:
-        spread = ronic_spread_sesion() if ronic_spread is None else float(ronic_spread)
+        spread = ronic_spread_sesion(wacc) if ronic_spread is None else float(ronic_spread)
         ronic = wacc + spread
         nopat_n1 = float(nopat_final) * (1 + g_use)
         if nopat_n1 > 0 and ronic > 0:
@@ -8003,7 +8110,7 @@ def contexto_mercado_comite(nombre_empresa, metricas=None, ttl_seg=900):
                 + float(p.get("otros_claims") or 0) - float(p.get("asociados") or 0)
             base["capitalizacion_modelo"] = mcap
             base["ev_mercado"] = ev_mkt
-            eb = _finite_or_none(m.get("ebitda_ultimo_hist"))
+            eb = _finite_or_none(m.get("ebitda_normalizado")) or _finite_or_none(m.get("ebitda_ultimo_hist"))
             if eb is None:
                 df_h, _msg = cargar_y_limpiar_excel(None, nombre_empresa, True)
                 if df_h is not None and "EBITDA" in df_h.columns:
@@ -8019,7 +8126,7 @@ def contexto_mercado_comite(nombre_empresa, metricas=None, ttl_seg=900):
     base["macro"] = {
         "as_of": mac.get("capm_as_of") or CAPM_AS_OF,
         "ust10": mac.get("rf_us", CAPM_POR_MERCADO["US"]["rf"]),
-        "tes10": mac.get("rf_co", CAPM_POR_MERCADO["CO"]["rf"]),
+        "tes10": mac.get("rf_co", CAPM_POR_MERCADO["CO"].get("rf_bruto", CAPM_POR_MERCADO["CO"]["rf"])),
         "cds_co": mac.get("cds_co", RIESGO_PAIS_CDS.get("CO")),
         "inflacion_lp_co": mac.get("inflacion_lp_co", INFLACION_LP.get("CO")),
         "inflacion_lp_us": mac.get("inflacion_lp_us", INFLACION_LP.get("US")),
@@ -8044,7 +8151,7 @@ def _texto_contexto_mercado(cm, mon_px=""):
         f"- Cotización: {n(cm.get('precio'))} {mon_px} · fecha {cm.get('fecha_precio') or 'N/D'} · fuente {cm.get('fuente_precio') or 'N/D'}",
         f"- Rango 52 semanas: {n(rg[0]) + ' – ' + n(rg[1]) if rg else 'N/D'} · variación 12 meses: {n(cm.get('variacion_12m_pct'), 1, ' %')}",
         f"- Múltiplos de mercado (Yahoo): P/E {n(cm.get('pe'), 1)} · P/E forward {n(cm.get('pe_forward'), 1)} · EV/EBITDA {n(cm.get('ev_ebitda_yahoo'), 1)} · β {n(cm.get('beta_yahoo'))} · dividendo {n(cm.get('rentabilidad_dividendo'), 2, ' %')}",
-        f"- EV/EBITDA con el puente del modelo: mercado {n(cm.get('ev_ebitda_mercado'), 1, 'x')} vs modelo {n(cm.get('ev_ebitda_modelo'), 1, 'x')} (EBITDA último ejercicio {n(cm.get('ebitda_ultimo'), 1)})",
+        f"- EV/EBITDA normalizado con el puente del modelo: mercado {n(cm.get('ev_ebitda_mercado'), 1, 'x')} vs modelo {n(cm.get('ev_ebitda_modelo'), 1, 'x')} (EBITDA normalizado {n(cm.get('ebitda_ultimo'), 1)})",
         f"- Consenso de analistas (Yahoo): objetivo medio {n(cm.get('objetivo_analistas'))} {mon_px} · rango {n(ob[0]) + ' – ' + n(ob[1]) if ob else 'N/D'} · recomendación {cm.get('recomendacion_analistas') or 'N/D'} · n={n(cm.get('n_analistas'), 0)}",
         f"- Macro ({mac.get('as_of', 'N/D')}): UST10 {n((mac.get('ust10') or 0) * 100 if mac.get('ust10') is not None else None, 2, ' %')} · TES 10a {n((mac.get('tes10') or 0) * 100 if mac.get('tes10') is not None else None, 2, ' %')} · CDS Colombia 5a {n((mac.get('cds_co') or 0) * 1e4 if mac.get('cds_co') is not None else None, 0, ' pb')} · inflación implícita LP CO {n((mac.get('inflacion_lp_co') or 0) * 100 if mac.get('inflacion_lp_co') is not None else None, 2, ' %')} / US {n((mac.get('inflacion_lp_us') or 0) * 100 if mac.get('inflacion_lp_us') is not None else None, 2, ' %')}",
     ]
@@ -8057,7 +8164,9 @@ def _texto_contexto_mercado(cm, mon_px=""):
             f", ERP total {n((dco.get('erp_total') or 0) * 100 if dco.get('erp_total') is not None else None, 2, ' %')}")
     if dm:
         lineas.append(f"- EV/EBITDA de la industria (Damodaran, {dm.get('industria')}, {dm.get('region')}, {dm.get('fecha')}, "
-                      f"{n(dm.get('n_firmas'), 0)} firmas): {n(dm.get('ev_ebitda'), 1, 'x')}")
+                      f"{n(dm.get('n_firmas'), 0)} firmas): {n(dm.get('ev_ebitda_industria', dm.get('ev_ebitda')), 1, 'x')}"
+                      + (f"; ajustado a Colombia (descuento BVC {dm['ajuste_pais']['descuento']:.0%}): {n(dm.get('ev_ebitda'), 1, 'x')}"
+                         if dm.get("ajuste_pais") else ""))
     tit = cm.get("titulares") or []
     lineas.append("- Titulares recientes (Yahoo): " + (" | ".join(tit[:5]) if tit else "N/D"))
     return "\n".join(lineas)
@@ -8666,6 +8775,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 "Fuente financiera", "Fuente mercado", "Ke (CAPM)", "WACC", "ROIC",
                 "ΔEV por CAPEX extra", "Equity base", "Equity pesimista", "MVA firma (EV − capital invertido)", "TIR implícita firma*",
                 "WACC implícito en el precio (DCF inverso)",
+                "EBITDA normalizado (base de múltiplos)",
             ],
             "Valor": [
                 decision, f"{score}/7", prov["nivel_calidad"], prov["fuente_financiera"], prov["fuente_mercado"],
@@ -8674,6 +8784,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                 f"{vpn_p:,.1f}" if vpn_p == vpn_p else "N/D",
                 f"{tir_p*100:.2f}%" if (tir_p == tir_p) else "N/D",
                 (f"{wacc_impl*100:.2f}% ({(wacc_impl - wacc)*1e4:+,.0f} pb vs WACC)" if wacc_impl is not None else _wi_txt),
+                (f"{meta_proj['ebitda_normalizado']:,.1f} · {meta_proj.get('ebitda_normalizado_metodo')}"
+                 if meta_proj.get("ebitda_normalizado") else "N/D"),
             ],
         })
 
@@ -8760,6 +8872,9 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "wacc_paridad_usd": _finite_or_none((_wp or {}).get("wacc_local_fisher")),
                     "wacc_paridad_fuente": (_wp or {}).get("fuente"),
                     "g_usada": _finite_or_none(val_base.get("g_used")),
+                    "ronic_terminal": _finite_or_none(val_base.get("ronic")),
+                    "ronic_modo": modo_ronic_sesion(),
+                    "roic_observado": _finite_or_none(roic_referencia_sesion()),
                     "tv_pct_ev": _finite_or_none(val_base.get("tv_pct_ev")),
                     "ev_ebitda_salida_modelo": _finite_or_none(val_base.get("mult_terminal")),
                     "margen_ebitda_proy": _finite_or_none(meta_proj.get("margen_ebitda")),
@@ -8769,7 +8884,7 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "fuera_de_dominio_crecimiento": bool(meta_proj.get("fuera_de_dominio_crecimiento")),
                     "macro": {
                         "capm_as_of": CAPM_AS_OF,
-                        "rf_us": CAPM_POR_MERCADO["US"]["rf"], "rf_co": CAPM_POR_MERCADO["CO"]["rf"],
+                        "rf_us": CAPM_POR_MERCADO["US"]["rf"], "rf_co": CAPM_POR_MERCADO["CO"].get("rf_bruto", CAPM_POR_MERCADO["CO"]["rf"]),
                         "erp": float(erp), "cds_co": RIESGO_PAIS_CDS.get("CO"),
                         "inflacion_lp_co": INFLACION_LP.get("CO"), "inflacion_lp_us": INFLACION_LP.get("US"),
                         "damodaran_co": damodaran_riesgo_pais("CO"),
@@ -8810,6 +8925,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "nopat_final": _finite_or_none(_nopat_final(df_proj)),
                     "ebitda_salida": _finite_or_none(ebitda_out),
                     "ebitda_ultimo_hist": _finite_or_none(float(df_hist["EBITDA"].iloc[-1])) if (df_hist is not None and "EBITDA" in df_hist.columns and len(df_hist)) else None,
+                    "ebitda_normalizado": _finite_or_none(meta_proj.get("ebitda_normalizado")),
+                    "ebitda_normalizado_metodo": meta_proj.get("ebitda_normalizado_metodo"),
                     "bridge": dict(bp),
                 },
             })
@@ -9391,8 +9508,12 @@ def _html_referencia_damodaran(nombre_empresa, df=None):
             mediana = float(otros.median()) if len(otros) else None
     except Exception:
         pass
-    partes = [f"<b>{dm['ev_ebitda']:.1f}x</b> para «{dm['industria']}» ({dm['region']}, {int(dm['n_firmas'] or 0)} firmas, "
+    aj = dm.get("ajuste_pais") or {}
+    partes = [f"<b>{dm['ev_ebitda_industria']:.1f}x</b> para «{dm['industria']}» ({dm['region']}, {int(dm['n_firmas'] or 0)} firmas, "
               f"datos de {dm['fecha']})"]
+    if aj:
+        partes.append(f"ajustado a Colombia <b>{dm['ev_ebitda']:.1f}x</b> (la BVC paga {aj['mediana_local']:.1f}x frente a "
+                      f"{aj['referencia_emergentes']:.1f}x del total emergente: descuento {aj['descuento']:.0%}, {aj['n']} emisores)")
     if propio:
         partes.append(f"el emisor cotiza a {propio:.1f}x")
     if mediana:
