@@ -15,7 +15,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: |
           mkdir -p out
-          pip install xlrd; python scripts/actualizar_damodaran.py --salida out/datos_damodaran.json > out/log.txt 2> out/err.txt || true
+          pip install xlrd; python diag/variantes_us.py > out/variantes.json 2> out/err.txt || true
           cd out && git init -q && git checkout -q -b diag/aportes-resultados
           git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
           git add -A && git commit -q -m "Resultados diagnóstico aportes"

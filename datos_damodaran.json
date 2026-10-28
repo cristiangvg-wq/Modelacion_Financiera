@@ -3104,5 +3104,590 @@
    "fecha": "2026-10-28",
    "fuente": "Yahoo Finance (enterpriseToEbitda, BVC) vs Damodaran Total Market (without financials), emergentes"
   }
+ },
+ "betas": {
+  "US": {
+   "archivo": "betas.xls",
+   "hoja": "Industry Averages",
+   "fecha": "2026-01-05",
+   "industrias": {
+    "Advertising": {
+     "n_firmas": 52.0,
+     "beta_u": 0.930085673859911,
+     "beta_u_caja": 1.0080098903421257,
+     "de": 0.4020006635676013
+    },
+    "Aerospace/Defense": {
+     "n_firmas": 79.0,
+     "beta_u": 0.846668742124111,
+     "beta_u_caja": 0.8693772823914925,
+     "de": 0.1556259774178424
+    },
+    "Air Transport": {
+     "n_firmas": 23.0,
+     "beta_u": 0.7040501862693873,
+     "beta_u_caja": 0.7579038179118688,
+     "de": 0.91170567766528
+    },
+    "Apparel": {
+     "n_firmas": 35.0,
+     "beta_u": 0.7579820882045375,
+     "beta_u_caja": 0.794563498700363,
+     "de": 0.31292274379874546
+    },
+    "Auto & Truck": {
+     "n_firmas": 33.0,
+     "beta_u": 1.2690329072913427,
+     "beta_u_caja": 1.3081652064358895,
+     "de": 0.19695879853744616
+    },
+    "Auto Parts": {
+     "n_firmas": 35.0,
+     "beta_u": 1.0217137832780625,
+     "beta_u_caja": 1.1283051051783621,
+     "de": 0.4146400386187307
+    },
+    "Bank (Money Center)": {
+     "n_firmas": 15.0,
+     "beta_u": 0.3410587595479105,
+     "beta_u_caja": 0.4438913800649,
+     "de": 1.6418966357638234
+    },
+    "Banks (Regional)": {
+     "n_firmas": 568.0,
+     "beta_u": 0.2865156418030888,
+     "beta_u_caja": 0.3744392448485997,
+     "de": 0.5210229274429405
+    },
+    "Beverage (Alcoholic)": {
+     "n_firmas": 14.0,
+     "beta_u": 0.6131715419678557,
+     "beta_u_caja": 0.6280466376925842,
+     "de": 0.4333840741223201
+    },
+    "Beverage (Soft)": {
+     "n_firmas": 27.0,
+     "beta_u": 0.5556711918551647,
+     "beta_u_caja": 0.5754648330410659,
+     "de": 0.20587118525522147
+    },
+    "Broadcasting": {
+     "n_firmas": 24.0,
+     "beta_u": 0.28636169661672445,
+     "beta_u_caja": 0.315292569835984,
+     "de": 0.8585429035988935
+    },
+    "Brokerage & Investment Banking": {
+     "n_firmas": 32.0,
+     "beta_u": 0.5808487698048416,
+     "beta_u_caja": 0.6794030848916329,
+     "de": 1.3557362534403625
+    },
+    "Building Materials": {
+     "n_firmas": 41.0,
+     "beta_u": 0.9301623477287291,
+     "beta_u_caja": 0.9605275604881124,
+     "de": 0.25998303924525584
+    },
+    "Business & Consumer Services": {
+     "n_firmas": 155.0,
+     "beta_u": 0.7735875598670026,
+     "beta_u_caja": 0.8060249314889546,
+     "de": 0.19716100170472986
+    },
+    "Cable TV": {
+     "n_firmas": 9.0,
+     "beta_u": 0.3523921209643926,
+     "beta_u_caja": 0.36287690746362616,
+     "de": 1.469394514839746
+    },
+    "Chemical (Basic)": {
+     "n_firmas": 29.0,
+     "beta_u": 0.5800328658623819,
+     "beta_u_caja": 0.6367830669050106,
+     "de": 0.9935397565078776
+    },
+    "Chemical (Diversified)": {
+     "n_firmas": 4.0,
+     "beta_u": 0.36655193179254153,
+     "beta_u_caja": 0.40614323179001943,
+     "de": 1.7610998877970157
+    },
+    "Chemical (Specialty)": {
+     "n_firmas": 59.0,
+     "beta_u": 0.7922271711710575,
+     "beta_u_caja": 0.8244706586041288,
+     "de": 0.29882962373710314
+    },
+    "Coal & Related Energy": {
+     "n_firmas": 16.0,
+     "beta_u": 1.0165349872490315,
+     "beta_u_caja": 1.1824381999346527,
+     "de": 0.07142984737214478
+    },
+    "Computer Services": {
+     "n_firmas": 64.0,
+     "beta_u": 0.9155102559970569,
+     "beta_u_caja": 0.9617009989891427,
+     "de": 0.25100122596094754
+    },
+    "Computers/Peripherals": {
+     "n_firmas": 36.0,
+     "beta_u": 1.3050624188250832,
+     "beta_u_caja": 1.3245870396777912,
+     "de": 0.04624738158842277
+    },
+    "Construction Supplies": {
+     "n_firmas": 40.0,
+     "beta_u": 1.0160678372067562,
+     "beta_u_caja": 1.0468296973758173,
+     "de": 0.17621949339337503
+    },
+    "Diversified": {
+     "n_firmas": 20.0,
+     "beta_u": 0.7889302024061987,
+     "beta_u_caja": 0.8430962646682882,
+     "de": 0.15552702199112797
+    },
+    "Drugs (Biotechnology)": {
+     "n_firmas": 496.0,
+     "beta_u": 1.034128692045902,
+     "beta_u_caja": 1.079453865168337,
+     "de": 0.13039813617119383
+    },
+    "Drugs (Pharmaceutical)": {
+     "n_firmas": 228.0,
+     "beta_u": 0.8862112018778732,
+     "beta_u_caja": 0.915135973481584,
+     "de": 0.14537075884184583
+    },
+    "Education": {
+     "n_firmas": 32.0,
+     "beta_u": 0.6601955817730791,
+     "beta_u_caja": 0.719599829329938,
+     "de": 0.24378635749927063
+    },
+    "Electrical Equipment": {
+     "n_firmas": 112.0,
+     "beta_u": 1.1477945494288007,
+     "beta_u_caja": 1.1898070318069807,
+     "de": 0.12003228885644493
+    },
+    "Electronics (Consumer & Office)": {
+     "n_firmas": 8.0,
+     "beta_u": 0.8298525821858579,
+     "beta_u_caja": 0.9273766123201671,
+     "de": 0.058043138538441966
+    },
+    "Electronics (General)": {
+     "n_firmas": 114.0,
+     "beta_u": 0.8973653021365886,
+     "beta_u_caja": 0.9374545595854545,
+     "de": 0.1101176648064408
+    },
+    "Engineering/Construction": {
+     "n_firmas": 48.0,
+     "beta_u": 1.094912241925567,
+     "beta_u_caja": 1.137436783693752,
+     "de": 0.1401147535589371
+    },
+    "Entertainment": {
+     "n_firmas": 92.0,
+     "beta_u": 0.7371838269272858,
+     "beta_u_caja": 0.7628468307830948,
+     "de": 0.15913861576824234
+    },
+    "Environmental & Waste Services": {
+     "n_firmas": 53.0,
+     "beta_u": 0.814469065497658,
+     "beta_u_caja": 0.8247690956344971,
+     "de": 0.2144746613305266
+    },
+    "Farming/Agriculture": {
+     "n_firmas": 35.0,
+     "beta_u": 0.8130198178522071,
+     "beta_u_caja": 0.8457836746022086,
+     "de": 0.5184849801548149
+    },
+    "Financial Svcs. (Non-bank & Insurance)": {
+     "n_firmas": 176.0,
+     "beta_u": 0.3188823716863237,
+     "beta_u_caja": 0.32770838684759396,
+     "de": 2.721299675975284
+    },
+    "Food Processing": {
+     "n_firmas": 78.0,
+     "beta_u": 0.45741810112318915,
+     "beta_u_caja": 0.46942377677075875,
+     "de": 0.43733857874231813
+    },
+    "Food Wholesalers": {
+     "n_firmas": 13.0,
+     "beta_u": 0.6408819228030607,
+     "beta_u_caja": 0.6477598141678518,
+     "de": 0.4696855126722596
+    },
+    "Furn/Home Furnishings": {
+     "n_firmas": 27.0,
+     "beta_u": 0.6247880689027374,
+     "beta_u_caja": 0.6521303704400933,
+     "de": 0.42333374568083953
+    },
+    "Green & Renewable Energy": {
+     "n_firmas": 15.0,
+     "beta_u": 0.46330103394106914,
+     "beta_u_caja": 0.4722841676536161,
+     "de": 1.1310960720897125
+    },
+    "Healthcare Products": {
+     "n_firmas": 204.0,
+     "beta_u": 0.829063339182968,
+     "beta_u_caja": 0.8569477958661521,
+     "de": 0.12785158403919683
+    },
+    "Healthcare Support Services": {
+     "n_firmas": 104.0,
+     "beta_u": 0.6889158973179456,
+     "beta_u_caja": 0.7448750574739688,
+     "de": 0.354253188687874
+    },
+    "Heathcare Information and Technology": {
+     "n_firmas": 115.0,
+     "beta_u": 0.9913008450033202,
+     "beta_u_caja": 1.016325032628335,
+     "de": 0.1574134360720486
+    },
+    "Homebuilding": {
+     "n_firmas": 30.0,
+     "beta_u": 0.7849604569802948,
+     "beta_u_caja": 0.8532230798743929,
+     "de": 0.21344150553857202
+    },
+    "Hospitals/Healthcare Facilities": {
+     "n_firmas": 31.0,
+     "beta_u": 0.5517295035260499,
+     "beta_u_caja": 0.5648588718287879,
+     "de": 0.5992038400269105
+    },
+    "Hotel/Gaming": {
+     "n_firmas": 63.0,
+     "beta_u": 0.8322513645728964,
+     "beta_u_caja": 0.8756884427797555,
+     "de": 0.39750202770666376
+    },
+    "Household Products": {
+     "n_firmas": 110.0,
+     "beta_u": 0.7178159032286779,
+     "beta_u_caja": 0.7410769287097494,
+     "de": 0.18147628375519134
+    },
+    "Information Services": {
+     "n_firmas": 15.0,
+     "beta_u": 0.7371769598623608,
+     "beta_u_caja": 0.7563563575971642,
+     "de": 0.3316984905170498
+    },
+    "Insurance (General)": {
+     "n_firmas": 21.0,
+     "beta_u": 0.5636395230036526,
+     "beta_u_caja": 0.5780724262046252,
+     "de": 0.2562761358769038
+    },
+    "Insurance (Life)": {
+     "n_firmas": 20.0,
+     "beta_u": 0.4271563388858468,
+     "beta_u_caja": 0.5317480065275768,
+     "de": 0.6783987776748907
+    },
+    "Insurance (Prop/Cas.)": {
+     "n_firmas": 57.0,
+     "beta_u": 0.43565645519640217,
+     "beta_u_caja": 0.4570234949231456,
+     "de": 0.1482928711512957
+    },
+    "Investments & Asset Management": {
+     "n_firmas": 283.0,
+     "beta_u": 0.5297158729912839,
+     "beta_u_caja": 0.588064033338367,
+     "de": 0.3268818496772947
+    },
+    "Machinery": {
+     "n_firmas": 105.0,
+     "beta_u": 0.8679764970807725,
+     "beta_u_caja": 0.8940302510086939,
+     "de": 0.14692301552763604
+    },
+    "Metals & Mining": {
+     "n_firmas": 73.0,
+     "beta_u": 0.963642813760502,
+     "beta_u_caja": 1.0104492960544031,
+     "de": 0.10984521282049067
+    },
+    "Office Equipment & Services": {
+     "n_firmas": 14.0,
+     "beta_u": 0.980603950937201,
+     "beta_u_caja": 1.0381901897861687,
+     "de": 0.4810247634925184
+    },
+    "Oil/Gas (Integrated)": {
+     "n_firmas": 4.0,
+     "beta_u": 0.2712192455295165,
+     "beta_u_caja": 0.2780040123588666,
+     "de": 0.13845002805508974
+    },
+    "Oil/Gas (Production and Exploration)": {
+     "n_firmas": 142.0,
+     "beta_u": 0.562759894026207,
+     "beta_u_caja": 0.5785405692885324,
+     "de": 0.37587625587778695
+    },
+    "Oil/Gas Distribution": {
+     "n_firmas": 23.0,
+     "beta_u": 0.4650757918129057,
+     "beta_u_caja": 0.46925629740907565,
+     "de": 0.5852713715207659
+    },
+    "Oilfield Svcs/Equip.": {
+     "n_firmas": 97.0,
+     "beta_u": 0.7430388962534321,
+     "beta_u_caja": 0.7870575641420728,
+     "de": 0.37360623860545034
+    },
+    "Packaging & Container": {
+     "n_firmas": 19.0,
+     "beta_u": 0.7230693503118022,
+     "beta_u_caja": 0.7489917958635104,
+     "de": 0.55109591650755
+    },
+    "Paper/Forest Products": {
+     "n_firmas": 6.0,
+     "beta_u": 0.7215533176034462,
+     "beta_u_caja": 0.7696751455408247,
+     "de": 0.43688176160689357
+    },
+    "Power": {
+     "n_firmas": 46.0,
+     "beta_u": 0.31002381536217716,
+     "beta_u_caja": 0.31457840775745605,
+     "de": 0.7414865026995126
+    },
+    "Precious Metals": {
+     "n_firmas": 56.0,
+     "beta_u": 0.7932430128835662,
+     "beta_u_caja": 0.8308962073401722,
+     "de": 0.07281104300881082
+    },
+    "Publishing & Newspapers": {
+     "n_firmas": 19.0,
+     "beta_u": 0.47730712965508676,
+     "beta_u_caja": 0.511884073790114,
+     "de": 0.2393987480231246
+    },
+    "R.E.I.T.": {
+     "n_firmas": 190.0,
+     "beta_u": 0.39290436962561487,
+     "beta_u_caja": 0.40054184967311207,
+     "de": 0.844629934379348
+    },
+    "Real Estate (Development)": {
+     "n_firmas": 14.0,
+     "beta_u": 0.4782878873556669,
+     "beta_u_caja": 0.564103618717777,
+     "de": 1.0182937484544488
+    },
+    "Real Estate (General/Diversified)": {
+     "n_firmas": 12.0,
+     "beta_u": 0.57785949402086,
+     "beta_u_caja": 0.6269536358598106,
+     "de": 0.5356019016772732
+    },
+    "Real Estate (Operations & Services)": {
+     "n_firmas": 54.0,
+     "beta_u": 0.8148915126864962,
+     "beta_u_caja": 0.8575864326620388,
+     "de": 0.24642281273824773
+    },
+    "Recreation": {
+     "n_firmas": 49.0,
+     "beta_u": 0.6950913817523879,
+     "beta_u_caja": 0.7364987182992697,
+     "de": 0.6299053181462322
+    },
+    "Reinsurance": {
+     "n_firmas": 1.0,
+     "beta_u": 0.43840910722706555,
+     "beta_u_caja": 0.5777016987693434,
+     "de": 0.4346722815513458
+    },
+    "Restaurant/Dining": {
+     "n_firmas": 64.0,
+     "beta_u": 0.767419655502052,
+     "beta_u_caja": 0.7830073823550779,
+     "de": 0.2721981524363927
+    },
+    "Retail (Automotive)": {
+     "n_firmas": 34.0,
+     "beta_u": 0.6984325625385885,
+     "beta_u_caja": 0.713248607812822,
+     "de": 0.45355394519631387
+    },
+    "Retail (Building Supply)": {
+     "n_firmas": 14.0,
+     "beta_u": 1.3070143643127536,
+     "beta_u_caja": 1.3176570660974836,
+     "de": 0.2328921812948963
+    },
+    "Retail (Distributors)": {
+     "n_firmas": 62.0,
+     "beta_u": 0.7826829040437357,
+     "beta_u_caja": 0.8016320288830955,
+     "de": 0.2823636659199003
+    },
+    "Retail (General)": {
+     "n_firmas": 23.0,
+     "beta_u": 0.7599637023048608,
+     "beta_u_caja": 0.7809280399984467,
+     "de": 0.07943684178442863
+    },
+    "Retail (Grocery and Food)": {
+     "n_firmas": 15.0,
+     "beta_u": 0.804751465127235,
+     "beta_u_caja": 0.8483611176919518,
+     "de": 0.5195017227110472
+    },
+    "Retail (REITs)": {
+     "n_firmas": 26.0,
+     "beta_u": 0.4361730155949174,
+     "beta_u_caja": 0.442715972660596,
+     "de": 0.5641981493610073
+    },
+    "Retail (Special Lines)": {
+     "n_firmas": 94.0,
+     "beta_u": 0.9487830646597303,
+     "beta_u_caja": 1.0018775790318082,
+     "de": 0.19760978860946327
+    },
+    "Rubber& Tires": {
+     "n_firmas": 3.0,
+     "beta_u": 0.14353369356004206,
+     "beta_u_caja": 0.15435790814828812,
+     "de": 3.5847235984078427
+    },
+    "Semiconductor": {
+     "n_firmas": 66.0,
+     "beta_u": 1.48925822268736,
+     "beta_u_caja": 1.5046492754744247,
+     "de": 0.02591104732744511
+    },
+    "Semiconductor Equip": {
+     "n_firmas": 31.0,
+     "beta_u": 1.3480733569303134,
+     "beta_u_caja": 1.3916911563373942,
+     "de": 0.04861265405817292
+    },
+    "Shipbuilding & Marine": {
+     "n_firmas": 8.0,
+     "beta_u": 0.644012905556584,
+     "beta_u_caja": 0.6607667999490512,
+     "de": 0.22550196647883228
+    },
+    "Shoe": {
+     "n_firmas": 11.0,
+     "beta_u": 0.9336746513867349,
+     "beta_u_caja": 1.0001868235248257,
+     "de": 0.11944728476926639
+    },
+    "Software (Entertainment)": {
+     "n_firmas": 77.0,
+     "beta_u": 1.0127806880948524,
+     "beta_u_caja": 1.0206917427212765,
+     "de": 0.02044609811708157
+    },
+    "Software (Internet)": {
+     "n_firmas": 29.0,
+     "beta_u": 1.5460643073174678,
+     "beta_u_caja": 1.5905250877083126,
+     "de": 0.12298911343132386
+    },
+    "Software (System & Application)": {
+     "n_firmas": 309.0,
+     "beta_u": 1.225391886520662,
+     "beta_u_caja": 1.2481994174665423,
+     "de": 0.05577131922321719
+    },
+    "Steel": {
+     "n_firmas": 19.0,
+     "beta_u": 0.9035142702396447,
+     "beta_u_caja": 0.9449429751018495,
+     "de": 0.23512925389922143
+    },
+    "Telecom (Wireless)": {
+     "n_firmas": 12.0,
+     "beta_u": 0.3872590553991877,
+     "beta_u_caja": 0.39242083985345116,
+     "de": 0.519466977505286
+    },
+    "Telecom. Equipment": {
+     "n_firmas": 57.0,
+     "beta_u": 0.8634913488563035,
+     "beta_u_caja": 0.8872512120358865,
+     "de": 0.09222748494322085
+    },
+    "Telecom. Services": {
+     "n_firmas": 39.0,
+     "beta_u": 0.3654342533759909,
+     "beta_u_caja": 0.38150035836387236,
+     "de": 0.9606320738181406
+    },
+    "Tobacco": {
+     "n_firmas": 10.0,
+     "beta_u": 0.6775903166712723,
+     "beta_u_caja": 0.6902977739311797,
+     "de": 0.22968502777837752
+    },
+    "Transportation": {
+     "n_firmas": 19.0,
+     "beta_u": 0.67531101084817,
+     "beta_u_caja": 0.7115266417564335,
+     "de": 0.3644955938376248
+    },
+    "Transportation (Railroads)": {
+     "n_firmas": 4.0,
+     "beta_u": 0.8069481235657714,
+     "beta_u_caja": 0.8137222539977831,
+     "de": 0.2779156347027222
+    },
+    "Trucking": {
+     "n_firmas": 26.0,
+     "beta_u": 0.8504180575613394,
+     "beta_u_caja": 0.8688507380232171,
+     "de": 0.25231648451786204
+    },
+    "Utility (General)": {
+     "n_firmas": 14.0,
+     "beta_u": 0.14861284002770483,
+     "beta_u_caja": 0.14911053505258812,
+     "de": 0.8148428973368238
+    },
+    "Utility (Water)": {
+     "n_firmas": 14.0,
+     "beta_u": 0.281177328534438,
+     "beta_u_caja": 0.28247289345133525,
+     "de": 0.6235944507219604
+    },
+    "Total Market": {
+     "n_firmas": 5994.0,
+     "beta_u": 0.7217298803492256,
+     "beta_u_caja": 0.7557168656692986,
+     "de": 0.3517124831873864
+    },
+    "Total Market (without financials)": {
+     "n_firmas": 4822.0,
+     "beta_u": 0.8775172986449091,
+     "beta_u_caja": 0.9009675279492425,
+     "de": 0.17287966628456633
+    }
+   }
+  }
  }
 }
