@@ -117,6 +117,45 @@ def leer_multiplos(raw, archivo):
     raise ValueError(f"{archivo}: no se encontró la tabla de industrias")
 
 
+# Emisores no financieros de la BVC para medir cuánto paga la bolsa colombiana por cada peso de EBITDA
+# frente al total de mercados emergentes (método del modelo del curso, hoja 7_Multiplos).
+TICKERS_BVC = ["ISA.CL", "GEB.CL", "ECOPETROL.CL", "CELSIA.CL", "PROMIGAS.CL", "CEMARGOS.CL", "EXITO.CL",
+               "TERPEL.CL", "ENKA.CL", "CONCONCRET.CL", "MINEROS.CL", "GRUPOARGOS.CL", "ETB.CL", "BHI.CL"]
+
+
+def ajuste_colombia(multiplos):
+    """Mediana EV/EBITDA de la BVC (Yahoo) frente al total emergente sin financieras (Damodaran)."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        return None
+    ref = ((multiplos.get("Emergentes") or {}).get("industrias") or {}).get("Total Market (without financials)") or {}
+    if not ref.get("ev_ebitda"):
+        return None
+    valores, usados = [], []
+    for tk in TICKERS_BVC:
+        try:
+            info = yf.Ticker(tk).info or {}
+        except Exception:
+            continue
+        v = _f(info.get("enterpriseToEbitda"))
+        mon, fin = str(info.get("currency") or "").upper(), str(info.get("financialCurrency") or "").upper()
+        if v is None or not (1.0 <= v <= 50.0) or (fin and mon and fin != mon):  # moneda cruzada = escala errónea
+            continue
+        valores.append(v)
+        usados.append({"ticker": tk, "ev_ebitda": round(v, 2)})
+    if len(valores) < 5:
+        return None
+    valores.sort()
+    n = len(valores)
+    med = valores[n // 2] if n % 2 else (valores[n // 2 - 1] + valores[n // 2]) / 2
+    return {"CO": {"mediana_local": round(med, 3), "n": n, "emisores": usados,
+                   "referencia_emergentes": round(float(ref["ev_ebitda"]), 3),
+                   "descuento": round(1 - med / float(ref["ev_ebitda"]), 4),
+                   "fecha": dt.date.today().isoformat(),
+                   "fuente": "Yahoo Finance (enterpriseToEbitda, BVC) vs Damodaran Total Market (without financials), emergentes"}}
+
+
 def construir(carpeta=None):
     out = {"fuente": "Aswath Damodaran, NYU Stern — https://pages.stern.nyu.edu/~adamodar/",
            "descargado": dt.date.today().isoformat(), "riesgo_pais": None, "multiplos": {}}
@@ -141,6 +180,9 @@ def construir(carpeta=None):
             out["multiplos"][region] = leer_multiplos(raw, archivo)
     if out["riesgo_pais"] is None or not out["multiplos"]:
         raise SystemExit("No se pudieron leer las tablas de Damodaran.")
+    aj = ajuste_colombia(out["multiplos"])
+    if aj:
+        out["ajuste_pais"] = aj
     return out
 
 
@@ -154,3 +196,4 @@ if __name__ == "__main__":
         json.dump(datos, f, ensure_ascii=False, indent=1, sort_keys=False)
     rp = datos["riesgo_pais"]["meta"]
     print(f"Riesgo país {rp}; múltiplos: " + ", ".join(f"{k} ({len(v['industrias'])} industrias)" for k, v in datos["multiplos"].items()))
+    print(f"Ajuste Colombia: {datos.get('ajuste_pais')}")
