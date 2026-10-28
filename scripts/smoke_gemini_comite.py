@@ -25,6 +25,8 @@ def main(empresa):
         print("Falta GEMINI_API_KEY.")
         return 1
     L.vincular_estado_sesion({})
+    if empresa in L.EMPRESAS:  # igual que la app: datos de Yahoo primero (sin esto usaba el catálogo curado)
+        L.preparar_empresa(empresa)
     C.correr(empresa)
     L.tab6_comparacion_sectorial(empresa)
     m = L.metricas_valoracion_sesion(empresa)
@@ -53,7 +55,10 @@ def main(empresa):
     if res["ok"]:
         d = res["dictamen"]
         print(f"→ {d['recomendacion']} · objetivo {d.get('precio_objetivo')} · convicción {d.get('conviccion')}")
-    criticos = [not res["ok"], b.get("solicitada") and not b.get("usada")]
+    sin_cuota = "Cuota de Gemini agotada" in str(b.get("error") or "")
+    if b.get("solicitada") and not b.get("usada") and sin_cuota:
+        print("AVISO: la búsqueda web no tiene cuota en esta clave (HTTP 429): limitación del plan, no del código.")
+    criticos = [not res["ok"], b.get("solicitada") and not b.get("usada") and not sin_cuota]
     return 1 if any(criticos) else 0
 
 

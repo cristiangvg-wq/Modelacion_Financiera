@@ -8216,8 +8216,7 @@ GEMINI_MODELOS_PREFERIDOS = (
     "gemini-3.8-flash",
     "gemini-flash-latest",
     "gemini-flash-lite-latest",
-    "gemini-2.5-flash",
-)
+)  # gemini-2.5-flash se retiró para claves nuevas (HTTP 404, oct-2026)
 GEMINI_TIMEOUT_SEG = 45
 GEMINI_TIMEOUT_LARGO_SEG = 120    # búsqueda web o salida JSON larga (modelos con razonamiento tardan más)
 GEMINI_PRESUPUESTO_SEG = 240
@@ -8348,6 +8347,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                 models.append(m)
         last_err = None
         errores_auth = []
+        codigos_http = []
         t0 = _time.monotonic()
         for model in models:
             if _time.monotonic() - t0 > GEMINI_PRESUPUESTO_SEG:
@@ -8422,6 +8422,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                     detail = str(e)
                 detail = detail.replace(key, "***") if key else detail
                 last_err = f"HTTP {e.code} Gemini modelo={model}. Detalle: {detail}"
+                codigos_http.append(e.code)
                 _diag(modelo=model, http=e.code, finish=None, seg=round(_time.monotonic() - _t_ini, 1), error=detail[:300])
                 if e.code == 400 and usar_esquema and "API_KEY" not in detail.upper():
                     _almacen_estado().setdefault("_ia_esquema_no_soportado", {})[model] = True
@@ -8448,6 +8449,13 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                 if isinstance(e, (TimeoutError, OSError)) or "timed out" in str(e).lower():
                     continue
                 break
+        if codigos_http and all(c in (404, 429) for c in codigos_http) and 429 in codigos_http:
+            # Cuota agotada (no un error del código ni de la clave): decirlo en claro. Con búsqueda web,
+            # la herramienta google_search tiene su propia cuota, limitada en el plan gratuito.
+            last_err = ("Cuota de Gemini agotada (HTTP 429) en todos los modelos"
+                        + (" para la búsqueda web (google_search, con cuota propia y limitada en el plan gratuito). "
+                           "El dictamen puede seguir sin hechos web." if buscar_web else
+                           ". Espera a que se renueve o revisa el plan en https://ai.dev/rate-limit."))
         if errores_auth and len(errores_auth) == len({m for m in models}):
             last_err = (last_err or "") + (
                 " — Gemini rechazó la autenticación en todos los modelos. Si tu clave empieza por «AQ.», "
