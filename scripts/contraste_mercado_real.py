@@ -27,14 +27,15 @@ def correr(nombre):
     rf, erp, crp, gmax = L._capm_para_ui(p)  # mismo techo macro que usa la app (antes 0,05 fijo)
     a = (p["de_ratio"], p["kd"], p["tax"], p["g"])
     acc = p.get("acciones")
+    H = L.horizonte_recomendado(nombre)  # 10 años con tres etapas (EE. UU. con consenso); 5 en el resto
     L.reset_resultados_sesion(nombre)
-    L.tab2_simulacion_politicas(nombre, None, 5, *a, 0.0, p["beta_u"], p["deuda_neta"], rf, erp, crp, True,
+    L.tab2_simulacion_politicas(nombre, None, H, *a, 0.0, p["beta_u"], p["deuda_neta"], rf, erp, crp, True,
                                 p.get("caja", 0), p.get("nci", 0), p.get("otros_claims", 0),
                                 p.get("asociados", 0), acc, p.get("exit_multiple", 8.0), True, gmax)
-    L.tab4_recomendacion(nombre, None, 5, *a, 0.0, p["beta_u"], p["capital_invertido"], p["deuda_neta"],
+    L.tab4_recomendacion(nombre, None, H, *a, 0.0, p["beta_u"], p["capital_invertido"], p["deuda_neta"],
                          rf, erp, crp, True, p.get("caja", 0), p.get("nci", 0), p.get("otros_claims", 0),
                          p.get("asociados", 0), acc, p.get("exit_multiple", 8.0), True, gmax)
-    L.tab7_informe_ejecutivo(nombre, None, 5, *a, 0.0, p["beta_u"], p["capital_invertido"], p["deuda_neta"],
+    L.tab7_informe_ejecutivo(nombre, None, H, *a, 0.0, p["beta_u"], p["capital_invertido"], p["deuda_neta"],
                              p.get("inversion_inicial", 0), rf, erp, crp, True, p.get("caja", 0), p.get("nci", 0),
                              p.get("otros_claims", 0), p.get("asociados", 0), acc,
                              p.get("exit_multiple", 8.0), True, gmax)

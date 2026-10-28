@@ -3333,7 +3333,12 @@ def main():
 
         # Parámetros en acordeón cerrado por defecto (menos ruido en el sidebar)
         with st.expander("Parámetros del modelo", expanded=False):
-            horizonte = st.slider("Horizonte (años)", 3, 10, 5, key=f"hor_{ek}")
+            _h_def = L.horizonte_recomendado(empresa)
+            horizonte = st.slider(
+                "Horizonte (años)", 3, 10, _h_def, key=f"hor_{ek}",
+                help=("Empresa de EE. UU. con consenso de analistas: modelo de tres etapas a 10 años "
+                      "(consenso → convergencia → perpetuidad)." if _h_def == 10 else None),
+            )
             de_ratio = st.slider("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.2) or 1.2), 0.01, key=f"de_{ek}")
             kd = st.slider("Kd", 0.0, 0.25, float(p.get("kd", 0.08) or 0.08), 0.005, key=f"kd_{ek}")
             tax = st.slider("Tax", 0.0, 0.50, float(p.get("tax", 0.35) or 0.35), 0.01, key=f"tax_{ek}")
