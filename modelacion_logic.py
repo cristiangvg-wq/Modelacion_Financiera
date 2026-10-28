@@ -829,7 +829,6 @@ PEERS_POR_SECTOR = {
     # Colombia / LatAm frecuentes
     "colombia": ["EC", "CIB", "BVN"],
     "petróleo": ["EC", "XOM", "PBR", "CVX"],
-    "bancos": ["JPM", "BAC", "C", "WFC"],
 }
 
 
@@ -1066,6 +1065,7 @@ def buscar_y_descargar_empresa(query, peers_tickers="", nombre_display=None):
                 info["_balance_sheet"] = bs
         except Exception:
             pass
+        info = _completar_info_yahoo(info, t_obj, used_ticker)
         # Consenso de analistas de ingresos (año en curso y siguiente): base de la etapa 1 del
         # modelo de tres etapas para empresas de EE. UU.
         if _mercado_desde_pais(info.get("country")) == "US":
@@ -1237,7 +1237,8 @@ def _deuda_y_caja_balance(bs):
         partes = [_primero([n]) for n in ("Long Term Debt", "Current Debt", "Short Term Debt")]
         partes = [x for x in partes if x is not None]
         deuda = sum(partes) if partes else None
-    caja = _primero(["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
+    # Mismo alcance que totalCash de Yahoo (incluye inversiones de corto plazo).
+    caja = _primero(["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"])
     return deuda, caja
 
 
@@ -3140,6 +3141,68 @@ MERCADO_POR_MONEDA = {"COP": "CO", "USD": "US", "BRL": "BR", "MXN": "MX", "CLP":
 TASA_ESTATUTARIA = {"CO": 0.35, "US": 0.21, "BR": 0.34, "MX": 0.30, "CL": 0.27, "GB": 0.25}
 
 
+_BOLSAS_US = {"NMS", "NGM", "NCM", "NYQ", "NYS", "ASE", "PCX", "BTS", "NASDAQ", "NYSE", "NASDAQGS", "NASDAQGM", "NASDAQCM", "NYSEARCA", "AMEX"}
+
+
+def _completar_info_yahoo(info, t_obj=None, ticker=None):
+    """Rellena huecos de `info` que cambian la valoración (auditoría 4).
+
+    - País: sin él, una empresa de EE. UU. perdía el CAPM en dólares y el modelo de tres
+      etapas (AAPL −34 %). Se infiere de la bolsa (o del sufijo .CL → Colombia).
+    - Ingresos y EBITDA de los últimos 12 meses: sin ellos un emisor cíclico se normalizaba
+      con el año fiscal (Ecopetrol −37 %). Se suman los cuatro últimos trimestres.
+    Los datos añadidos se marcan en `_completado` para rotular la fuente.
+    """
+    info = dict(info or {})
+    hechos = []
+    if not info.get("country"):
+        bolsa = str(info.get("exchange") or info.get("fullExchangeName") or "").upper().replace(" ", "")
+        tk = str(ticker or info.get("symbol") or "").upper()
+        if tk.endswith(".CL"):
+            info["country"] = "Colombia"
+        elif bolsa in _BOLSAS_US or (("." not in tk) and str(info.get("currency") or "").upper() == "USD"
+                                      and str(info.get("financialCurrency") or "USD").upper() == "USD"):
+            info["country"] = "United States"
+        if info.get("country"):
+            hechos.append("país inferido de la bolsa")
+    if t_obj is not None and (info.get("totalRevenue") is None or info.get("ebitda") is None):
+        try:
+            q = getattr(t_obj, "quarterly_income_stmt", None)
+            if q is None or getattr(q, "empty", True):
+                q = getattr(t_obj, "quarterly_financials", None)
+            if q is not None and not getattr(q, "empty", True) and q.shape[1] >= 4:
+                idx = {str(i).strip().lower(): i for i in q.index}
+
+                def _ltm(nombres):
+                    for n in nombres:
+                        k = idx.get(n)
+                        if k is not None:
+                            v = pd.to_numeric(q.loc[k].iloc[:4], errors="coerce")
+                            if v.notna().all():
+                                return float(v.sum())
+                    return None
+                if info.get("totalRevenue") is None:
+                    v = _ltm(["total revenue", "operating revenue"])
+                    if v is not None:
+                        info["totalRevenue"] = v
+                        hechos.append("ingresos 12m de los trimestres")
+                if info.get("ebitda") is None:
+                    v = _ltm(["ebitda", "normalized ebitda"])
+                    if v is None:  # EBITDA trimestral incompleto: utilidad operativa + depreciación
+                        ebit = _ltm(["operating income", "ebit"])
+                        da = _ltm(["reconciled depreciation", "depreciation and amortization in income statement",
+                                   "depreciation amortization depletion income statement"])
+                        v = ebit + da if ebit is not None and da is not None else None
+                    if v is not None:
+                        info["ebitda"] = v
+                        hechos.append("EBITDA 12m de los trimestres")
+        except Exception:
+            pass
+    if hechos:
+        info["_completado"] = hechos
+    return info
+
+
 def _mercado_desde_pais(country):
     c = str(country or "").strip().upper()
     return {
@@ -3900,6 +3963,8 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     info = info or {}
     p = params_en_blanco()
     p["origen_params"] = "derivado_desde_cero"
+    if (info or {}).get("_completado"):
+        p["datos_completados"] = list(info["_completado"])
 
     # --- Tax: preferir effectiveTaxRate de Yahoo; si no, estatutaria por país ---
     # (AAPL ~15–16 % efectivo; hardcode 35 % o 21 % sin ETR sesgaba NOPAT/FCFF)
@@ -3945,6 +4010,23 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     book = _safe_float(info.get("bookValue"))  # a veces por acción
     enterprise_to_ebitda = _safe_float(info.get("enterpriseToEbitda"))
 
+    # Yahoo a veces devuelve `info` incompleto. Cada hueco cambiaba el valor en silencio
+    # (auditoría 4, quitando un campo a la vez): sin totalDebt la deuda neta quedaba en 0
+    # (ISA +76 % frente al precio) o, con D/E = 0, el β no se desapalancaba (ISA −40 %);
+    # sin totalCash se restaba la deuda bruta. Se completan con el balance anual y con
+    # precio × acciones, y se rotula la fuente.
+    db_bs, caja_bs = _deuda_y_caja_balance(info.get("_balance_sheet"))
+    if total_debt is None and db_bs is not None:
+        total_debt = db_bs
+        p["deuda_fuente"] = "balance anual Yahoo (resumen sin deuda)"
+    if cash is None and caja_bs is not None:
+        cash = caja_bs
+        p["caja_fuente"] = "balance anual Yahoo (resumen sin caja)"
+    _px_info = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice") or info.get("previousClose"))
+    if mcap is None and shares and _px_info:
+        mcap = float(shares) * _px_info
+        p["mcap_fuente"] = "precio × acciones (resumen sin capitalización)"
+
     if cash is not None:
         p["caja"] = round(cash / 1e9, 4)
     if total_debt is not None:
@@ -3952,19 +4034,6 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["deuda_neta"] = round((total_debt - (cash or 0)) / 1e9, 4)
         p["deuda_es_bruta"] = False
         p["deuda_bruta"] = round(total_debt / 1e9, 4)
-    else:
-        # Yahoo a veces devuelve `info` incompleto (sin totalDebt). Sin este respaldo la deuda
-        # neta quedaba en 0 y el puente EV → patrimonio no restaba la deuda: ISA pasaba de
-        # −11 % a +76 % frente al precio. Se toma del balance anual, si viene.
-        db_bs, caja_bs = _deuda_y_caja_balance(info.get("_balance_sheet"))
-        if db_bs is not None:
-            caja_ref = cash if cash is not None else caja_bs
-            if cash is None and caja_bs is not None:
-                p["caja"] = round(caja_bs / 1e9, 4)
-            p["deuda_neta"] = round((db_bs - (caja_ref or 0)) / 1e9, 4)
-            p["deuda_es_bruta"] = False
-            p["deuda_bruta"] = round(db_bs / 1e9, 4)
-            p["deuda_fuente"] = "balance anual Yahoo (info sin totalDebt)"
     # Moneda de los EEFF (deuda, caja, flujos) vs moneda de cotización (precio,
     # marketCap). En ADRs difieren (EC: EEFF COP, precio USD por ADS de 20 acciones).
     fin_cur_p = str(info.get("financialCurrency") or info.get("currency") or "").upper()
@@ -5027,19 +5096,34 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
         hist = {"Año": [int(a) for a in clean.index]}
         for col in clean.columns:
             hist[col] = [float(x) if pd.notna(x) else 0.0 for x in clean[col].values]
+        _prev = EMPRESAS_RUNTIME.get(nombre_empresa) or {}
         EMPRESAS_RUNTIME[nombre_empresa] = {
-            "ticker_bvc": None,
-            "ticker_yf": None,
-            "sector": "No clasificado (Excel propio)",
+            # Si la empresa venía de Yahoo, se conserva su ticker: el precio de mercado sigue disponible.
+            "ticker_bvc": _prev.get("ticker_bvc"),
+            "ticker_yf": _prev.get("ticker_yf"),
+            "sector": _prev.get("sector") or "No clasificado (Excel propio)",
             "descripcion": f"Estados cargados por el usuario para {nombre_empresa}. Parámetros derivados solo de este archivo.",
             "params": params_xlsx,
             "historico": hist,
             "peers": [],
             "fuente": "Excel/CSV del usuario",
-            "moneda": meta_xlsx.get("moneda") or "definir",
-            "moneda_precio": meta_xlsx.get("moneda") or None,
-            "pais": meta_xlsx.get("pais") or "",
+            "moneda": meta_xlsx.get("moneda") or _prev.get("moneda") or "definir",
+            "moneda_precio": meta_xlsx.get("moneda") or _prev.get("moneda_precio") or None,
+            "pais": meta_xlsx.get("pais") or _prev.get("pais") or "",
         }
+    _puente_archivo = {}
+    if meta_xlsx:
+        _f = float(_fac or 1.0)
+        if meta_xlsx.get("deuda") is not None:
+            _puente_archivo["deuda_neta"] = round((float(meta_xlsx["deuda"]) - float(meta_xlsx.get("caja") or 0)) * _f, 4)
+        for _k in ("caja", "nci", "asociados"):
+            if meta_xlsx.get(_k) is not None:
+                _puente_archivo[_k] = round(float(meta_xlsx[_k]) * _f, 4)
+        if meta_xlsx.get("acciones"):
+            _puente_archivo["acciones"] = float(meta_xlsx["acciones"])
+        if meta_xlsx.get("tax") is not None:
+            _puente_archivo["tax"] = round(float(meta_xlsx["tax"]), 4)
+    _almacen_estado().setdefault("parametros_archivo", {})[nombre_empresa] = _puente_archivo
     if meta_xlsx:
         avisos.append("hoja Parámetros leída (" + ", ".join(k for k in ("moneda", "unidad", "pais", "tax", "deuda", "caja",
                                                                          "nci", "asociados", "acciones", "precio")
@@ -5048,9 +5132,17 @@ def _cargar_y_limpiar_excel_impl(archivo, nombre_empresa, usar_datos_publicos=Tr
     return clean, (
         f"Archivo propio validado para {nombre_empresa}: {len(clean)} observaciones. {msg_avisos}"
         f"Campos derivados: depreciación/Delta_NWC/NOPAT/FCFF cuando no venían informados. "
-        f"Parámetros de modelación derivados desde cero a partir de este archivo (sin catálogo BVC). "
-        f"Verifica unidad, moneda y estados auditados."
+        + ("Parámetros de modelación derivados desde cero a partir de este archivo (sin catálogo BVC). "
+           if nombre_empresa not in EMPRESAS else
+           ("Supuestos de la empresa del catálogo; la hoja Parámetros reemplaza " + ", ".join(sorted(_puente_archivo)) + ". "
+            if _puente_archivo else "Supuestos (deuda, acciones, impuesto) de la empresa del catálogo. "))
+        + "Verifica unidad, moneda y estados auditados."
     )
+
+
+def parametros_archivo(nombre_empresa):
+    """Partidas del puente y tasa leídas de la hoja Parámetros del Excel cargado (miles de millones)."""
+    return dict((_almacen_estado().get("parametros_archivo") or {}).get(nombre_empresa) or {})
 
 # =============================================================================
 # NORMALIZACIÓN ROBUSTA DE ATÍPICOS
@@ -10268,6 +10360,7 @@ def construir_tabla_sectorial_live(nombre_empresa_focal=None):
 
     def _add_ticker(ticker, etiqueta="peer sector"):
         """Descarga peer (completo o ligero) y lo suma al ranking sectorial."""
+        nonlocal n_live, n_fund
         if not ticker or not HAS_YF:
             return False
         short_p = str(ticker).split(".")[0].upper()

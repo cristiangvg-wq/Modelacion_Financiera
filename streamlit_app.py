@@ -2415,6 +2415,31 @@ def _cierres_desde_download(df, symbols):
     return out
 
 
+def _reiniciar_si_cambia_defecto(key, defecto, extras=()):
+    """Si cambió el valor de referencia del control (nuevos datos de la empresa), volver a él.
+
+    El control guarda su valor en session_state y no vuelve a leer el valor por defecto: si los
+    parámetros de la empresa se recargan (Yahoo incompleto y luego completo, otro Excel, nueva
+    búsqueda), la barra seguía con el dato viejo. Las ediciones del usuario se conservan mientras
+    la referencia no cambie.
+    """
+    k_def = f"{key}__def"
+    previo = st.session_state.get(k_def)
+    if previo is not None and abs(float(previo) - float(defecto)) > 1e-12:
+        for k in (key,) + tuple(extras):
+            st.session_state.pop(k, None)
+    st.session_state[k_def] = float(defecto)
+
+
+def _numero_empresa(label, defecto, paso, key, **kw):
+    """number_input de un parámetro de la empresa que sigue a su valor de referencia (ver arriba)."""
+    defecto = float(defecto or 0)
+    _reiniciar_si_cambia_defecto(key, defecto)
+    if key not in st.session_state:
+        st.session_state[key] = defecto
+    return st.number_input(label, step=float(paso), key=key, **kw)
+
+
 def _slider_y_caja(label, minimo, maximo, defecto, paso, key, formato="%.4f", help=None, paso_caja=None):
     """Barra + casilla para escribir el valor exacto (la barra solo muestra 2 decimales y salta de a «paso»).
 
@@ -2423,8 +2448,10 @@ def _slider_y_caja(label, minimo, maximo, defecto, paso, key, formato="%.4f", he
     """
     minimo, maximo = float(minimo), float(maximo)
     k_caja = f"{key}__caja"
+    defecto = min(max(float(defecto), minimo), maximo)
+    _reiniciar_si_cambia_defecto(key, defecto, (k_caja,))
     if key not in st.session_state:
-        st.session_state[key] = min(max(float(defecto), minimo), maximo)
+        st.session_state[key] = defecto
     if k_caja not in st.session_state:
         st.session_state[k_caja] = float(st.session_state[key])
 
@@ -3492,6 +3519,18 @@ def main():
         if up is not None:
             st.session_state["archivo_bytes"] = up.read()
             st.session_state["archivo_name"] = up.name
+            _h_up = _archivo_hash()
+            if _h_up and st.session_state.get("_archivo_aplicado") != (empresa, _h_up):
+                st.session_state["_archivo_aplicado"] = (empresa, _h_up)
+                # Leer el archivo ya (no al generar): si trae hoja Parámetros, la barra lateral debe
+                # mostrar sus cifras (deuda, caja, acciones, impuesto); antes el modelo seguía usando
+                # las de Yahoo/catálogo aunque el informe dijera «parámetros del archivo».
+                try:
+                    L._cargar_y_limpiar_excel_impl(_archivo_para_logic(), empresa)
+                    if empresa not in getattr(L, "EMPRESAS", {}):
+                        _cargar_params_empresa(empresa)
+                except Exception as _e_up:
+                    st.error(f"El archivo no se pudo leer: {_e_up}")
         st.session_state["usar_publicos"] = st.checkbox(
             "Datos públicos si no hay Excel",
             value=st.session_state.get("usar_publicos", True),
@@ -3519,6 +3558,10 @@ def main():
 
         ek = str(empresa)[:48]
         p = st.session_state.get("params") or {}
+        if st.session_state.get("archivo_bytes") and hasattr(L, "parametros_archivo"):
+            _pa = L.parametros_archivo(empresa)
+            if _pa:  # la hoja Parámetros del Excel manda sobre Yahoo/catálogo en el puente y el impuesto
+                p = {**p, **_pa}
 
         # Parámetros en acordeón cerrado por defecto (menos ruido en el sidebar)
         with st.expander("Parámetros del modelo", expanded=False):
@@ -3566,28 +3609,18 @@ def main():
                 pass
 
             st.markdown("**Puente a equity**")
-            capital_invertido = st.number_input(
-                "Capital invertido", value=float(p.get("capital_invertido", 0) or 0), step=100.0, key=f"ci_{ek}"
-            )
-            deuda_neta = st.number_input(
-                "Deuda neta", value=float(p.get("deuda_neta", 0) or 0), step=100.0, key=f"dn_{ek}"
-            )
+            capital_invertido = _numero_empresa("Capital invertido", p.get("capital_invertido", 0), 100.0, f"ci_{ek}")
+            deuda_neta = _numero_empresa("Deuda neta", p.get("deuda_neta", 0), 100.0, f"dn_{ek}")
             if abs(float(deuda_neta or 0)) < 1e-9 and float(de_ratio or 0) > 0.2:
                 st.warning(f"Deuda neta en 0 con D/E {de_ratio:.2f}: el patrimonio no descuenta deuda y el valor por "
                            "acción sale inflado. Escribe la deuda neta de los estados financieros.")
             elif p.get("deuda_fuente"):
                 st.caption(f"Deuda neta: {p['deuda_fuente']}.")
-            inversion_inicial = st.number_input(
-                "Inversión proyecto", value=float(p.get("inversion_inicial", 0) or 0), step=10.0, key=f"ii_{ek}"
-            )
-            caja = st.number_input("Caja", value=float(p.get("caja", 0) or 0), step=50.0, key=f"caja_{ek}")
-            nci = st.number_input("NCI", value=float(p.get("nci", 0) or 0), step=50.0, key=f"nci_{ek}")
-            otros_claims = st.number_input(
-                "Otros claims", value=float(p.get("otros_claims", 0) or 0), step=50.0, key=f"oc_{ek}"
-            )
-            asociados = st.number_input(
-                "Asociados", value=float(p.get("asociados", 0) or 0), step=50.0, key=f"as_{ek}"
-            )
+            inversion_inicial = _numero_empresa("Inversión proyecto", p.get("inversion_inicial", 0), 10.0, f"ii_{ek}")
+            caja = _numero_empresa("Caja", p.get("caja", 0), 50.0, f"caja_{ek}")
+            nci = _numero_empresa("NCI", p.get("nci", 0), 50.0, f"nci_{ek}")
+            otros_claims = _numero_empresa("Otros claims", p.get("otros_claims", 0), 50.0, f"oc_{ek}")
+            asociados = _numero_empresa("Asociados", p.get("asociados", 0), 50.0, f"as_{ek}")
             if st.button("Valorar participadas por separado", width="stretch", key=f"btn_sdp_{ek}"):
                 try:
                     _ke_sdp = L.costo_equity_capm(L.beta_apalancado(beta_u, de_ratio, tax), rf=rf, erp=erp, crp=crp)
@@ -3605,8 +3638,8 @@ def main():
                     _acc0 = L.resolver_acciones_millones(empresa, None)
                 except Exception:
                     _acc0 = 0
-            acciones = st.number_input(
-                "Acciones (M)", value=float(_acc0 or 0), step=1.0, key=f"acc_{ek}",
+            acciones = _numero_empresa(
+                "Acciones (M)", _acc0, 1.0, f"acc_{ek}",
                 help="Millones de acciones diluidas. Si queda en 0, el modelo intenta obtenerlas de Yahoo.",
             )
             exit_multiple = _slider_y_caja("Exit EV/EBITDA", 0.0, 40.0, float(p.get("exit_multiple", 9) or 9), 0.5,
