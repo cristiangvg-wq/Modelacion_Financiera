@@ -2415,6 +2415,125 @@ def _cierres_desde_download(df, symbols):
     return out
 
 
+def _como_dialogo(titulo, width="large"):
+    """st.dialog si existe (Streamlit ≥ 1.34); si no, la función se ejecuta en línea.
+
+    Un diálogo es un fragmento: al pulsar un botón dentro de él Streamlit vuelve a ejecutar SOLO la
+    función, sin el inicio del script que vincula el estado de la lógica a la sesión. Sin re-vincular,
+    lo que guardara iría al almacén por defecto (compartido) y se perdería al recargar.
+    """
+    d = getattr(st, "dialog", None)
+
+    def envolver(f):
+        def con_sesion(*a, **k):
+            if hasattr(L, "vincular_estado_sesion"):
+                L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
+            return f(*a, **k)
+        con_sesion.__name__ = f.__name__
+        return d(titulo, width=width)(con_sesion) if callable(d) else con_sesion
+    return envolver
+
+
+@_como_dialogo("Corregir el histórico con cifras oficiales")
+def _dialogo_historico(empresa):
+    """Editor del histórico (prellenado con la fuente pública) para corregir partidas puntuales."""
+    st.caption("Escribe las cifras de los estados financieros oficiales (miles de millones de la moneda del modelo). "
+               "ΔNWC, NOPAT y FCFF se recalculan. Las correcciones valen para esta sesión y se rotulan en el informe.")
+    if st.session_state.get("archivo_bytes"):
+        st.warning("Hay un Excel cargado: el modelo usa ese archivo y no estas correcciones.")
+    try:
+        base, msg = L._cargar_y_limpiar_excel_impl(None, empresa, usar_datos_publicos=True)
+    except Exception as e:
+        st.error(f"No hay histórico para corregir: {e}")
+        return
+    actual = L.historico_usuario(empresa)
+    tabla = base[[c for c in L.HISTORICO_EDITABLE if c in base.columns]].copy()
+    if actual:
+        tabla = pd.DataFrame(actual["datos"]).sort_index()
+        st.info("Correcciones activas: " + ("; ".join(actual["cambios"]) or "ninguna celda distinta"))
+    tabla.index.name = "Año"
+    nombres = {"Ingresos": "Ingresos", "EBITDA": "EBITDA", "EBIT": "EBIT (utilidad operativa)",
+               "Depreciacion": "Depreciación y amortización", "CAPEX": "CAPEX (inversiones)", "NWC": "Capital de trabajo"}
+    editado = st.data_editor(
+        tabla.reset_index(), hide_index=True, width="stretch", num_rows="fixed", key=f"ed_hist_{empresa[:40]}",
+        column_config={"Año": st.column_config.NumberColumn("Año", format="%d", disabled=True),
+                       **{c: st.column_config.NumberColumn(nombres[c], format="%.1f") for c in L.HISTORICO_EDITABLE}},
+    )
+    st.caption(f"Fuente original: {msg[:220]}")
+    c1, c2 = st.columns(2)
+    if c1.button("Aplicar correcciones", type="primary", width="stretch"):
+        try:
+            cambios = L.fijar_historico_usuario(empresa, editado, base, fuente_original=msg.split(".")[0],
+                                                attrs=dict(getattr(base, "attrs", {}) or {}))
+            st.session_state["aviso_ajustes"] = (f"Histórico corregido ({len(cambios)} celda(s)). Ejecuta «Generar todo».")
+            st.rerun()
+        except ValueError as e:
+            st.error(str(e))
+    if c2.button("Volver a la fuente pública", width="stretch", disabled=not actual):
+        L.borrar_historico_usuario(empresa)
+        st.session_state["aviso_ajustes"] = "Se restableció el histórico de la fuente pública. Ejecuta «Generar todo»."
+        st.rerun()
+
+
+@_como_dialogo("Valorar participadas por separado (suma de partes)")
+def _dialogo_suma_partes(empresa, ke_defecto, asociados_actual):
+    """Cada participada con su método; el total reemplaza «Asociados» en el puente a equity."""
+    st.caption("Útil cuando buena parte del valor está en empresas donde la matriz tiene participación (GEB en Enel "
+               "Colombia, Promigas, Vanti…). Cifras en miles de millones de la moneda del modelo; % en porcentaje.")
+    ke = st.number_input("Costo del patrimonio (Ke) para descontar las participadas", 0.02, 0.40,
+                         float(ke_defecto), 0.0025, format="%.4f",
+                         help="Por defecto, el Ke de la matriz. Si una participada tiene otro riesgo, valórala por P/U o mercado.")
+    previo = L.suma_partes_sesion(empresa)
+    filas = (previo or {}).get("filas") or L.participadas_sugeridas(empresa)
+    etiquetas = L.METODOS_PARTICIPADA
+    inv = {v: k for k, v in etiquetas.items()}
+    df = pd.DataFrame([{**{k: f.get(k) for k in ("participada", "participacion", "utilidad", "dividendo", "valor",
+                                                 "pu", "roe", "g", "fuente")},
+                        "metodo": etiquetas.get(f.get("metodo") or "capitalizada")} for f in filas] or
+                      [{"participada": "", "participacion": 100.0, "metodo": etiquetas["capitalizada"]}])
+    cols = ["participada", "participacion", "metodo", "utilidad", "dividendo", "valor", "pu", "roe", "g", "fuente"]
+    df = df.reindex(columns=cols)
+    for c in ("participacion", "utilidad", "dividendo", "valor", "pu", "roe", "g"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype(float)
+    df["fuente"] = df["fuente"].fillna("")
+    editado = st.data_editor(
+        df, hide_index=True, num_rows="dynamic", width="stretch", key=f"ed_sdp_{empresa[:40]}",
+        column_config={
+            "participada": st.column_config.TextColumn("Participada", required=True),
+            "participacion": st.column_config.NumberColumn("Participación %", min_value=0.0, max_value=100.0, format="%.2f"),
+            "metodo": st.column_config.SelectboxColumn("Método", options=list(etiquetas.values()), required=True),
+            "utilidad": st.column_config.NumberColumn("Utilidad neta 100 %", format="%.1f"),
+            "dividendo": st.column_config.NumberColumn("Dividendo recibido", format="%.1f"),
+            "valor": st.column_config.NumberColumn("Valor (mercado 100 % o libros)", format="%.1f"),
+            "pu": st.column_config.NumberColumn("P/U (x)", format="%.1f"),
+            "roe": st.column_config.NumberColumn("ROE %", format="%.1f", help="Vacío = Ke (crecer no crea valor)"),
+            "g": st.column_config.NumberColumn("g %", format="%.1f", help="Crecimiento perpetuo nominal; vacío = 0"),
+            "fuente": st.column_config.TextColumn("Fuente"),
+        },
+    )
+    filas_n = []
+    for r in editado.to_dict("records"):
+        r = {k: (None if (isinstance(v, float) and v != v) else v) for k, v in r.items()}
+        r["metodo"] = inv.get(r.get("metodo"), "capitalizada")
+        filas_n.append(r)
+    res = L.suma_de_partes(filas_n, ke)
+    if res["detalle"]:
+        st.dataframe(pd.DataFrame([{"Participada": d["participada"], "Método": d["metodo"], "Valor": round(d["valor"], 1),
+                                    "Cálculo": d["calculo"]} for d in res["detalle"]]), hide_index=True, width="stretch")
+    for e in res["errores"]:
+        st.warning(e)
+    st.metric("Total participadas", f"{res['total']:,.1f}", f"{res['total'] - float(asociados_actual or 0):+,.1f} vs «Asociados» actual")
+    c1, c2 = st.columns(2)
+    if c1.button("Usar en el puente a equity", type="primary", width="stretch", disabled=not res["detalle"]):
+        L.fijar_suma_partes(empresa, filas_n, res, ke)
+        st.session_state["aviso_ajustes"] = f"Asociados = {res['total']:,.1f} por suma de partes. Ejecuta «Generar todo»."
+        st.rerun()
+    if c2.button("Quitar la suma de partes", width="stretch", disabled=previo is None):
+        L.borrar_suma_partes(empresa)
+        st.session_state["aviso_ajustes"] = "Se quitó la suma de partes. Ejecuta «Generar todo»."
+        st.rerun()
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _market_tape_quotes():
     """Cinta de mercado: UNA descarga en lote (antes 12 llamadas .info secuenciales,
@@ -3355,6 +3474,13 @@ def main():
         except Exception:
             pass
 
+        if st.button("Corregir histórico (cifras oficiales)", width="stretch", key="btn_corregir_hist",
+                     help="Ajusta partidas puntuales de la fuente pública con los estados financieros oficiales "
+                          "(p. ej. el CAPEX de concesiones de ISA)."):
+            _dialogo_historico(empresa)
+        if L.historico_usuario(empresa):
+            st.caption("✎ Histórico con correcciones del usuario: " + "; ".join(L.historico_usuario(empresa)["cambios"][:3]))
+
         ek = str(empresa)[:48]
         p = st.session_state.get("params") or {}
 
@@ -3391,6 +3517,14 @@ def main():
                     )
                 if _vig_ui.get("aviso"):
                     st.caption("⚠ " + _vig_ui["aviso"])
+                _tm = L.TASAS_MERCADO
+                st.caption(
+                    "Tasas de mercado: TES 10a {:.2%} ({}, {}) · Tesoro EE. UU. 10a {:.2%} ({}) · inflación LP CO {:.2%} / "
+                    "EE. UU. {:.2%}. Se actualizan cada semana (Tesoro de EE. UU. y OCDE) o con la referencia del código, la más reciente.".format(
+                        _tm["co_rf_bruto"]["valor"], _tm["co_rf_bruto"]["origen"], _tm["co_rf_bruto"]["fecha"],
+                        _tm["us_rf"]["valor"], _tm["us_rf"]["fecha"], _tm["co_inflacion_lp"]["valor"], _tm["us_inflacion_lp"]["valor"]))
+                for _av in L.tasas_vigencia():
+                    st.caption("⚠ " + _av)
             except Exception:
                 pass
 
@@ -3412,6 +3546,17 @@ def main():
             asociados = st.number_input(
                 "Asociados", value=float(p.get("asociados", 0) or 0), step=50.0, key=f"as_{ek}"
             )
+            if st.button("Valorar participadas por separado", width="stretch", key=f"btn_sdp_{ek}"):
+                try:
+                    _ke_sdp = L.costo_equity_capm(L.beta_apalancado(beta_u, de_ratio, tax), rf=rf, erp=erp, crp=crp)
+                except Exception:
+                    _ke_sdp = 0.12
+                _dialogo_suma_partes(empresa, _ke_sdp, asociados)
+            _sdp = L.suma_partes_sesion(empresa)
+            if _sdp:
+                st.caption(f"Asociados por suma de partes: {_sdp['total']:,.1f} (reemplaza {asociados:,.1f}; "
+                           f"{len(_sdp['detalle'])} participada(s), Ke {_sdp['ke']:.2%}).")
+                asociados = float(_sdp["total"])
             _acc0 = p.get("acciones")
             if _acc0 is None or float(_acc0 or 0) <= 0:
                 try:
@@ -3786,6 +3931,7 @@ def main():
         deuda_neta, rf, erp, crp, caja, nci, otros_claims, asociados, acciones,
         exit_multiple, mid_year, g_max_macro, usar_publicos,
         capital_invertido, inversion_inicial, _hash_archivo, moneda, ronic_spread, _ronic_modo,
+        L.firma_ajustes_usuario(empresa),
     ))
     _prev_fingerprint = st.session_state.get("_model_fingerprint")
     if _prev_fingerprint is not None and _prev_fingerprint != _model_fingerprint:
@@ -3799,6 +3945,8 @@ def main():
             pass
         st.session_state["modelo_dirty"] = True
     st.session_state["_model_fingerprint"] = _model_fingerprint
+    if st.session_state.get("aviso_ajustes"):
+        st.success(st.session_state.pop("aviso_ajustes"))
     if st.session_state.get("modelo_dirty"):
         st.info("Los supuestos cambiaron: se invalidaron resultados anteriores. Ejecuta **Generar todo** para recalcularlos.")
     # Validación de robustez pre-corrida (WACC vs g, finitud)
