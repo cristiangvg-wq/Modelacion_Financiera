@@ -1,0 +1,30 @@
+{
+ "info_ebitda": 49268001865728,
+ "info_rev": 127483001176064,
+ "fallback_ebitda": 44347000000000.0,
+ "completado": [
+  "EBITDA 12m de los trimestres"
+ ],
+ "None": {
+  "ltm": [
+   127483.0012,
+   49268.0019
+  ],
+  "attrs_ltm": null,
+  "vps": 1809.8324987441695,
+  "datos_completados": null,
+  "ebitda_norm": 49268.0019
+ },
+ "ebitda": {
+  "ltm": [
+   127483.0012,
+   44347.0
+  ],
+  "attrs_ltm": null,
+  "vps": 1049.0463595139572,
+  "datos_completados": [
+   "EBITDA 12m de los trimestres"
+  ],
+  "ebitda_norm": 44347.0
+ }
+}
