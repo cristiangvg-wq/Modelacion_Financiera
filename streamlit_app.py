@@ -3386,6 +3386,10 @@ def main():
     # proceso y un usuario veía/heredaba los datos de otro.
     if hasattr(L, "vincular_estado_sesion"):
         L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
+        try:  # la clave de IA (si la hay) también traduce la descripción de la empresa en el informe PDF
+            L._almacen_estado()["clave_ia"] = _clave_ia_efectiva()[1]
+        except Exception:
+            pass
     _init_state()
     _aplicar_empresa_pendiente()
 
