@@ -20,7 +20,7 @@ class DeudaYahooIncompleto(unittest.TestCase):
     def test_balance_anual_da_deuda_y_caja(self):
         bs = pd.DataFrame({"2025": [30_000e9, 4_000e9], "2024": [28_000e9, 3_500e9]},
                           index=["Total Debt", "Cash And Cash Equivalents"])
-        self.assertEqual(L._deuda_y_caja_balance(bs), (30_000e9, 4_000e9))
+        self.assertEqual(L._deuda_y_caja_balance(bs), (30_000e9, 4_000e9))  # sin renglón con inversiones CP
         bs2 = pd.DataFrame({"2025": [20e9, 5e9]}, index=["Long Term Debt", "Current Debt"])
         self.assertEqual(L._deuda_y_caja_balance(bs2), (25e9, None))
         self.assertEqual(L._deuda_y_caja_balance(None), (None, None))

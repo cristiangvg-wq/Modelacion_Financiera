@@ -1237,7 +1237,8 @@ def _deuda_y_caja_balance(bs):
         partes = [_primero([n]) for n in ("Long Term Debt", "Current Debt", "Short Term Debt")]
         partes = [x for x in partes if x is not None]
         deuda = sum(partes) if partes else None
-    caja = _primero(["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
+    # Mismo alcance que totalCash de Yahoo (incluye inversiones de corto plazo).
+    caja = _primero(["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"])
     return deuda, caja
 
 
@@ -3187,6 +3188,11 @@ def _completar_info_yahoo(info, t_obj=None, ticker=None):
                         hechos.append("ingresos 12m de los trimestres")
                 if info.get("ebitda") is None:
                     v = _ltm(["ebitda", "normalized ebitda"])
+                    if v is None:  # EBITDA trimestral incompleto: utilidad operativa + depreciación
+                        ebit = _ltm(["operating income", "ebit"])
+                        da = _ltm(["reconciled depreciation", "depreciation and amortization in income statement",
+                                   "depreciation amortization depletion income statement"])
+                        v = ebit + da if ebit is not None and da is not None else None
                     if v is not None:
                         info["ebitda"] = v
                         hechos.append("EBITDA 12m de los trimestres")
