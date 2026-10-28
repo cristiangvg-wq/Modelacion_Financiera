@@ -1,0 +1,9 @@
+deuda neta antes: 29806.72
+deuda neta después de cargar: 35000.00
+caja después de cargar: 5000.00
+[tab4] Fuente financiera
+[tab4] (-) Deuda neta	-35,000.0
+[tab4] Deuda neta / EV (%)	55.4 %
+[tab4] Valor por acción (modelo): 19,783 COP
+[tab4] Upside / downside vs mercado: -28.0% vs precio 27,460 COP
+excepciones: []
