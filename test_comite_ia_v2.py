@@ -286,3 +286,90 @@ class TestFlujoDosPasos(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRobustezProduccion(_Base):
+    """Fallas vistas con la API real: JSON truncado, timeouts, claves AQ., formatos laxos."""
+
+    def test_normalizar_formas_inocuas(self):
+        anc = {"rango": (13423.0, 29000.0)}
+        d, notas = CI.normalizar_dictamen({"recomendacion": "Mantener (neutral)", "conviccion": "7/10",
+                                           "precio_objetivo": "24.500", "anclas_usadas": "A1, A3",
+                                           "contexto_mercado": {"resumen": "x", "hechos_usados": "Y1 y W1"}}, anc)
+        self.assertEqual(d["recomendacion"], "MANTENER")
+        self.assertEqual(d["conviccion"], 7)
+        self.assertEqual(d["precio_objetivo"], 24500.0)
+        self.assertEqual(d["anclas_usadas"], ["A1", "A3"])
+        self.assertEqual(d["contexto_mercado"]["hechos_usados"], ["Y1", "W1"])
+        d2, notas2 = CI.normalizar_dictamen({"precio_objetivo": 24.5}, anc)  # escrito en miles
+        self.assertEqual(d2["precio_objetivo"], 24500.0)
+        self.assertTrue(notas2)
+        d3, _ = CI.normalizar_dictamen({"precio_objetivo": 343.9}, {"rango": (80.0, 400.0)})
+        self.assertEqual(d3["precio_objetivo"], 343.9)  # USD: no se toca
+
+    def _gemini(self, respuestas):
+        """respuestas: lista de callables(req) -> bytes | excepción, una por intento."""
+        enviados = []
+
+        def fake_urlopen(req, timeout=None):
+            enviados.append((json.loads(req.data.decode("utf-8")), timeout))
+            r = respuestas.pop(0)(req)
+            if isinstance(r, Exception):
+                raise r
+            return _Resp(r)
+        return enviados, fake_urlopen
+
+    @staticmethod
+    def _ok(texto, finish="STOP"):
+        return lambda req: json.dumps({"candidates": [{"content": {"parts": [{"text": texto}]}, "finishReason": finish}]}).encode()
+
+    def test_json_truncado_pasa_al_siguiente_modelo(self):
+        enviados, fake = self._gemini([self._ok('{"a": ', "MAX_TOKENS"), self._ok('{"a": 1}')])
+        with mock.patch("urllib.request.urlopen", fake):
+            out = L._llamar_ia_redaccion("s", "u", api_key="AQ.t", proveedor="gemini", esquema_json={"type": "OBJECT"})
+        self.assertEqual(out, '{"a": 1}')
+        self.assertEqual(enviados[0][0]["generationConfig"]["maxOutputTokens"], 32768)
+        self.assertEqual(enviados[0][1], L.GEMINI_TIMEOUT_LARGO_SEG)
+        self.assertEqual(L._almacen_estado()["_ia_diagnostico"][0]["finish"], "MAX_TOKENS")
+
+    def test_timeout_no_detiene_la_cascada(self):
+        enviados, fake = self._gemini([lambda r: TimeoutError("timed out"), self._ok("ok")])
+        with mock.patch("urllib.request.urlopen", fake):
+            out = L._llamar_ia_redaccion("s", "u", api_key="AQ.t", proveedor="gemini")
+        self.assertEqual(out, "ok")
+
+    def test_401_en_un_modelo_prueba_los_demas(self):
+        import urllib.error
+        e401 = lambda req: urllib.error.HTTPError(req.full_url, 401, "u", {}, io.BytesIO(b'{"error":{"status":"UNAUTHENTICATED","details":[{"reason":"ACCESS_TOKEN_TYPE_UNSUPPORTED"}]}}'))
+        enviados, fake = self._gemini([e401, self._ok("ok")])
+        with mock.patch("urllib.request.urlopen", fake):
+            out = L._llamar_ia_redaccion("s", "u", api_key="AQ.t", proveedor="gemini")
+        self.assertEqual(out, "ok")
+
+    def test_401_en_todos_los_modelos_explica_la_clave_aq(self):
+        import urllib.error
+        n = len(L.GEMINI_MODELOS_PREFERIDOS) + 2
+        e401 = lambda req: urllib.error.HTTPError(req.full_url, 401, "u", {}, io.BytesIO(b"ACCESS_TOKEN_TYPE_UNSUPPORTED"))
+        enviados, fake = self._gemini([e401] * n)
+        with mock.patch("urllib.request.urlopen", fake), mock.patch.dict(os.environ, {"GEMINI_MODEL": ""}):
+            out = L._llamar_ia_redaccion("s", "u", api_key="AQ.t", proveedor="gemini")
+        self.assertIsNone(out)
+        self.assertIn("AQ.", L._get_ia_error())
+
+    def test_clave_invalida_se_informa_de_inmediato(self):
+        import urllib.error
+        e400 = lambda req: urllib.error.HTTPError(req.full_url, 400, "b", {}, io.BytesIO(b"API_KEY_INVALID"))
+        enviados, fake = self._gemini([e400])
+        with mock.patch("urllib.request.urlopen", fake):
+            self.assertIsNone(L._llamar_ia_redaccion("s", "u", api_key="AQ.t", proveedor="gemini"))
+        self.assertEqual(len(enviados), 1)
+        self.assertIn("no es válida", L._get_ia_error())
+
+    def test_fallo_del_dictamen_muestra_diagnostico(self):
+        with mock.patch.object(L, "_llamar_ia_redaccion", lambda *a, **k: None), \
+                mock.patch.object(L, "_metricas_comite_para_ia", lambda _n: {}), \
+                mock.patch.object(CI, "_multiplos_pares", return_value=(None, [])):
+            res = CI.generar_dictamen("ISA — Interconexión Eléctrica", api_key="AQ.t", proveedor="gemini",
+                                      metricas=_metricas(), buscar_web=False, contexto_mercado={"precio": 29000.0})
+        self.assertFalse(res["ok"])
+        self.assertIn("Diagnóstico técnico", res["html"])
