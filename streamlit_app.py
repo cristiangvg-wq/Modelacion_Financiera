@@ -2419,6 +2419,23 @@ def _ejecutar_comite_ia_sesion(empresa, w=None, de_ratio=1.0, g=0.03, moneda="CO
         st.session_state["tab4_comite_ia_auditoria"] = _audit_ctx
         if _audit_ctx.get("errors"):
             return False, "Comité IA bloqueado por errores: " + "; ".join(_audit_ctx["errors"])
+        # Un veto cuantitativo es un control de calidad, no una recomendación negativa
+        # sobre la acción. No llamar a la IA ni conservar una deliberación anterior.
+        _vetos = _metricas.get("vetos_calidad") or []
+        _decision_motor = str(_metricas.get("decision_modelo") or "").upper()
+        _veto_activo = bool(_metricas.get("control_calidad_modelo") or _vetos or "RECALIBRAR MODELO" in _decision_motor)
+        if _veto_activo:
+            _audit_ctx.setdefault("warnings", []).append(
+                "Comité IA pausado por veto de calidad del modelo; recalibrar y ejecutar de nuevo la pestaña 4. El veto no es rating de la acción."
+            )
+            st.session_state["tab4_comite_ia_auditoria"] = _audit_ctx
+            st.session_state["tab4_comite_ia_html"] = None
+            st.session_state["tab4_comite_empresa"] = empresa
+            return False, (
+                "Comité IA pausado por veto de calidad del modelo. Esto no es una calificación negativa de ISA "
+                "ni una recomendación de venta. Revisa los vetos/alertas, alinea monedas y unidades (COP/USD), "
+                "corrige el puente EV–equity si corresponde y vuelve a ejecutar la pestaña 4."
+            )
         respuesta = L.generar_recomendacion_comite_ia(
             empresa, api_key=key_eff, proveedor=prov_ia or "gemini", metricas=_metricas,
         )

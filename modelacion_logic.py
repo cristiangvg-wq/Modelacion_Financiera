@@ -7330,6 +7330,24 @@ def auditar_respuesta_comite_ia(respuesta, metricas=None):
     rec = re.search(r"RECOMENDACI[ÓO]N\s+FINAL\s*[:：-]*\s*(INVERTIR\s+CONDICIONALMENTE|NO\s+INVERTIR|INVERTIR)\b", upper)
     if not rec:
         warnings.append("No se identificó recomendación final dentro del vocabulario permitido")
+    # La respuesta debe respetar el estado de calidad y explicar divergencias materiales.
+    vetos = m.get("vetos_calidad") or []
+    veto_activo = bool(m.get("control_calidad_modelo") or vetos)
+    decision_motor = str(m.get("decision_modelo") or "").upper()
+    if veto_activo:
+        if rec and rec.group(1).replace("  ", " ") in ("INVERTIR", "INVERTIR CONDICIONALMENTE"):
+            errors.append("La IA recomienda invertir pese a un veto de calidad activo; debe pausarse la recomendación hasta recalibrar el modelo")
+        if "VETO DE CALIDAD" not in upper and "RECALIBRAR" not in upper:
+            errors.append("La respuesta omite el veto de calidad del modelo y la necesidad de recalibración")
+    elif rec:
+        recomendacion = re.sub(r"\s+", " ", rec.group(1)).strip()
+        favorable_motor = ("FAVORABLE" in decision_motor or "POSITIVO" in decision_motor)
+        prudente_motor = ("EVITAR" in decision_motor or "NEUTRAL" in decision_motor or "MONITOREAR" in decision_motor)
+        # La recomendación condicional puede ser una cautela compatible con el motor prudente.
+        # Solo exigir divergencia cuando la recomendación contradice directamente la señal.
+        diverge = (recomendacion == "INVERTIR" and prudente_motor) or (recomendacion == "NO INVERTIR" and favorable_motor)
+        if diverge and "DIVERGENCIA FRENTE AL MOTOR CUANTITATIVO" not in upper:
+            errors.append("La recomendación difiere del motor cuantitativo sin declarar y justificar la divergencia")
     score = re.search(r"PUNTAJE(?:\s+DE\s+VIABILIDAD)?\s*[:：-]*\s*(\d+(?:[.,]\d+)?)\s*(?:/\s*10)?", upper)
     if score:
         try:
@@ -7468,6 +7486,13 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 - **Estructura D/E:** {_fmt_num(de_ratio)} | **Crecimiento Terminal (g):** {_fmt_pct(g)}
 - **Valor del Negocio (EV Base):** {_fmt_num(val_ev)}
 - **Valor del Equity Base:** {_fmt_num(val_equity)}
+- **Decisión del motor cuantitativo:** {m.get("decision_modelo") or "N/D"}
+- **Veto de calidad activo:** {"SÍ" if (m.get("control_calidad_modelo") or m.get("vetos_calidad")) else "NO"}
+- **Vetos de calidad (no son rating de la acción):** {"; ".join(map(str, m.get("vetos_calidad") or [])) or "ninguno registrado"}
+- **Alertas del motor:** {"; ".join(map(str, m.get("alertas_modelo") or [])) or "ninguna registrada"}
+- **Soportes del motor:** {"; ".join(map(str, m.get("soportes_modelo") or [])) or "ninguno registrado"}
+- **Calidad/fuente financiera:** {m.get("nivel_calidad") or "N/D"} / {m.get("fuente_financiera") or "N/D"}
+- **Fuente de mercado:** {m.get("fuente_mercado") or "N/D"}
 {('- **Datos incompletos en el modelo:** ' + ', '.join(faltantes)) if faltantes else ''}
 
 ---
@@ -7481,7 +7506,7 @@ def generar_recomendacion_comite_ia(nombre_empresa, api_key=None, proveedor="gem
 REGLAS PERMANENTES DE CALIDAD (libro versionado en el repositorio):
 {_reglas_calidad_ia_para_prompt()}
 
-REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles.
+REGLAS DE AUDITORÍA PARA LA IA: no conviertas N/D ni cero inválido en una observación real; no inventes comparables, cotizaciones, macrodatos ni precio objetivo. Si no hay fuentes de mercado verificadas en el contexto, declara que no se realizó contraste externo y limita el dictamen a los datos suministrados. Si hay errores bloqueantes, no emitas recomendación de inversión ni puntaje; pide corregir inputs. Puntaje/rango objetivo solo si explicas método y datos disponibles. La decisión del motor cuantitativo y sus vetos/alertas son evidencia obligatoria para la deliberación: no los omitas ni los conviertas automáticamente en rating de la acción. Si existe un veto de calidad, la salida debe indicar que el comité queda condicionado a recalibrar el modelo y que el veto NO equivale a "NO INVERTIR" ni a una orden de venta. Si la recomendación final difiere del sesgo cuantitativo, incluye literalmente "DIVERGENCIA FRENTE AL MOTOR CUANTITATIVO" y explica con datos por qué.
 
 ### INSTRUCCIONES Y FORMATO DE SALIDA
 Simula una deliberación crítica entre los tres miembros del comité contrastando estos números con la realidad del mercado.
@@ -8210,6 +8235,13 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "val_equity": _finite_or_none(val_base.get("Equity_Value")),
                     "equity_pesimista": _finite_or_none(val_pes.get("Equity_Value")),
                     "decision_modelo": decision,
+                    "vetos_calidad": list(motor.get("vetos") or []),
+                    "alertas_modelo": list(motor.get("alertas") or []),
+                    "soportes_modelo": list(motor.get("soportes") or []),
+                    "control_calidad_modelo": bool(motor.get("control_calidad_modelo")),
+                    "nivel_calidad": prov.get("nivel_calidad"),
+                    "fuente_financiera": prov.get("fuente_financiera"),
+                    "fuente_mercado": prov.get("fuente_mercado"),
                     "unidad_modelo": f"miles de millones de {mon_modelo}",
                     "unidad_precio": "por acción",
                     "fuente_precio": _snap.get("fuente"),
