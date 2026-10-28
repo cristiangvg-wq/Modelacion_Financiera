@@ -404,6 +404,7 @@ def recopilar_hechos(nombre_empresa, m, contexto_mercado, api_key=None, proveedo
     )
     fuentes = L.fuentes_ultima_ia()
     estado = dict(L._almacen_estado().get("_ia_busqueda_web") or {})
+    out["diagnostico"] = [{"paso": "hechos", **x} for x in (L._almacen_estado().get("_ia_diagnostico") or [])]
     crudo = _extraer_json(texto) if texto else None
     lista = (crudo.get("hechos") if isinstance(crudo, dict) else crudo) if crudo else []
     buenos, descartados = _depurar_hechos_web(lista if isinstance(lista, list) else [], fuentes)
@@ -517,7 +518,7 @@ D. HOJA DE HECHOS (solo puedes citar estos ids)
 REGLAS
 1. No inventes cifras, comparables, consensos ni eventos: lo que no esté en A–D no existe para este dictamen.
 2. Si hubiera errores bloqueantes en los datos, no recomiendes: no es el caso de este contexto, que ya pasó la auditoría previa.
-3. precio_objetivo: un número en {mon_px} dentro del rango permitido de la sección C, construido eligiendo o ponderando anclas; lista sus ids en anclas_usadas y explica la ponderación en metodo_precio_objetivo. Sin anclas → null.
+3. precio_objetivo: un número JSON en {mon_px}, sin separadores de miles (ej. 24500.5), dentro del rango permitido de la sección C, construido eligiendo o ponderando anclas; lista sus ids en anclas_usadas y explica la ponderación en metodo_precio_objetivo. Sin anclas → null.
 4. Con veto de calidad: no puedes recomendar COMPRAR y condicionado_a_recalibrar = true (el veto no es orden de venta).
 5. Si recomiendas COMPRAR con el motor prudente o VENDER con el motor favorable: divergencia_motor.hay_divergencia = true y justifícalo con cifras.
 6. Si el WACC del modelo difiere > 150 pb del implícito en el precio, explica en analisis_interno qué supuesto produce la brecha (tasa local vs. paridad, crecimiento/RONIC, puente) antes de concluir caro o barato.
@@ -532,6 +533,50 @@ Devuelve SOLO este JSON:
  "riesgos": [{{"riesgo": "...", "indicador": "..."}}], "catalizadores": [{{"catalizador": "...", "ventana": "..."}}],
  "cambiaria_la_recomendacion": ["..."], "divergencia_motor": {{"hay_divergencia": false, "justificacion": ""}},
  "condicionado_a_recalibrar": false}}"""
+
+
+def normalizar_dictamen(d, anclas=None):
+    """Corrige formas inocuas antes de validar: convicción "7" o 7.0, precio "24.500" o
+    "24,500.5", recomendación con texto extra ("Mantener (neutral)"), objetivo escrito
+    en miles (29.0 en vez de 29.000 COP cuando el rango de anclas está en miles).
+    Devuelve (dictamen, notas). No inventa campos ausentes."""
+    notas = []
+    if not isinstance(d, dict):
+        return d, notas
+    d = dict(d)
+    rec = str(d.get("recomendacion") or "").upper()
+    rec = rec.replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
+    hallado = [v for v in VOCAB if re.search(rf"\b{v}\b", rec)]
+    if len(hallado) == 1:
+        d["recomendacion"] = hallado[0]
+    c = d.get("conviccion")
+    if isinstance(c, str) and re.fullmatch(r"\s*\d{1,2}(?:[.,]0+)?\s*(?:/\s*10)?\s*", c):
+        d["conviccion"] = int(float(re.match(r"\s*(\d{1,2})", c).group(1)))
+    elif isinstance(c, float) and c.is_integer():
+        d["conviccion"] = int(c)
+    po = d.get("precio_objetivo")
+    if isinstance(po, str):
+        if po.strip().upper() in ("", "N/D", "ND", "NULL", "NONE"):
+            d["precio_objetivo"] = None
+        else:
+            v = L._numero_texto_es_en(re.sub(r"[^\d.,]", "", po))
+            if v is not None:
+                d["precio_objetivo"] = v
+                notas.append(f"precio_objetivo «{po}» interpretado como {v:,.2f}")
+    po = _num(d.get("precio_objetivo"))
+    rango = (anclas or {}).get("rango")
+    if po and rango and po < rango[0] / 100 and rango[0] / 1000 * 0.97 <= po <= rango[1] / 1000 * 1.03:
+        d["precio_objetivo"] = po * 1000
+        notas.append(f"precio_objetivo {po} parecía escrito en miles; se usó {po * 1000:,.2f}")
+    for k in ("anclas_usadas",):
+        if isinstance(d.get(k), str):
+            d[k] = re.findall(r"A\d{1,2}", d[k])
+    ctx = d.get("contexto_mercado")
+    if isinstance(ctx, dict) and isinstance(ctx.get("hechos_usados"), str):
+        ctx = dict(ctx)
+        ctx["hechos_usados"] = re.findall(r"[WY]\d{1,2}", ctx["hechos_usados"])
+        d["contexto_mercado"] = ctx
+    return d, notas
 
 
 def validar_dictamen(d, m, anclas, ids_hechos):
@@ -621,9 +666,15 @@ def razonar_dictamen(m, anclas, hechos, api_key=None, proveedor="gemini", contex
     texto = llamar(_SISTEMA_DICTAMEN, prompt, temperature=0.2, api_key=api_key, proveedor=proveedor,
                    esquema_json=ESQUEMA_DICTAMEN)
     if not texto:
-        return {"dictamen": None, "auditoria": None, "intentos": 1, "error": L._get_ia_error() or "Sin respuesta del proveedor de IA."}
-    d = _extraer_json(texto)
+        return {"dictamen": None, "auditoria": None, "intentos": 1,
+                "diagnostico": [{"paso": "dictamen", **x} for x in (L._almacen_estado().get("_ia_diagnostico") or [])],
+                "error": L._get_ia_error() or "Sin respuesta del proveedor de IA."}
+    diag = [{"paso": "dictamen", **x} for x in (L._almacen_estado().get("_ia_diagnostico") or [])]
+    d, notas = normalizar_dictamen(_extraer_json(texto), anclas)
     aud = validar_dictamen(d, m, anclas, ids)
+    aud["warnings"] = notas + aud["warnings"]
+    if d is None:
+        aud["extracto"] = str(texto)[:600]
     intentos = 1
     if not aud["ok"]:
         intentos = 2
@@ -634,14 +685,18 @@ def razonar_dictamen(m, anclas, hechos, api_key=None, proveedor="gemini", contex
         )
         texto2 = llamar(_SISTEMA_DICTAMEN, reintento, temperature=0.1, api_key=api_key, proveedor=proveedor,
                         esquema_json=ESQUEMA_DICTAMEN)
+        diag += [{"paso": "dictamen (corrección)", **x} for x in (L._almacen_estado().get("_ia_diagnostico") or [])]
         if texto2:
-            d2 = _extraer_json(texto2)
+            d2, notas2 = normalizar_dictamen(_extraer_json(texto2), anclas)
             aud2 = validar_dictamen(d2, m, anclas, ids)
+            aud2["warnings"] = notas2 + aud2["warnings"]
+            if d2 is None:
+                aud2["extracto"] = str(texto2)[:600]
             if aud2["ok"] or (d2 and len(aud2["errors"]) < len(aud["errors"])):
                 d, aud = d2, aud2
     if isinstance(d, dict):
         d["recomendacion"] = str(d.get("recomendacion") or "").strip().upper()
-    return {"dictamen": d, "auditoria": aud, "intentos": intentos,
+    return {"dictamen": d, "auditoria": aud, "intentos": intentos, "diagnostico": diag,
             "error": None if aud["ok"] else "Dictamen rechazado por la auditoría: " + "; ".join(aud["errors"])}
 
 
@@ -757,6 +812,24 @@ def dictamen_a_html(res):
 </div>"""
 
 
+def texto_diagnostico(res, extracto=None):
+    """Resumen técnico copiable de la última ejecución (sin claves)."""
+    lineas = [f"Comité {VERSION_COMITE} · proveedor {res.get('proveedor')} · {res.get('fecha')}",
+              f"Error: {res.get('error') or 'ninguno'}",
+              f"Búsqueda web: {(res.get('busqueda') or {}).get('usada')} · hechos web aceptados "
+              f"{len([h for h in res.get('hechos') or [] if h.get('origen') == 'web'])} · descartados {len(res.get('descartados') or [])}"]
+    for x in res.get("diagnostico") or []:
+        lineas.append(" · ".join(f"{k}={v}" for k, v in x.items() if v not in (None, "")))
+    if extracto:
+        lineas.append("Extracto de la respuesta: " + str(extracto)[:600])
+    return "\n".join(lineas)
+
+
+def html_diagnostico(res, extracto=None):
+    return ('<details style="margin-top:8px"><summary>Diagnóstico técnico (cópialo si necesitas soporte)</summary>'
+            f'<pre style="white-space:pre-wrap;font-size:12px">{_e(texto_diagnostico(res, extracto))}</pre></details>')
+
+
 def _html_error(titulo, detalle):
     return (f'<div class="result-note" style="border-left:4px solid #DC2626"><b>{_e(titulo)}</b><br>'
             f'{"<br>".join(_e(x) for x in (detalle if isinstance(detalle, list) else [detalle]))}</div>')
@@ -834,7 +907,8 @@ def generar_dictamen(nombre_empresa, api_key=None, proveedor="gemini", metricas=
     anclas = calcular_anclas(nombre_empresa, m, cm)
     paso1 = recopilar_hechos(nombre_empresa, m, cm, api_key=api_key, proveedor=proveedor, buscar_web=buscar_web)
     res.update({"anclas": anclas, "hechos": paso1["hechos"], "fuentes": paso1["fuentes"],
-                "descartados": paso1["descartados"], "busqueda": paso1["busqueda"]})
+                "descartados": paso1["descartados"], "busqueda": paso1["busqueda"],
+                "diagnostico": list(paso1.get("diagnostico") or [])})
 
     clave = clave_insumos(m, anclas, paso1["hechos"], proveedor, buscar_web)
     res["clave"] = clave
@@ -847,12 +921,13 @@ def generar_dictamen(nombre_empresa, api_key=None, proveedor="gemini", metricas=
 
     paso2 = razonar_dictamen(m, anclas, paso1["hechos"], api_key=api_key, proveedor=proveedor, contexto_mercado=cm)
     res["auditoria"] = paso2["auditoria"]
+    res["diagnostico"] = res.get("diagnostico", []) + list(paso2.get("diagnostico") or [])
     if paso2["error"] or not isinstance(paso2["dictamen"], dict):
         res["error"] = paso2["error"] or "Dictamen vacío."
         titulo = ("No se pudo generar el dictamen del comité." if paso2["auditoria"] is None
                   else "Dictamen IA rechazado por controles de calidad (se intentó una corrección automática).")
         detalle = (paso2["auditoria"] or {}).get("errors") or [res["error"]]
-        res["html"] = _html_error(titulo, detalle)
+        res["html"] = _html_error(titulo, detalle) + html_diagnostico(res, (paso2["auditoria"] or {}).get("extracto"))
         return res
     res.update({"ok": True, "dictamen": paso2["dictamen"]})
     res["markdown"] = dictamen_a_markdown(paso2["dictamen"], anclas, paso1["hechos"])

@@ -1,0 +1,44 @@
+name: Prueba del comité IA con Gemini real
+
+# Manual: Actions → «Prueba del comité IA con Gemini real» → Run workflow.
+# Requiere el secreto de repositorio GEMINI_API_KEY (Settings → Secrets and variables → Actions).
+on:
+  pull_request:
+    paths: ["comite_ia.py", "modelacion_logic.py", "scripts/*comite*.py", ".github/workflows/prueba-gemini-real.yml"]
+  workflow_dispatch:
+    inputs:
+      empresa:
+        description: "Empresa del catálogo o ticker descargado"
+        required: false
+        default: "ISA — Interconexión Eléctrica"
+
+permissions:
+  contents: read
+
+jobs:
+  gemini:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Verificar secreto
+        id: clave
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then echo "Sin secreto GEMINI_API_KEY: prueba omitida."; echo "hay=no" >> "$GITHUB_OUTPUT"; else echo "hay=si" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.clave.outputs.hay == 'si'
+      - uses: actions/setup-python@v5
+        if: steps.clave.outputs.hay == 'si'
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Instalar dependencias
+        if: steps.clave.outputs.hay == 'si'
+        run: pip install -r requirements.txt
+      - name: Prueba de humo (búsqueda web + dictamen)
+        if: steps.clave.outputs.hay == 'si'
+        run: python scripts/smoke_gemini_comite.py "${{ github.event.inputs.empresa || 'ISA — Interconexión Eléctrica' }}"
+      - name: Banco de evaluación con el proveedor real
+        if: always() && steps.clave.outputs.hay == 'si'
+        run: python scripts/evaluar_comite_ia.py --vivo gemini

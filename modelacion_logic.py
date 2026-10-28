@@ -6769,7 +6769,8 @@ GEMINI_MODELOS_PREFERIDOS = (
     "gemini-2.5-flash",
 )
 GEMINI_TIMEOUT_SEG = 45
-GEMINI_PRESUPUESTO_SEG = 120
+GEMINI_TIMEOUT_LARGO_SEG = 120    # búsqueda web o salida JSON larga (modelos con razonamiento tardan más)
+GEMINI_PRESUPUESTO_SEG = 240
 
 
 def fuentes_ultima_ia():
@@ -6814,6 +6815,13 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
     """
     _almacen_estado()["_ia_ultimas_fuentes"] = []
     _almacen_estado()["_ia_busqueda_web"] = {"solicitada": bool(buscar_web), "usada": False, "consultas": []}
+    _almacen_estado()["_ia_diagnostico"] = []   # un registro por intento (modelo, HTTP, finishReason, segundos)
+
+    def _diag(**kw):
+        try:
+            _almacen_estado().setdefault("_ia_diagnostico", []).append(kw)
+        except Exception:
+            pass
     import os
     import json as _json
     import urllib.request
@@ -6889,6 +6897,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
             if m not in models:
                 models.append(m)
         last_err = None
+        errores_auth = []
         t0 = _time.monotonic()
         for model in models:
             if _time.monotonic() - t0 > GEMINI_PRESUPUESTO_SEG:
@@ -6908,7 +6917,9 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                 ],
                 "generationConfig": {
                     "temperature": float(temperature),
-                    "maxOutputTokens": 8192,
+                    # Con modelos de razonamiento los tokens de "pensamiento" cuentan en este tope:
+                    # 8.192 truncaba el JSON del dictamen (finishReason MAX_TOKENS).
+                    "maxOutputTokens": 32768 if (esquema_json or buscar_web) else 8192,
                 },
             }
             usar_esquema = bool(esquema_json) and not buscar_web and \
@@ -6919,20 +6930,30 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
             usar_busqueda = bool(buscar_web) and not _almacen_estado().get("_ia_busqueda_no_soportada", {}).get(model)
             if usar_busqueda:
                 body_dict["tools"] = [{"google_search": {}}]
+            _t_ini = _time.monotonic()
             try:
                 data = _http_json(
                     url,
                     body_dict,
                     headers={"Content-Type": "application/json", "x-goog-api-key": key},
-                    timeout=GEMINI_TIMEOUT_SEG,
+                    timeout=GEMINI_TIMEOUT_LARGO_SEG if (esquema_json or buscar_web) else GEMINI_TIMEOUT_SEG,
                 )
                 cands = data.get("candidates") or []
                 if not cands:
                     fb = data.get("promptFeedback") or data
                     last_err = f"Gemini sin candidatos (modelo={model}). Feedback: {str(fb)[:300]}"
+                    _diag(modelo=model, http=200, finish=None, seg=round(_time.monotonic() - _t_ini, 1), error=last_err)
                     continue
                 parts = (cands[0].get("content") or {}).get("parts") or []
-                text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+                # Las partes de "pensamiento" (thought=True) no son la respuesta.
+                text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and not p.get("thought")).strip()
+                finish = cands[0].get("finishReason")
+                _diag(modelo=model, http=200, finish=finish, seg=round(_time.monotonic() - _t_ini, 1),
+                      busqueda=usar_busqueda, esquema=usar_esquema, chars=len(text))
+                if text and finish == "MAX_TOKENS" and esquema_json:
+                    # JSON truncado: no sirve; probar el siguiente modelo.
+                    last_err = f"Gemini cortó la respuesta por límite de tokens (modelo={model})."
+                    continue
                 if text:
                     _set_ia_error(None)
                     _almacen_estado()["_ia_ultimo_modelo"] = model
@@ -6951,6 +6972,7 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                     detail = str(e)
                 detail = detail.replace(key, "***") if key else detail
                 last_err = f"HTTP {e.code} Gemini modelo={model}. Detalle: {detail}"
+                _diag(modelo=model, http=e.code, finish=None, seg=round(_time.monotonic() - _t_ini, 1), error=detail[:300])
                 if e.code == 400 and usar_esquema and "API_KEY" not in detail.upper():
                     _almacen_estado().setdefault("_ia_esquema_no_soportado", {})[model] = True
                     models.insert(models.index(model) + 1, model)
@@ -6960,13 +6982,27 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                     _almacen_estado().setdefault("_ia_busqueda_no_soportada", {})[model] = True
                     models.insert(models.index(model) + 1, model)
                     continue
-                if e.code in (400, 401, 403) and ("API_KEY" in detail.upper() or e.code != 400):
-                    _set_ia_error(last_err + " — key inválida o API Gemini no habilitada en el proyecto.")
+                if "API_KEY_INVALID" in detail.upper() or (e.code == 400 and "API_KEY" in detail.upper()):
+                    _set_ia_error(last_err + " — la API key no es válida.")
                     return None
+                if e.code in (401, 403):
+                    # Claves AQ. de AI Studio: Google indica que ACCESS_TOKEN_TYPE_UNSUPPORTED suele
+                    # deberse a un modelo retirado; se prueban los demás antes de culpar a la clave.
+                    errores_auth.append(model)
+                    continue
                 continue  # 404 modelo inexistente / 429 cuota / 5xx → siguiente modelo
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203
                 last_err = f"Error Gemini ({type(e).__name__}): {e}"
+                _diag(modelo=model, http=None, finish=None, seg=round(_time.monotonic() - _t_ini, 1), error=last_err[:300])
+                # Un timeout en un modelo lento no debe impedir probar uno más rápido.
+                if isinstance(e, (TimeoutError, OSError)) or "timed out" in str(e).lower():
+                    continue
                 break
+        if errores_auth and len(errores_auth) == len({m for m in models}):
+            last_err = (last_err or "") + (
+                " — Gemini rechazó la autenticación en todos los modelos. Si tu clave empieza por «AQ.», "
+                "crea una nueva en AI Studio (https://aistudio.google.com/apikey) y verifica que la Generative "
+                "Language API esté habilitada en su proyecto.")
         _set_ia_error(last_err or "Gemini no respondió.")
         return None
 

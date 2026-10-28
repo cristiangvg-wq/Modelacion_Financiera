@@ -43,6 +43,11 @@ def main(empresa):
     for h in res["descartados"]:
         print(f"  ✗ {h.get('motivo_descarte')}: {h['hecho'][:80]}")
     print(f"Anclas: {[(a['id'], round(a['vps_precio'] or 0, 2)) for a in res['anclas'].get('anclas', [])]} rango={res['anclas'].get('rango')}")
+    print("Intentos:")
+    for x in res.get("diagnostico") or []:
+        print("  " + " · ".join(f"{k}={v}" for k, v in x.items() if v not in (None, "")))
+    if res.get("error"):
+        print(f"Error: {res['error']} · último error IA: {L._get_ia_error()}")
     aud = res.get("auditoria") or {}
     print(f"Dictamen ok={res['ok']} errores={aud.get('errors')} advertencias={aud.get('warnings')}")
     if res["ok"]:
