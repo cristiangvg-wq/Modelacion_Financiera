@@ -46,6 +46,12 @@ def correr(nombre):
 def main(argv):
     L.vincular_estado_sesion({})
     nombres = list(PREDEFINIDAS)
+    for n in PREDEFINIDAS:  # igual que la app: datos de Yahoo para el catálogo (respaldo curado si falla)
+        try:
+            est = L.preparar_empresa(n)
+            print(f"[{n}] fuente: {est.get('fuente')}")
+        except Exception as e:
+            print(f"[{n}] sin descarga ({e}): se usa el catálogo curado")
     for tk in (argv or USUARIO_DEFECTO):
         ok, html, nombre, _ = L.buscar_y_descargar_empresa(tk)
         if not ok:
