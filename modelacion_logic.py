@@ -10770,6 +10770,125 @@ def _pct_txt(v, dec=2):
         return "N/D"
 
 
+ESTADOS_DATO = {
+    "OBSERVADO": "dato de una fuente identificable (validar fecha y definición)",
+    "CURADO": "revisado o conciliado a mano (catálogo)",
+    "ESTIMADO": "sustituto o regla del modelo: leer con su sensibilidad",
+    "USUARIO": "escrito o cargado por el usuario",
+    "FALTANTE": "no disponible: no se reemplaza por cero en silencio",
+}
+
+
+def _estado_por_fuente(fuente, por_defecto="OBSERVADO"):
+    f = str(fuente or "").lower()
+    if not f:
+        return por_defecto
+    if any(k in f for k in ("hoja parámetros", "usuario", "archivo", "excel")):
+        return "USUARIO"
+    if f.startswith("yahoo") or f.startswith("estados_financieros") or f == "sharesoutstanding":
+        return "OBSERVADO"  # dato de Yahoo, aunque la fuente cite una referencia adicional
+    if any(k in f for k in ("catálogo", "catalogo", "curad")):
+        return "CURADO"
+    if any(k in f for k in ("proxy", "bottom-up", "industria", "estatutaria", "default", "balance anual",
+                            "regla", "spread", "inferid", "trimestres", "precio ×", "supuest")):
+        return "ESTIMADO"
+    return "OBSERVADO"
+
+
+def calidad_variables(nombre_empresa, usados=None):
+    """Estado de cada variable crítica de la valoración: OBSERVADO, CURADO, ESTIMADO, USUARIO o FALTANTE.
+
+    `usados` son los valores que el modelo realmente aplicó (barra lateral): si difieren del dato de la
+    fuente, la variable queda como USUARIO. Devuelve filas [variable, valor, estado, fuente].
+    """
+    u = dict(usados or {})
+    p = params_empresa(nombre_empresa) or {}
+    pa = parametros_archivo(nombre_empresa)
+    est_f = estado_fuente_empresa(nombre_empresa) or {}
+    filas = []
+
+    def distinto(k, ref, tol=0.005):
+        v = u.get(k)
+        if v is None or ref is None:
+            return False
+        try:
+            v, ref = float(v), float(ref)
+        except (TypeError, ValueError):
+            return False
+        return abs(v - ref) > tol * max(abs(ref), 1e-9) + 1e-9
+
+    def fila(nombre, k, valor_txt, fuente, por_defecto="OBSERVADO", faltante=False):
+        if faltante:
+            estado = "FALTANTE"
+        elif k in pa:
+            estado, fuente = "USUARIO", "hoja Parámetros del Excel"
+        elif distinto(k, p.get(k)):
+            estado, fuente = "USUARIO", f"escrito en la barra lateral (fuente: {fuente or 'N/D'})"
+        else:
+            estado = _estado_por_fuente(fuente, por_defecto)
+        filas.append([nombre, valor_txt, estado, str(fuente or "N/D")])
+
+    # Estados financieros
+    origen = str(p.get("origen_params") or "")
+    if historico_usuario(nombre_empresa):
+        filas.append(["Estados financieros", "", "USUARIO", "histórico corregido con cifras oficiales"])
+    elif origen == "excel_desde_cero" or pa:
+        filas.append(["Estados financieros", "", "USUARIO", "Excel/CSV cargado"])
+    elif est_f.get("fuente") == "yahoo":
+        filas.append(["Estados financieros", "", "OBSERVADO", "Yahoo Finance (agregado, no auditado)"])
+    elif est_f.get("fuente") == "curado":
+        filas.append(["Estados financieros", "", "CURADO", "serie curada del catálogo"])
+    elif est_f.get("fuente") == "sin_datos":
+        filas.append(["Estados financieros", "", "FALTANTE", "sin serie: cargar estados financieros"])
+    else:
+        filas.append(["Estados financieros", "", "OBSERVADO", p.get("fuente") or "Yahoo Finance"])
+
+    dn = u.get("deuda_neta", p.get("deuda_neta"))
+    de = u.get("de_ratio", p.get("de_ratio"))
+    fila("Deuda neta", "deuda_neta", _fmt_monto(dn), p.get("deuda_fuente") or "Yahoo Finance (totalDebt − totalCash)",
+         faltante=(dn is not None and abs(float(dn)) < 1e-9 and float(de or 0) > 0.2))
+    fila("Caja", "caja", _fmt_monto(u.get("caja", p.get("caja"))), p.get("caja_fuente") or "Yahoo Finance (totalCash)")
+    acc = u.get("acciones", p.get("acciones"))
+    fila("Acciones (millones)", "acciones", _fmt_monto(acc), p.get("acciones_fuente") or "N/D", faltante=not acc)
+    _det = str(est_f.get("detalle") or "")
+    _de_cat = "completado con catálogo" in _det.lower()
+
+    def _fuente_puente(k):
+        if p.get(f"{k}_fuente"):
+            return p[f"{k}_fuente"]
+        if _de_cat and k in _det:
+            return "catálogo curado (Yahoo no lo reporta)"
+        return "catálogo curado" if est_f.get("fuente") == "curado" else "Yahoo Finance (balance)"
+    fila("Interés minoritario", "nci", _fmt_monto(u.get("nci", p.get("nci"))), _fuente_puente("nci"))
+    sdp = suma_partes_sesion(nombre_empresa)
+    if sdp:
+        filas.append(["Asociadas", _fmt_monto(sdp.get("total")), "USUARIO", "suma de partes de las participadas"])
+    else:
+        fila("Asociadas", "asociados", _fmt_monto(u.get("asociados", p.get("asociados"))), _fuente_puente("asociados"))
+    fila("Beta sin deuda", "beta_u", f"{float(u.get('beta_u', p.get('beta_u')) or 0):.2f}", p.get("beta_fuente"))
+    fila("Tasa de impuestos", "tax", _pct_txt(u.get("tax", p.get("tax")), 1), p.get("tax_fuente"))
+    fila("Costo de la deuda (Kd)", "kd", _pct_txt(u.get("kd", p.get("kd"))), p.get("kd_fuente") or "regla: rf + spread")
+    mon = str(p.get("moneda") or "").upper()
+    tm = TASAS_MERCADO.get("co_rf_bruto" if mon == "COP" else "us_rf") or {}
+    venc = [a for a in tasas_vigencia() if ("TES" in a if mon == "COP" else "Tesoro" in a)]
+    filas.append(["Tasa libre de riesgo", _pct_txt(u.get("rf")), "USUARIO" if u.get("rf_editada") else "OBSERVADO",
+                  f"{tm.get('fuente', 'N/D')} · {tm.get('fecha', '')}" + (" · desactualizada" if venc else "")])
+    crp = float(u.get("crp") or 0)
+    filas.append(["Primas ERP / CRP", f"{_pct_txt(u.get('erp'))} / {_pct_txt(crp)}",
+                  "USUARIO" if u.get("erp_editada") else "OBSERVADO",
+                  "Damodaran (NYU Stern)" + (" · CRP con flujos en pesos: posible doble conteo" if mon == "COP" and crp > 0 else "")])
+    px_ref = p.get("precio_referencia")
+    snap = instantanea_precio_mercado(nombre_empresa) or {}
+    if px_ref and not snap.get("precio"):
+        filas.append(["Precio de la acción", _fmt_precio(px_ref), "USUARIO", "precio de la hoja Parámetros"])
+    else:
+        filas.append(["Precio de la acción", _fmt_precio(snap.get("precio")), "OBSERVADO" if snap.get("precio") else "FALTANTE",
+                      f"{snap.get('fuente') or 'Yahoo Finance'} · {str(snap.get('fecha') or '')[:10]}"])
+    for h in p.get("datos_completados") or []:
+        filas.append(["Dato completado", "", "ESTIMADO", str(h)])
+    return filas
+
+
 def _datos_informe_v3(nombre_empresa, *, df_hist, df_proj, meta_proj, val_base, escenarios, wacc, ke, beta_l, rf, erp,
                       crp, kd, tax, de_ratio, we, wd, beta_u, g, horizonte, precio, bp, mon_modelo, mon_precio,
                       capital_invertido, prov, mensaje_datos, motor, mid_year, g_max_macro, vpn_firma, tir_firma,
@@ -10876,6 +10995,18 @@ def _datos_informe_v3(nombre_empresa, *, df_hist, df_proj, meta_proj, val_base, 
         ["Múltiplos y betas por industria", "Aswath Damodaran (NYU Stern)", str(dv.get("multiplos") or "")],
         ["Pares del sector y consenso", "Yahoo Finance", datetime.now().strftime("%Y-%m-%d")],
     ]
+    try:
+        _p0 = params_empresa(nombre_empresa) or {}
+        _rf0, _erp0, _crp0, _ = _capm_para_ui(_p0)
+        out["calidad_variables"] = calidad_variables(nombre_empresa, {
+            "deuda_neta": bp.get("deuda_neta"), "caja": bp.get("caja"), "nci": bp.get("nci"),
+            "asociados": bp.get("asociados"), "acciones": val_base.get("acciones") or bp.get("acciones"),
+            "beta_u": beta_u, "tax": tax, "kd": kd, "de_ratio": de_ratio, "rf": rf, "erp": erp, "crp": crp,
+            "rf_editada": abs(float(rf) - float(_rf0)) > 1e-4,
+            "erp_editada": abs(float(erp) - float(_erp0)) > 1e-4 or abs(float(crp) - float(_crp0)) > 1e-4,
+        })
+    except Exception as _e_cal:
+        out["calidad_variables"] = [["Estado de los datos", "", "FALTANTE", f"no se pudo evaluar: {_e_cal}"[:120]]]
     out["nota_normalizacion"] = bool(nota_norm)
     out["alertas"] = list(motor.get("alertas") or [])[:6]
     out["vetos"] = list(motor.get("vetos") or [])
@@ -11092,6 +11223,13 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
     for a in datos.get("ajustes") or []:
         story.append(Paragraph("• " + e(a), st_["Cuerpo"]))
     story.append(Paragraph(e(datos.get("nota_normalizacion_texto") or ""), st_["Nota"]))
+    if datos.get("calidad_variables"):
+        story.append(Spacer(1, 3))
+        story.append(Paragraph("<b>Estado de cada dato</b> (OBSERVADO: fuente identificable · CURADO: revisado a mano · "
+                               "ESTIMADO: sustituto o regla, leer con su sensibilidad · USUARIO: escrito o cargado por ti · "
+                               "FALTANTE: no disponible)", st_["Nota"]))
+        story.append(tabla([["Variable", "Valor", "Estado", "Fuente"]] + [[str(c) for c in f] for f in datos["calidad_variables"]],
+                           [1.6 * inch, 1.0 * inch, 0.95 * inch, W - 3.55 * inch]))
     if datos.get("fuentes"):
         story.append(Spacer(1, 3))
         story.append(tabla([["Dato", "Fuente", "Fecha"]] + datos["fuentes"], [1.9 * inch, W - 3.1 * inch, 1.2 * inch]))
