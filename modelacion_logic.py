@@ -8864,6 +8864,8 @@ def _fila_sectorial_desde_emp(nombre, emp):
         "Precio": round(precio, 0) if precio else None,
         "Fuente múltiplo": fuente_mult,
         "Sector": emp.get("sector", ""),
+        # Moneda de las cifras: la tabla mezcla emisores en COP y USD (miles de millones de cada una).
+        "Moneda": str(emp.get("moneda") or (emp.get("params") or {}).get("moneda") or ""),
     }
     return row, short, fuente_mult, live_ok
 
@@ -9245,6 +9247,7 @@ def tab6_comparacion_sectorial(nombre_empresa):
                     {"empresa": str(r.get("Nombre") or r.get("Empresa")),
                      "ev_ebitda": _finite_or_none(r.get("EV/EBITDA (x)")),
                      "fuente": str(r.get("Fuente múltiplo") or ""),
+                     "moneda": str(r.get("Moneda") or ""),
                      "es_focal": str(r.get("Empresa") or "").upper() == _focal}
                     for _, r in df.iterrows()
                 ],
