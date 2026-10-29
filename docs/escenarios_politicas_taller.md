@@ -65,3 +65,14 @@ Registrar 3–5 interacciones reales ejecutadas, con fecha, prompt íntegro, arc
 - La TIR requiere interpretación cautelosa y puede no existir o no ser única en flujos no convencionales.
 - El indicador de dispersión no sustituye simulación Monte Carlo, VaR/CVaR ni pruebas de estrés.
 - Antes de entregar el taller, conectar los datos reales de la pestaña Pronóstico y verificar manualmente cada supuesto y resultado.
+
+
+## Integración con la interfaz existente
+
+La pestaña 10 toma la tabla de proyección producida por la pestaña 1, incluyendo ingresos, EBITDA, EBIT, depreciación, CAPEX, `Delta_NWC`, NOPAT y FCFF. No crea un pronóstico sustituto ni utiliza los valores numéricos de ejemplo de la primera versión.
+
+Los escenarios reutilizan `SHOCKS_ESCENARIOS`, `aplicar_shocks_drivers_proyeccion`, `valorar_con_bridge` y el puente EV→Equity del modelo principal. Por tanto, conservan los supuestos de WACC, g terminal, convención mid-year, deuda, caja, NCI, otros claims, asociados y acciones que están configurados en la aplicación. La pestaña muestra drivers observados en la proyección y el efecto de los shocks.
+
+Las políticas parten de la misma proyección. La política CAPEX reduce la inversión por el ahorro definido, con un piso como porcentaje de ingresos. La política de eficiencia aplica el incremento de EBIT y EBITDA indicado y carga el costo de implementación en el primer año. Después, el FCFF se recalcula con `recalcular_fcff` y se vuelve a valorar con el DCF y el puente existentes. La TIR se calcula con `metricas_proyecto_robustas` y la inversión inicial de la barra lateral; se etiqueta como TIR del proyecto, no como rendimiento de la acción.
+
+**Interpretación:** el cambio de EV entre la política y el caso base es el VPN incremental del cambio operativo bajo el mismo DCF, dado que el puente a equity se mantiene constante. Los supuestos de ahorro/mejora siguen siendo hipótesis editables y deben justificarse con evidencia antes de concluir que la política es viable.
