@@ -530,9 +530,9 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--equipo", default="[Integrante 1]; [Integrante 2]; [Integrante 3]; [Integrante 4]",
+    ap.add_argument("--equipo", default="Luisa Fernanda Cardona Vega; Gustavo Adolfo Castro Grijalba; Cristian Gabriel Vargas Gaviria",
                     help="Integrantes separados por ';'")
-    ap.add_argument("--fecha", default="[fecha de entrega]")
+    ap.add_argument("--fecha", default="5 de noviembre de 2026")
     ap.add_argument("--curso", default="Modelación financiera aplicada — Prof. Julio César Riascos")
     ap.add_argument("--mc", type=int, default=5000)
     ap.add_argument("--out", type=Path, default=OUT_PDF)
