@@ -3692,27 +3692,78 @@ def tasa_cop_por_usd():
     return None, "sin tasa COP/USD disponible"
 
 
-def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo):
-    """Convierte un precio por acción a la moneda del modelo (COP↔USD, tasa spot).
+def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo, tasas_cop_por_moneda=None):
+    """Convierte precio por acción a moneda del modelo sin inventar tipos de cambio.
 
-    Devuelve dict {precio, fx, fuente_fx} ; fx=None si no hubo conversión o no fue posible.
+    `tasas_cop_por_moneda` es un mapa explícito {ISO4217: COP por una unidad de esa moneda},
+    con fecha/fuente que el caller debe conservar por separado. Permite cruces como EUR→USD
+    solo cuando se proporcionan ambas tasas. Sin mapa, se mantiene el proveedor spot COP/USD
+    existente. No convierte estados financieros históricos.
     """
     out = {"precio": precio, "fx": None, "fuente_fx": None, "convertido": False}
-    mp = str(moneda_precio or "").upper()
-    mm = str(moneda_modelo or "").upper()
-    if precio is None or not mp or not mm or mp == mm:
-        return out
-    if {mp, mm} != {"COP", "USD"}:
+    mp = str(moneda_precio or "").strip().upper()
+    mm = str(moneda_modelo or "").strip().upper()
+    if precio is None or not mp or not mm:
         out["precio"] = None
-        out["fuente_fx"] = f"sin conversión {mp}→{mm}"
+        out["fuente_fx"] = "precio o moneda ausente"
         return out
-    fx, fuente = tasa_cop_por_usd()
-    if fx is None:
+    try:
+        px0 = float(precio)
+    except (TypeError, ValueError):
+        out["precio"] = None
+        out["fuente_fx"] = "precio no numérico"
+        return out
+    if not np.isfinite(px0):
+        out["precio"] = None
+        out["fuente_fx"] = "precio no finito"
+        return out
+    if mp == mm:
+        out["precio"] = px0
+        return out
+
+    tasas = dict(tasas_cop_por_moneda or {})
+    tasas = {str(k).strip().upper(): _safe_float(v) for k, v in tasas.items()}
+    # COP es el numerario de referencia; no requiere una tasa externa.
+    tasas.setdefault("COP", 1.0)
+
+    # Para COP/USD, fx conserva la cotización COP por USD; rate es el multiplicador
+    # aplicado al precio. Al convertir un precio COP a USD se multiplica por 1/fx.
+    if {mp, mm} == {"COP", "USD"}:
+        if mp in tasas and mm in tasas:
+            cop_por_usd = tasas.get("USD")
+            cop_por_cop = tasas.get("COP")
+            if (cop_por_usd is None or cop_por_cop is None or
+                    not np.isfinite(float(cop_por_usd)) or not np.isfinite(float(cop_por_cop)) or
+                    float(cop_por_usd) <= 0 or float(cop_por_cop) <= 0):
+                out["precio"] = None
+                out["fuente_fx"] = "tasas FX deben ser positivas y finitas"
+                return out
+            fx = float(cop_por_usd) / float(cop_por_cop)
+            fuente = "tasas explícitas COP/COP y COP/USD"
+        else:
+            fx, fuente = tasa_cop_por_usd()
+        if fx is not None and np.isfinite(float(fx)) and float(fx) > 0:
+            fx = float(fx)
+            rate = 1.0 / fx if mp == "COP" else fx
+            out.update({"precio": px0 * rate, "fx": fx, "fuente_fx": fuente, "convertido": True})
+            return out
         out["precio"] = None
         out["fuente_fx"] = fuente
         return out
-    px = float(precio) / fx if (mp == "COP" and mm == "USD") else float(precio) * fx
-    out.update({"precio": px, "fx": fx, "fuente_fx": fuente, "convertido": True})
+
+    if mp in tasas and mm in tasas:
+        origen, destino = tasas[mp], tasas[mm]
+        if origen is None or destino is None or origen <= 0 or destino <= 0:
+            out["precio"] = None
+            out["fuente_fx"] = "tasas FX deben ser positivas y finitas"
+            return out
+        rate = float(origen) / float(destino)
+        out.update({"precio": px0 * rate, "fx": rate,
+                    "fuente_fx": f"tasas explícitas COP/{mp} y COP/{mm}", "convertido": True})
+        return out
+
+    out["precio"] = None
+    out["fuente_fx"] = f"sin tasas FX verificables para {mp}→{mm}"
     return out
 
 
