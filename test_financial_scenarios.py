@@ -23,7 +23,6 @@ class FinancialScenariosTests(unittest.TestCase):
         result = construir_escenarios(BASE, 5)
         self.assertEqual(set(result), {"Pesimista", "Base", "Optimista"})
         self.assertEqual(len(result["Pesimista"]["ajustes"]), 5)
-        self.assertLess(result["Pesimista"]["supuestos"]["wacc"], 0.13) if False else None
         self.assertGreater(result["Optimista"]["ev"], result["Pesimista"]["ev"])
 
     def test_policy_outputs_compare_vpn_fcff_and_risk(self):
