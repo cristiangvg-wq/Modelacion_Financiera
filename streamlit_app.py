@@ -6184,7 +6184,7 @@ def main():
                         "Cada delta se compara contra el caso base del mismo escenario; así se separa el efecto de la política "
                         "del efecto de los supuestos pesimistas u optimistas. Los deltas de EV/Equity incluyen el valor terminal."
                     )
-                    st.markdown("#### 3. FCFF anual comparado")
+                    st.markdown("#### 4. FCFF anual comparado")
                     fs_detail_df = pd.DataFrame(fs_policy_detail)
                     if not fs_detail_df.empty:
                         st.dataframe(
