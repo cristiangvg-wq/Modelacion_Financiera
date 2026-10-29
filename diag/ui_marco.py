@@ -23,7 +23,7 @@ with sync_playwright() as pw:
     # parametros: ingresos por pais
     try:
         pg.get_by_text("Parámetros del modelo").first.click(timeout=10000); pg.wait_for_timeout(2000)
-        f = pg.get_by_label("Ingresos por país (opcional)").first
+        f = pg.get_by_role("textbox", name="Ingresos por país (opcional)").first
         f.fill("Brasil 40, Colombia 30, Chile 15, Perú 15"); f.press("Enter"); pg.wait_for_timeout(6000)
         sb = pg.locator('[data-testid="stSidebar"]').inner_text()
         i = sb.find("Prima ponderada"); log.append("OPS: " + sb[i:i + 200].replace("\n", " "))
@@ -37,7 +37,7 @@ with sync_playwright() as pw:
     pg.get_by_role("button", name="Optimizar portafolio").first.click(timeout=10000); pg.wait_for_timeout(100000)
     t = pg.locator('[role="tabpanel"]:visible').first.inner_text()
     open(f"{OUT}/tab8.txt", "w").write(t)
-    pg.screenshot(path=f"{OUT}/tab8.png", full_page=True)
+    pg.locator('[role="tabpanel"]:visible').first.screenshot(path=f"{OUT}/tab8.png")
     log.append(f"excepciones: {[x[:300] for x in pg.locator('[data-testid=stException]').all_inner_texts()]}")
     b.close()
 open(f"{OUT}/log.txt", "w").write("\n".join(log)); print("\n".join(log))

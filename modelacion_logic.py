@@ -1281,10 +1281,30 @@ def preparar_empresa(nombre_empresa, forzar=False):
                 completados.append("deuda_neta")
                 if pc.get("caja") is not None:
                     p["caja"] = pc["caja"]
+            # Industria de Damodaran del catálogo (curada) sobre la que infiere Yahoo: Celsia es «Power», no
+            # «Green & Renewable Energy» (0,46 frente a 0,59 desapalancada en emergentes).
+            if pc.get("industria_damodaran"):
+                _mk = _mercado_desde_pais(rt.get("pais")) or "CO"
+                _bd = damodaran_beta(explicita=pc["industria_damodaran"], mercado=_mk)
+                if _bd:
+                    _ref = (f"{_bd['fuente']}: {_bd['industria']} {_bd.get('region')} {float(_bd['beta_u']):.2f} "
+                            f"({int(_bd['n_firmas'] or 0)} empresas, corregida por caja)")
+                    if str(p.get("beta_fuente", "")).startswith("bottom-up"):
+                        p["beta_u"] = round(float(_bd["beta_u"]), 4)
+                        p["beta_fuente"] = f"bottom-up {_ref} (industria del catálogo; regresión no informativa)"
+                    p["beta_industria_u"] = round(float(_bd["beta_u"]), 4)
+                    p.pop("beta_brecha_industria", None)
+                    if not str(p.get("beta_fuente", "")).startswith("bottom-up") and abs(float(p.get("beta_u") or 0) - float(_bd["beta_u"])) >= 0.15:
+                        p["beta_brecha_industria"] = round(float(_bd["beta_u"]) - float(p.get("beta_u") or 0), 4)
             if str(p.get("beta_fuente", "")).startswith("proxy") and pc.get("beta_u"):
                 p["beta_u"] = pc["beta_u"]
                 p["beta_fuente"] = "catálogo (Yahoo sin β)"
                 completados.append("beta_u")
+            # Costo de la deuda: la calificación REAL del emisor (catálogo) manda sobre la sintética de Yahoo
+            # (Damodaran: la sintética es para quien no tiene calificación).
+            if cat.get("calificacion") and pc.get("kd"):
+                p["kd"], p["kd_fuente"] = pc["kd"], pc.get("kd_fuente") or f"calificación {cat['calificacion']}"
+                p.pop("calificacion_sintetica", None)
             rt["sector"] = cat.get("sector") or rt.get("sector")
             rt["descripcion"] = cat.get("descripcion") or rt.get("descripcion")
             rt["calificacion"] = cat.get("calificacion")
@@ -5657,7 +5677,11 @@ def calcular_nopat(ebit, tax):
 
 
 VENTAS_CAPITAL_RANGO = (0.10, 10.0)
-REINVERSION_LIGADA_POR_DEFECTO = True  # False: el CAPEX converge al mantenimiento (método anterior)
+# Reinversión ligada al crecimiento: opción de la narrativa (pestaña «Narrativa»), no el valor por defecto.
+# Con datos reales (28-oct-2026) baja ISA 17 %, BVC 34 % y lleva Celsia a ≈ 0: en utilities con tarifas
+# indexadas, parte del crecimiento nominal no exige capital nuevo y la razón ventas/capital histórica lo
+# sobrestima. Queda a decisión del usuario, con el impacto visible.
+REINVERSION_LIGADA_POR_DEFECTO = False
 
 
 def ventas_capital_historica(df_hist, capital_invertido=None, anios=3):
