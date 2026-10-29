@@ -107,11 +107,13 @@ La actualización de tasas requiere conectividad a los endpoints públicos del T
 
 ## Taller evaluativo 2026 — ISA
 
-Módulo académico reproducible de pronóstico 2026–2030, tres escenarios y dos políticas:
+Respuesta completa al taller (camino: evaluación empresarial): pronóstico 2026–2030 por drivers, WACC por CAPM, VPN y TIR implícita, cuatro escenarios con seis drivers, tornado y matriz WACC × g, tres políticas con regla SI–ENTONCES, umbrales de decisión, Monte Carlo y dashboard.
 
 ```bash
-python scripts/taller_isa.py
-python -m unittest discover -s tests -p 'test_taller_isa.py' -v
+python scripts/taller_isa.py                      # modelo y salidas en salidas_taller_isa/
+python -m pytest -q tests/test_taller_isa.py      # pruebas
+python scripts/generar_informe_taller_isa.py      # informe PDF en docs/
+streamlit run scripts/dashboard_taller_isa.py     # dashboard interactivo
 ```
 
-Consulta `docs/ENTREGA_TALLER_ISA.md` para los archivos, supuestos y limitaciones. Los shocks de escenarios y políticas son hipótesis editables; el WACC del módulo es ilustrativo, y no se debe usar como precio objetivo sin conciliar CAPEX, NWC y el puente EV–patrimonio.
+Consulta `docs/ENTREGA_TALLER_ISA.md` para la lista de entregables y `docs/Informe_Taller_ISA_2026.pdf` para el informe. Los supuestos de escenarios, políticas y umbrales son hipótesis editables; el resultado es académico, no un precio objetivo profesional.
