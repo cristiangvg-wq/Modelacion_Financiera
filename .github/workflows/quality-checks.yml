@@ -25,7 +25,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          pip install pytest pypdf
 
       - name: Verificar sintaxis
         run: python -m compileall -q .
@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for entry in "streamlit_app.py:8501"; do
+          for entry in "streamlit_app.py:8501" "scripts/dashboard_taller_isa.py:8502"; do
             app="${entry%%:*}"
             port="${entry##*:}"
             log_file="$(mktemp)"

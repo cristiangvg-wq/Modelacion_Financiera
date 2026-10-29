@@ -1,16 +1,27 @@
 # Entrega del Taller Evaluativo 2026 — ISA
 
-Archivos:
-- `scripts/taller_isa.py`: proyección 2026–2030, tres escenarios, dos políticas y exportación CSV/JSON.
-- `tests/test_taller_isa.py`: pruebas unitarias de drivers, fórmula FCFF, políticas y exportación.
-- `docs/taller_evaluativo_isa_2026.md`: método, supuestos, resultados que deben interpretarse con cautela y decisión condicionada.
-- `docs/ingenieria_prompts_taller_isa.md`: prompt maestro y cuatro interacciones resumidas.
-- Salidas generadas localmente: `salidas_taller_isa/` (se crean al ejecutar el script).
+**Camino:** Evaluación empresarial.
+
+## Entregables (según el enunciado)
+1. **Informe PDF:** `docs/Informe_Taller_ISA_2026.pdf` — portada, pronóstico y método, matriz de escenarios, políticas, decisión con umbrales, sección de ingeniería de prompts y técnicas. Antes de entregar, regenerarlo con los nombres del equipo y la fecha:
+   ```bash
+   python scripts/generar_informe_taller_isa.py --equipo "Nombre 1; Nombre 2; Nombre 3; Nombre 4" --fecha "AAAA-MM-DD"
+   ```
+2. **Código:** `scripts/taller_isa.py` (proyección, escenarios, políticas, sensibilidad, Monte Carlo, decisión), `tests/test_taller_isa.py` (18 pruebas) y `datos_taller_isa_2026.json` (datos con fuentes).
+3. **Anexo de prompts:** `docs/ingenieria_prompts_taller_isa.md` (también incluido como Anexo A del PDF).
+4. **Bonificación:** Monte Carlo en el script y dashboard `scripts/dashboard_taller_isa.py`.
 
 ## Ejecutar
 ```bash
 python scripts/taller_isa.py
-python -m unittest discover -s tests -p 'test_taller_isa.py' -v
+python -m pytest -q tests/test_taller_isa.py
+streamlit run scripts/dashboard_taller_isa.py
 ```
+Salidas en `salidas_taller_isa/` (no se versionan; se regeneran).
 
-**Advertencia importante:** las políticas y shocks son hipótesis académicas. El WACC del script es ilustrativo y los resultados no son un precio objetivo. Antes de una recomendación definitiva deben verificarse el CAPEX, NWC, WACC y puente EV–patrimonio con datos vigentes y el motor principal de la aplicación.
+## Pendiente del equipo antes de entregar
+- Poner nombres y fecha en la portada (comando de arriba).
+- Si el equipo usa otra IA, añadir sus interacciones al anexo con el mismo formato (prompt → salida clave → uso en el modelo) y regenerar el PDF.
+- Revisar y, si lo decide, ajustar los supuestos hipotéticos (`SCENARIOS`, `POLICIES`, `DECISION_THRESHOLDS`); el informe se actualiza solo al regenerarlo.
+
+Ver método y mapa criterio → código en `docs/taller_evaluativo_isa_2026.md`.

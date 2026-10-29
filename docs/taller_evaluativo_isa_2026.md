@@ -1,86 +1,57 @@
 # Taller evaluativo 2026 — ISA
-## Entrega reproducible: pronóstico, escenarios, políticas y decisión
+## Pronóstico, escenarios, políticas y decisión (camino: Evaluación empresarial)
 
-**Camino elegido:** Evaluación empresarial.  
-**Empresa:** ISA — Interconexión Eléctrica.  
-**Unidades:** miles de millones de COP; acciones (si se usan en el modelo de valoración principal) en millones y precio en COP/acción.  
-**Corte del catálogo de respaldo:** 27 de octubre de 2026.  
-**Estado:** versión académica reproducible; los shocks y políticas son hipótesis editables y deben contrastarse con datos oficiales y con el motor DCF principal.
+**Empresa:** ISA — Interconexión Eléctrica · **Unidades:** miles de millones de COP (valor por acción en COP).
+**Informe para entregar:** [`docs/Informe_Taller_ISA_2026.pdf`](Informe_Taller_ISA_2026.pdf) (7 páginas de cuerpo + anexos).
 
-## 1. Alcance y trazabilidad
-El script `scripts/taller_isa.py` lee el histórico de ISA del catálogo `datos_curados.json` (2023–2025), proyecta 2026–2030 y exporta:
-- `salidas_taller_isa/detalle_escenarios_politicas.csv`: FCFF y drivers por año, escenario y política.
-- `salidas_taller_isa/resumen_escenarios_politicas.csv`: FCFF acumulado y valor presente explícito con tasa ilustrativa.
-- `salidas_taller_isa/sensibilidad_tasa_impuesto.csv`: sensibilidad del FCFF acumulado a tasas de 22% y 35% para cada escenario y política.
-- `salidas_taller_isa/metadatos_modelo.json`: supuestos, fuente y advertencias.
+> Este documento describe el método. **No copia cifras de resultados**: todas salen del código y se regeneran con él, para evitar que el texto quede desactualizado cuando cambian los datos (problema detectado en la auditoría del 29-oct-2026, ver Anexo A del informe).
 
-Los valores históricos de ingresos, EBIT, depreciación y CAPEX se declaran en el catálogo como contrastados parcialmente con informes oficiales de ISA; el NWC es estimado. Por ello, los resultados no se presentan como guía oficial de ISA ni como valoración definitiva.
+## 1. Cómo se responde cada bloque del taller
 
-## 2. Método de pronóstico
-Se utiliza un modelo de drivers determinista y auditable. El escenario base aplica crecimiento compuesto de ingresos de 6,35% anual, calculado aproximadamente a partir del crecimiento compuesto 2023–2025. Se utiliza la razón EBIT/ingresos, depreciación/ingresos, CAPEX/ingresos y NWC/ingresos de 2025 como punto de partida. La tasa tributaria del catálogo es 22%, pero queda marcada como **provisional y no validada fiscalmente para ISA** porque el catálogo no incluye una conciliación específica que la sustente. Se conserva como caso base únicamente para reproducibilidad; el 35% se usa como estrés de sensibilidad, no como afirmación de que sea la tasa correcta para ISA consolidada.
+| Bloque / criterio | Dónde está | Qué produce |
+|---|---|---|
+| A. Pronóstico (20 %) | `historical_drivers`, `project`, `value`, `implied_irr` | Drivers calibrados con 2023–2025, FCFF 2026–2030 + año terminal, EV, patrimonio, VPN del inversionista y TIR implícita |
+| B. Escenarios (20 %) | `SCENARIOS`, `tornado`, `wacc_g_matrix` | 4 escenarios × 6 drivers, tabla comparativa, tornado de 7 drivers y matriz WACC × g |
+| C. Políticas (20 %) | `POLICIES`, `policy_triggered`, `policy_impact`, `policy_recommendation` | 3 políticas con regla SI–ENTONCES, ΔVPN, TIR incremental, efecto en covenant; adoptar / condicionar / descartar |
+| D. Decisión (15 %) | `DECISION_THRESHOLDS`, `investment_decision` | Umbrales explícitos, decisión sobre la acción y recomendación condicionada |
+| E. Prompts (15 %) | [`ingenieria_prompts_taller_isa.md`](ingenieria_prompts_taller_isa.md) | Prompt maestro v2 parametrizable, versionado y 4 interacciones |
+| Código e informe (10 %) | `scripts/taller_isa.py`, `tests/test_taller_isa.py`, `scripts/generar_informe_taller_isa.py` | Ejecución reproducible, 18 pruebas, informe PDF regenerable |
+| Bono +5 | `monte_carlo`, `scripts/dashboard_taller_isa.py` | Monte Carlo (5.000 simulaciones, semilla fija) y dashboard Streamlit |
 
+## 2. Datos
+`datos_taller_isa_2026.json` es una instantánea propia del taller (histórico 2023–2025, puente EV→patrimonio, precio de referencia, parámetros de costo de capital con fuente). Así el taller no depende del catálogo de la app. Para actualizarla desde `datos_curados.json`: `python scripts/taller_isa.py --refrescar-instantanea`.
+
+Calidad: ingresos, EBIT y D&A 2024–2025 conciliados con EEFF oficiales; CAPEX 2024–2025 = PP&E + intangibles pagados en caja; NWC preliminar; 2023 no comparable en CAPEX/NWC.
+
+## 3. Método
 ```
-Ingresos_t = Ingresos_(t-1) × (1 + crecimiento)
-EBIT_t = Ingresos_t × margen EBIT_t
-NOPAT_t = EBIT_t × (1 − tasa tributaria)
-D&A_t = Ingresos_t × (D&A/Ingresos)_2025
-CAPEX_t = Ingresos_t × (CAPEX/Ingresos)_2025 × shocks
-NWC_t = Ingresos_t × (NWC/Ingresos)_2025 × shocks
-ΔNWC_t = NWC_t − NWC_(t-1)
-FCFF_t = NOPAT_t + D&A_t − CAPEX_t − ΔNWC_t
+Ingresos_t   = Ingresos_(t-1) × (1 + g_t)                  g base = CAGR 2023–2025 calculado en código
+EBIT_t       = Ingresos_t × margen − costo de política        margen base = EBIT/ingresos 2025
+CAPEX_t      = Ingresos_t × m_mant + k × ΔIngresos_t          m_mant ≈ D&A/ingresos; k = (CAPEX − D&A)/ΔIngresos, prom. 2024–2025
+ΔNWC_t       = NWC/Ingresos × Ingresos_t − NWC_(t-1)
+FCFF_t       = EBIT_t(1 − t) + D&A_t − CAPEX_t − ΔNWC_t
+VT           = FCFF_2031 / (WACC − g)                         año terminal proyectado con g terminal
+EV           = Σ FCFF_t/(1+WACC)^t + VT/(1+WACC)^5
+Patrimonio   = EV − deuda neta − minoritarios + asociadas
+VPN inv.     = Patrimonio − capitalización de mercado
+TIR implícita: tasa r tal que EV(r) = EV de mercado
+WACC         = E/V·[rf + β_L·ERP] + D/V·Kd(1 − t); rf = TES − spread de default; Kd = TES + spread
 ```
+Enlazar el CAPEX de expansión con ΔIngresos garantiza la coherencia pedida en el Bloque B: si las ventas suben, suben también la inversión y el capital de trabajo.
 
-La elección es apropiada como línea base transparente para cinco años y permite aislar los supuestos. No es una serie temporal sofisticada: el historial disponible solo tiene tres observaciones anuales, por lo que un ARIMA/regresión con más parámetros daría falsa precisión.
+## 4. Escenarios, políticas y umbrales
+Los valores exactos están en los diccionarios del código (editables). Resumen:
+- **Escenarios:** Estrés, Pesimista, Base, Optimista; mueven crecimiento, margen EBIT, intensidad de CAPEX, NWC/ingresos, WACC y g terminal.
+- **P1 Diferir CAPEX de expansión** (política de inversión), **P2 Programa de eficiencia operativa** (márgenes, con costo inicial y recurrente), **P3 Dividendos condicionados al apalancamiento** (política financiera / liquidez).
+- **Umbrales:** covenant deuda neta/EBITDA, probabilidad mínima en Monte Carlo para adoptar una política, margen de seguridad de compra y banda de "mantener". Son criterios de diseño del equipo, no datos.
 
-## 3. Escenarios
-Los escenarios cambian de forma conjunta cinco drivers, evitando un shock aislado. Todos los porcentajes son hipótesis de trabajo que deben validarse con el equipo y con evidencia operativa.
-
-| Driver | Pesimista | Base | Optimista |
-|---|---:|---:|---:|
-| Crecimiento de ingresos anual | 2,0% | 6,35% | 9,0% |
-| Variación del margen EBIT vs. margen 2025 | −2,0 pp | 0,0 pp | +1,0 pp |
-| Variación de CAPEX/ingresos | +3,0% relativo | 0,0% | −3,0% relativo |
-| Variación de NWC/ingresos | +2,0% relativo | 0,0% | −1,0% relativo |
-| Depreciación/ingresos | Ratio 2025 | Ratio 2025 | Ratio 2025 |
-
-## 4. Dos políticas simuladas
-1. **Priorizar CAPEX:** se asume que 30% del CAPEX corresponde a expansión y se reduce 15% de esa porción (ahorro equivalente a 4,5% del CAPEX total). Regla: *si el escenario base o pesimista no soporta el presupuesto de inversión, diferir una parte del CAPEX de expansión, sin recortar mantenimiento, seguridad ni obligaciones regulatorias*. La proporción 30% es una hipótesis y debe ser reemplazada por el presupuesto real desagregado.
-2. **Eficiencia operativa:** mejora hipotética de 0,5 puntos porcentuales en margen EBIT, manteniendo los demás drivers del escenario. Regla: *si el margen operativo cae por debajo del presupuesto, activar medidas de eficiencia que no comprometan la continuidad ni la calidad del servicio*.
-
-La aplicación evalúa ambas políticas en los tres escenarios; el script las implementa de manera independiente y exporta el detalle anual. La recomendación no es automática: debe condicionarse a la ejecución del plan, seguridad, regulación y a la validación de CAPEX y capital de trabajo.
-
-## 5. Métricas y límites
-El script presenta FCFF anual, FCFF acumulado 2026–2030 y valor presente de los flujos explícitos descontados a un WACC de 10,5% **solo ilustrativo**. Este valor presente no incluye valor terminal ni inversión inicial incremental; por tanto, no se rotula como VPN de proyecto ni como valor empresarial definitivo. El WACC final debe tomarse del modelo principal validado y coincidir con la moneda y base nominal de los flujos.
-
-La ratio CAPEX/ingresos de 2025 del catálogo es 39,15%, frente a 30,24% en 2024; debe conciliarse con presupuesto, clasificación de inversiones y consistencia entre inversión ejecutada y CAPEX contable. La diferencia EBITDA−EBIT ajustada de 2025 es 1.344 y se reconcilia con D&A/deterioro de 1.078 más impuestos operacionales de 266 que ISA reporta por separado; por tanto, no se mantiene como discrepancia pendiente de D&A. El impuesto a las ganancias de 1.111 sobre utilidad antes de impuestos de 5.020 implica una tasa efectiva contable aproximada de 22,13%. Esta referencia explica por qué el 22% es plausible como tasa efectiva histórica, pero no demuestra que sea la tasa operativa correcta sobre EBIT para FCFF: existen impuestos corrientes/diferidos y distintas jurisdicciones. El NWC es estimado, no extraído de una conciliación de capital de trabajo operativo. El FCFF resultante es sensible a pequeños cambios de margen, impuestos y CAPEX. Antes de emitir una valoración final se debe conciliar el CAPEX por mantenimiento/expansión, verificar NWC y revisar que las unidades sean consistentes. No se deben interpretar valores negativos de patrimonio como señal de inversión hasta completar esas conciliaciones.
-
-## 6. Decisión condicionada
-**Recomendación provisional:** no adoptar una decisión definitiva de inversión a partir de este módulo aislado. Priorizar la política de eficiencia como hipótesis a validar y evaluar diferimiento únicamente del CAPEX de expansión; no reducir mantenimiento/seguridad. La decisión final solo se libera cuando:
-- el FCFF base y los tres escenarios se reconcilien con los estados financieros;
-- la tasa fiscal, el WACC y el crecimiento terminal coincidan con el DCF principal y tengan soporte documentado;
-- el puente EV–patrimonio concilie deuda, caja, minoritarios, asociadas y acciones;
-- la política supere el umbral acordado en el escenario base y no genere una pérdida de viabilidad inaceptable en el pesimista.
-
-Los umbrales definitivos (VPN mínimo, caja mínima, ratio de endeudamiento) deben aprobarse por el equipo; no se inventan aquí porque requieren el presupuesto, covenants y datos actuales de ISA.
-
-## 7. Técnicas del taller evidenciadas
-- Pronóstico por crecimiento compuesto y ratios operativos.
-- Parametrización de escenarios mediante diccionarios de drivers.
-- Simulación contrafactual de dos políticas.
-- Sensibilidad por escenario y comparación de FCFF.
-- Pruebas unitarias y exportación de resultados con metadatos de trazabilidad.
-- Ingeniería de prompts: plantilla maestra y registro de interacciones en `docs/ingenieria_prompts_taller_isa.md`.
-
-## 8. Reproducción
-Desde la raíz del repositorio:
+## 5. Reproducción
 ```bash
-python scripts/taller_isa.py
-python -m unittest tests.test_taller_isa -v
-# La ejecución también genera sensibilidad_tasa_impuesto.csv
+python scripts/taller_isa.py                       # CSV/JSON en salidas_taller_isa/
+python -m pytest -q tests/test_taller_isa.py       # 18 pruebas
+python scripts/generar_informe_taller_isa.py --equipo "Nombre 1; Nombre 2; Nombre 3" --fecha "AAAA-MM-DD"
+streamlit run scripts/dashboard_taller_isa.py      # dashboard (bonificación)
 ```
-Las salidas CSV/JSON se regeneran en `salidas_taller_isa/`. La ejecución no requiere una API de IA ni datos de mercado intradía.
 
-## 9. Fuentes y honestidad académica
-- Histórico y supuestos de respaldo: `datos_curados.json` del repositorio, corte 27-oct-2026; allí se describe la procedencia de cada serie y sus limitaciones.
-- Especificación del taller: `Taller evaluativo 2026 — Modelación financiera aplicada: pronóstico, escenarios y simulación de políticas`.
-- No se afirma que las hipótesis de escenarios o políticas sean decisiones oficiales, ni que las interacciones de prompt de ejemplo sean respuestas literales de un modelo externo.
+## 6. Limitaciones
+Las advertencias completas están en `salidas_taller_isa/metadatos_modelo.json` y en la sección 9 del informe. La principal: el CAPEX de caja puede no incluir inversiones en concesiones registradas como activos financieros/contractuales (CINIIF 12), lo que sobrestimaría el FCFF. El resultado es académico y no constituye recomendación de inversión profesional.
