@@ -84,6 +84,27 @@ class TestContratoMultisectorial(unittest.TestCase):
                                                        {"EUR": -1.0, "USD": 4000.0})
         self.assertIsNone(bad_rate["precio"])
 
+    def test_upside_accepts_explicit_cross_currency_rates(self):
+        # La función de alto nivel debe propagar las tasas al conversor; importes sintéticos.
+        rates = {"EUR": 4400.0, "USD": 4000.0}
+        result = L.calcular_vps_y_upside(
+            equity=0.01, acciones_millones=1.0, precio_mercado=10.0,
+            moneda_modelo="USD", moneda_precio="EUR",
+            tasas_cop_por_moneda=rates,
+        )
+        self.assertAlmostEqual(result["precio_moneda_modelo"], 11.0, places=8)
+        self.assertAlmostEqual(result["fx_aplicado"], 1.1, places=8)
+        self.assertAlmostEqual(result["upside_pct"], (10.0 / 11.0 - 1.0) * 100.0, places=8)
+        self.assertIn("EUR a USD", result["nota_vps"])
+
+    def test_upside_cross_currency_without_rates_remains_blocked(self):
+        result = L.calcular_vps_y_upside(
+            equity=0.01, acciones_millones=1.0, precio_mercado=10.0,
+            moneda_modelo="USD", moneda_precio="EUR",
+        )
+        self.assertIsNone(result["upside_pct"])
+        self.assertIn("sin FX", result["nota_vps"])
+
     def test_dcf_rejects_terminal_growth_at_or_above_discount_rate_after_anchoring(self):
         # La función debe producir una valoración finita y no dejar Gordon singular.
         val = L.valoracion_dcf([100.0, 110.0, 120.0], 0.10, 0.10, mid_year=False)

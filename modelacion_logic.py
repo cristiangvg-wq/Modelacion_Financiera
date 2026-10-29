@@ -3767,7 +3767,7 @@ def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo, tasas
     return out
 
 
-def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda_modelo=None, moneda_precio=None):
+def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda_modelo=None, moneda_precio=None, tasas_cop_por_moneda=None):
     """VPS y upside con recalibración de unidades.
 
     Convención:
@@ -3804,13 +3804,13 @@ def calcular_vps_y_upside(equity, acciones_millones, precio_mercado=None, moneda
         if precio_mercado is not None and mm and mp and mm != mp:
             # Modelo y cotización en monedas distintas (MINEROS: EEFF USD / precio COP;
             # ADR: EEFF COP / precio USD). Se convierte el precio con la tasa spot.
-            fx_info = convertir_precio_a_moneda_modelo(precio_mercado, mp, mm)
+            fx_info = convertir_precio_a_moneda_modelo(precio_mercado, mp, mm, tasas_cop_por_moneda=tasas_cop_por_moneda)
             if fx_info.get("convertido"):
                 precio_mercado = fx_info["precio"]
                 monedas_ok = True
                 nota = (
-                    f"Precio convertido de {mp} a {mm} con {fx_info['fx']:,.2f} COP/USD "
-                    f"({fx_info['fuente_fx']})."
+                    f"Precio convertido de {mp} a {mm}; factor FX aplicado: "
+                    f"{fx_info['fx']:,.6g} ({fx_info['fuente_fx']})."
                 )
 
         if precio_mercado is not None and float(precio_mercado) > 0:
