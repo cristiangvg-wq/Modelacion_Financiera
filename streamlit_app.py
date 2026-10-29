@@ -6036,6 +6036,12 @@ def main():
                     st.markdown("#### 1. Escenarios conectados al pronóstico y DCF existente")
                     fs_scenarios_df = pd.DataFrame(fs_scenario_rows)
                     st.dataframe(fs_scenarios_df.round(3), hide_index=True, width="stretch")
+                    st.caption(
+                        "Lectura de escenarios: los factores de ingresos son multiplicadores del nivel de ingresos proyectado "
+                        "en todos los años (no cambios en la tasa de crecimiento anual). CAPEX y variación de NWC reciben "
+                        "shocks independientes; la depreciación conserva la senda base. Son hipótesis ilustrativas, no un "
+                        "pronóstico oficial ni un modelo completamente recalibrado por ratios."
+                    )
                     fs_ev_scenarios = fs_scenarios_df.dropna(subset=["EV"]).sort_values("EV")
                     if not fs_ev_scenarios.empty:
                         fs_low = fs_ev_scenarios.iloc[0]
@@ -6105,8 +6111,13 @@ def main():
                             "Δ FCFF acumulado": fs_delta_fcff, "Dispersión FCFF": fs_std,
                             "Δ dispersión": fs_std - fs_base_std, "Regla": fs_rule,
                         })
+                        fs_years = (
+                            pd.to_numeric(fs_policy_df["Año"], errors="coerce").astype("Int64").tolist()
+                            if "Año" in fs_policy_df.columns
+                            else [int(datetime.now().year + fs_i + 1) for fs_i in range(len(fs_fcff))]
+                        )
                         for fs_i, fs_flow in enumerate(fs_fcff):
-                            fs_policy_detail.append({"Año": int(fs_i + 1), "Política": fs_name, "FCFF": fs_flow})
+                            fs_policy_detail.append({"Año": int(fs_years[fs_i]), "Política": fs_name, "FCFF": fs_flow})
                     st.markdown("#### 2. Efecto de las políticas sobre valoración y flujos")
                     fs_policy_df = pd.DataFrame(fs_policy_rows)
                     st.dataframe(fs_policy_df.round(3), hide_index=True, width="stretch")
