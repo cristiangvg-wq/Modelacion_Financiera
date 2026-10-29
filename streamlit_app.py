@@ -3635,6 +3635,37 @@ def main():
                 else:
                     st.caption(f"No se pudo generar la ficha: {_e_ficha}")
 
+        # Recomendación metodológica sectorial: orienta al usuario, no sustituye
+        # el modelo de valoración ni certifica la clasificación de la empresa.
+        if hasattr(L, "recomendar_metodologia_sectorial"):
+            try:
+                _meta_sector = L.resolver_empresa(empresa) or {}
+                if not isinstance(_meta_sector, dict):
+                    _meta_sector = {}
+                _sector_txt = (
+                    _meta_sector.get("sector")
+                    or _meta_sector.get("industry")
+                    or _meta_sector.get("industria_damodaran")
+                    or ""
+                )
+                _desc_txt = (
+                    _meta_sector.get("descripcion")
+                    or _meta_sector.get("description")
+                    or _meta_sector.get("nombre")
+                    or empresa
+                )
+                _rec_sector = L.recomendar_metodologia_sectorial(_sector_txt, _desc_txt)
+                with st.expander("Metodología de valoración sugerida", expanded=False):
+                    st.markdown(f"**Método orientativo:** {_rec_sector.get('metodo_principal', 'Validar método')}")
+                    st.caption(_rec_sector.get("nota", "Validar la metodología según la actividad y los datos disponibles."))
+                    if _rec_sector.get("requiere_revision", True):
+                        st.warning("Clasificación provisional: requiere revisión antes de utilizar resultados para decidir.")
+                    else:
+                        st.info("Recomendación inicial para empresa operativa no financiera; verificar los supuestos.")
+                    st.caption("Esta sugerencia no implementa por sí sola un modelo sectorial especializado.")
+            except Exception as _e_sector:
+                st.caption(f"No se pudo sugerir metodología sectorial: {_e_sector}")
+
         st.markdown('<p class="tf-sidebar-label">Estados financieros</p>', unsafe_allow_html=True)
         up = st.file_uploader(
             "Excel / CSV", type=["xlsx", "xls", "csv"], label_visibility="collapsed",
