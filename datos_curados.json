@@ -37,7 +37,7 @@
         "capital_invertido": 45000,
         "inversion_inicial": 5000,
         "fuente_de_ratio": "WACC: deuda financiera bruta nominal 34.155 / capitalización de mercado (28.300 COP × 1.107,7 M acciones), cotización BVC 27-oct-2026; D/E ≈ 1,09.",
-        "fuente_tax": "Tasa de 22% conservada como supuesto provisional heredado del catálogo; no hay en este registro una conciliación fiscal específica de ISA que la respalde. Validar contra impuesto corriente/diferido y jurisdicciones del flujo operativo antes de usar el DCF. Ejecutar sensibilidad al 35% solo como prueba, no como tasa consolidada definitiva.",
+        "fuente_tax": "El reporte consolidado ISA 2025 informa impuesto a las ganancias de 1.111 y utilidad antes de impuestos de 5.020 miles de millones COP, una tasa efectiva contable aproximada de 22,13% (1.111/5.020). Esto da contexto al 22% del catálogo, pero no valida que sea la tasa fiscal operativa apropiada sobre EBIT para FCFF: el gasto incluye efectos corrientes/diferidos y varias jurisdicciones. Mantener 22% como aproximación provisional para reproducibilidad, documentar la limitación y ejecutar sensibilidad al 35% solo como estrés, no como tasa consolidada definitiva.",
         "tax_estado": "provisional_no_validado"
       },
       "historico": {
@@ -77,8 +77,8 @@
           1950
         ]
       },
-      "fuente_historico": "Informes oficiales de resultados consolidados ISA 4T23, 4T24 y 4T25. EBITDA y EBIT ajustados excluyendo resultados de co-controladas y asociadas (2023: 530; 2024: 540; 2025: 494) porque el DCF valora el negocio operativo y el puente agrega las inversiones en participadas. Depreciación, ingresos y CAPEX tomados de los informes oficiales. NWC estimado; requiere validación con balances detallados. Reconciliación pendiente: EBITDA−EBIT difiere de la depreciación reportada (2025: 1.344 frente a 1.078; diferencia 266), posiblemente por amortización u otra definición; validar D&A total usada en FCFF. CAPEX/ingresos 2025 = 39,15% frente a 30,24% en 2024; verificar clasificación y perímetro.",
-      "verificacion": "parcial: ingresos, EBITDA/EBIT ajustados, depreciación y CAPEX 2023–2025 contrastados con informes oficiales; NWC estimado; valor de participadas a valor contable, no de mercado.",
+      "fuente_historico": "Informes oficiales de resultados consolidados ISA 4T23, 4T24 y 4T25. EBITDA y EBIT ajustados excluyendo resultados de co-controladas y asociadas (2023: 530; 2024: 540; 2025: 494) porque el DCF valora el negocio operativo y el puente agrega las inversiones en participadas. Depreciación, ingresos y CAPEX tomados de los informes oficiales. Para 2025, EBITDA−EBIT ajustado = 1.344; se reconcilia con depreciaciones, amortizaciones y deterioro de 1.078 más impuestos operacionales de 266 reportados por ISA; no es una diferencia pendiente de D&A. NWC estimado; requiere validación con balances detallados. CAPEX/ingresos 2025 = 39,15% frente a 30,24% en 2024; verificar clasificación, perímetro y consistencia entre inversiones ejecutadas y CAPEX contable.",
+      "verificacion": "parcial: ingresos, EBITDA/EBIT ajustados, depreciación, impuestos operacionales y CAPEX 2023–2025 contrastados con informes oficiales; la tasa efectiva contable 2025 de 22,13% es referencia, no tasa operativa validada para FCFF; NWC estimado; valor de participadas a valor contable, no de mercado.",
       "industria_damodaran": "Power"
     },
     "GEB — Grupo Energía Bogotá": {
