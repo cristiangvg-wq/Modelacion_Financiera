@@ -25,3 +25,19 @@ La suite `tests/test_contrato_multisectorial.py` usa casos sintéticos de distin
 - CAPEX y variación de NWC necesitan datos consistentes; las estimaciones deben etiquetarse como tales.
 - Un DCF no sustituye una valoración por suma de partes cuando participadas, activos regulados, bancos, aseguradoras o negocios con flujos muy distintos requieren metodologías específicas.
 - Los bancos y aseguradoras normalmente necesitan enfoques de patrimonio (p. ej., FCFE/dividendos o exceso de retornos) porque la deuda es parte del negocio; no se debe aplicar automáticamente FCFF/WACC como si fueran una empresa industrial.
+
+## Auditoría adicional: moneda y alcance sectorial
+
+### Conversión de moneda del precio
+`convertir_precio_a_moneda_modelo` admite ahora un mapa explícito `tasas_cop_por_moneda`, con tasas expresadas como COP por unidad de divisa. Por ejemplo, si 1 EUR = 4.400 COP y 1 USD = 4.000 COP, el cruce EUR→USD es 1,10 USD por EUR. Las cifras son ilustrativas; no son una cotización actual. La función rechaza precios no finitos, tasas no positivas y cruces sin tasas suficientes. Sin mapa explícito, conserva el comportamiento previo para COP↔USD usando la tasa spot existente.
+
+**Limitación:** el caller debe suministrar tasas confiables y registrar fecha/fuente; este cambio no crea una fuente FX universal ni convierte los estados históricos. La interfaz todavía debe exponer y conservar la fuente/fecha de FX para los cruces distintos de COP/USD.
+
+### Impuestos, CAPEX y capital de trabajo
+- La tasa estatutaria de un país es solo un punto de partida, no equivale necesariamente al impuesto operativo en caja. Para multinacionales, empresas con pérdidas fiscales o diferencias temporarias, la valoración debe permitir una tasa normalizada documentada o un calendario fiscal explícito.
+- CAPEX debe conciliarse con compras de propiedad, planta y equipo, intangibles y adquisiciones según la política del modelo; no se deben mezclar CAPEX de mantenimiento y expansión sin declararlo.
+- La variación de NWC debe calcularse sobre partidas operativas, excluyendo efectivo y deuda financiera. Cuando NWC se estime como proxy, la salida debe conservar la etiqueta de estimación y no presentarlo como dato auditado.
+- Las tasas de crecimiento, márgenes y ratios históricos deben probarse contra años atípicos y ciclos; una mediana robusta no sustituye el juicio sobre cambios estructurales.
+
+### Método por tipo de negocio
+El motor DCF FCFF/WACC no debe presentarse como universal para todos los sectores. Para bancos y aseguradoras, considerar FCFE, dividendos o exceso de retornos; para holdings con participaciones materiales, suma de partes; para REITs, métricas y flujos propios del sector. Cualquier selección automática futura debe ser una recomendación explicable y editable, no un bloqueo ciego por etiqueta sectorial.
