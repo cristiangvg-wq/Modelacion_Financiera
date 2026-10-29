@@ -3725,6 +3725,32 @@ def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo, tasas
     tasas = {str(k).strip().upper(): _safe_float(v) for k, v in tasas.items()}
     # COP es el numerario de referencia; no requiere una tasa externa.
     tasas.setdefault("COP", 1.0)
+
+    # Para COP/USD, fx conserva la cotización COP por USD; rate es el multiplicador
+    # aplicado al precio. Al convertir un precio COP a USD se multiplica por 1/fx.
+    if {mp, mm} == {"COP", "USD"}:
+        if mp in tasas and mm in tasas:
+            cop_por_usd = tasas.get("USD")
+            cop_por_cop = tasas.get("COP")
+            if (cop_por_usd is None or cop_por_cop is None or
+                    not np.isfinite(float(cop_por_usd)) or not np.isfinite(float(cop_por_cop)) or
+                    float(cop_por_usd) <= 0 or float(cop_por_cop) <= 0):
+                out["precio"] = None
+                out["fuente_fx"] = "tasas FX deben ser positivas y finitas"
+                return out
+            fx = float(cop_por_usd) / float(cop_por_cop)
+            fuente = "tasas explícitas COP/COP y COP/USD"
+        else:
+            fx, fuente = tasa_cop_por_usd()
+        if fx is not None and np.isfinite(float(fx)) and float(fx) > 0:
+            fx = float(fx)
+            rate = 1.0 / fx if mp == "COP" else fx
+            out.update({"precio": px0 * rate, "fx": fx, "fuente_fx": fuente, "convertido": True})
+            return out
+        out["precio"] = None
+        out["fuente_fx"] = fuente
+        return out
+
     if mp in tasas and mm in tasas:
         origen, destino = tasas[mp], tasas[mm]
         if origen is None or destino is None or origen <= 0 or destino <= 0:
@@ -3734,17 +3760,6 @@ def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo, tasas
         rate = float(origen) / float(destino)
         out.update({"precio": px0 * rate, "fx": rate,
                     "fuente_fx": f"tasas explícitas COP/{mp} y COP/{mm}", "convertido": True})
-        return out
-
-    # Compatibilidad hacia atrás: spot COP/USD si no se entregó una tabla FX completa.
-    if {mp, mm} == {"COP", "USD"}:
-        fx, fuente = tasa_cop_por_usd()
-        if fx is not None and np.isfinite(float(fx)) and float(fx) > 0:
-            rate = 1.0 / float(fx) if mp == "COP" else float(fx)
-            out.update({"precio": px0 * rate, "fx": rate, "fuente_fx": fuente, "convertido": True})
-            return out
-        out["precio"] = None
-        out["fuente_fx"] = fuente
         return out
 
     out["precio"] = None
