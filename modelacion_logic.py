@@ -3721,6 +3721,7 @@ def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo, tasas
         out["precio"] = px0
         return out
 
+    mapa_fx_explicito = tasas_cop_por_moneda is not None
     tasas = dict(tasas_cop_por_moneda or {})
     tasas = {str(k).strip().upper(): _safe_float(v) for k, v in tasas.items()}
     # COP es el numerario de referencia; no requiere una tasa externa.
@@ -3740,6 +3741,12 @@ def convertir_precio_a_moneda_modelo(precio, moneda_precio, moneda_modelo, tasas
                 return out
             fx = float(cop_por_usd) / float(cop_por_cop)
             fuente = "tasas explícitas COP/COP y COP/USD"
+        elif mapa_fx_explicito:
+            # Si el caller entrega un mapa FX, no mezclarlo silenciosamente con
+            # un spot de otra fuente/fecha cuando falta una de las tasas requeridas.
+            out["precio"] = None
+            out["fuente_fx"] = "mapa FX explícito incompleto para COP/USD"
+            return out
         else:
             fx, fuente = tasa_cop_por_usd()
         if fx is not None and np.isfinite(float(fx)) and float(fx) > 0:
