@@ -19,6 +19,7 @@ import importlib
 
 import modelacion_logic as L
 import portfolio_engine as _portfolio_engine_mod
+import financial_scenarios as FS
 
 # Streamlit (y Streamlit Cloud tras un `git pull`) vuelve a ejecutar este script
 # SIN reiniciar el proceso: los módulos importados quedan en caché con su versión
@@ -4371,8 +4372,8 @@ def main():
                     except Exception as e:
                         st.error(str(e))
 
-    # ----- 9 TABS visibles; valoración por múltiplos queda temporalmente desactivada -----
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
+    # ----- 10 TABS visibles: escenarios y políticas académicas incluidos -----
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs(
         [
             "1 · Pronóstico",
             "2 · Escenarios DCF",
@@ -4383,6 +4384,7 @@ def main():
             "7 · Informe PDF",
             "8 · Portafolios",
             "9 · Simular inversión",
+            "10 · Escenarios y políticas",
         ]
     )
 
@@ -5900,6 +5902,107 @@ def main():
                 "El múltiplo automático solo se usa cuando la nota de fuente identifica datos de mercado; "
                 "los valores manuales dependen de la verificación del usuario."
             )
+
+
+    with tab10:
+        st.markdown("### Escenarios financieros y políticas empresariales")
+        st.caption(
+            "Módulo académico reproducible. Los valores iniciales son supuestos editables de demostración; "
+            "no representan datos oficiales de ISA. Usa una sola moneda y escala en todos los campos."
+        )
+        with st.expander("Cómo funciona el modelo", expanded=False):
+            st.markdown(
+                "- **FCFF = NOPAT + D&A − CAPEX − ΔNWC**.\n"
+                "- **EV** = valor presente del FCFF explícito + valor presente del valor terminal.\n"
+                "- **VPN** = EV − inversión inicial declarada.\n"
+                "- Escenarios con cinco drivers: crecimiento de ingresos, margen EBIT, CAPEX/ventas, "
+                "NWC/ventas y WACC.\n"
+                "- Las políticas solo se recomiendan si su VPN incremental es positivo y se cumplen "
+                "las restricciones operativas. La dispersión de FCFF es descriptiva, no VaR/CVaR."
+            )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            fs_revenue = st.number_input("Ingresos del último año", min_value=0.01, value=1000.0, step=100.0, key="fs_revenue")
+            fs_growth = st.number_input("Crecimiento anual de ingresos (%)", min_value=-99.0, max_value=200.0, value=5.0, step=1.0, key="fs_growth") / 100
+            fs_margin = st.number_input("Margen EBIT (%)", min_value=-100.0, max_value=100.0, value=20.0, step=1.0, key="fs_margin") / 100
+        with c2:
+            fs_tax = st.number_input("Tasa de impuesto (%)", min_value=0.0, max_value=99.0, value=35.0, step=1.0, key="fs_tax") / 100
+            fs_da = st.number_input("D&A / ventas (%)", min_value=0.0, max_value=100.0, value=4.0, step=0.5, key="fs_da") / 100
+            fs_capex = st.number_input("CAPEX / ventas (%)", min_value=0.0, max_value=100.0, value=6.0, step=0.5, key="fs_capex") / 100
+        with c3:
+            fs_nwc = st.number_input("NWC / ventas (%)", min_value=0.0, max_value=100.0, value=10.0, step=0.5, key="fs_nwc") / 100
+            fs_wacc = st.number_input("WACC (%)", min_value=0.5, max_value=100.0, value=12.0, step=0.5, key="fs_wacc") / 100
+            fs_g = st.number_input("Crecimiento terminal g (%)", min_value=0.0, max_value=50.0, value=3.0, step=0.5, key="fs_g") / 100
+        fs_horizon = st.slider("Horizonte de proyección (años)", min_value=3, max_value=10, value=5, key="fs_horizon")
+        fs_investment = st.number_input("Inversión inicial para VPN/TIR", min_value=0.0, value=500.0, step=50.0, key="fs_investment")
+        st.markdown("#### Parámetros de las políticas")
+        p1, p2, p3, p4 = st.columns(4)
+        with p1:
+            fs_capex_saving = st.number_input("Ahorro CAPEX (puntos porcentuales)", min_value=0.0, max_value=50.0, value=1.0, step=0.5, key="fs_capex_saving") / 100
+        with p2:
+            fs_capex_floor = st.number_input("Piso CAPEX / ventas (%)", min_value=0.0, max_value=100.0, value=3.0, step=0.5, key="fs_capex_floor") / 100
+        with p3:
+            fs_margin_uplift = st.number_input("Mejora margen EBIT (p.p.)", min_value=0.0, max_value=50.0, value=1.5, step=0.5, key="fs_margin_uplift") / 100
+        with p4:
+            fs_impl_cost = st.number_input("Costo implementación (% ingresos)", min_value=0.0, max_value=100.0, value=1.0, step=0.5, key="fs_impl_cost") / 100
+        if fs_g >= fs_wacc:
+            st.error("El crecimiento terminal g debe ser menor que el WACC. Ajusta los supuestos antes de calcular.")
+        elif st.button("Calcular escenarios y políticas", type="primary", key="btn_fs_calcular", width="stretch"):
+            fs_base = {
+                "ingresos": fs_revenue, "crecimiento_ingresos": fs_growth, "margen_ebit": fs_margin,
+                "tasa_impuesto": fs_tax, "da_pct_ventas": fs_da, "capex_pct_ventas": fs_capex,
+                "nwc_pct_ventas": fs_nwc, "wacc": fs_wacc, "g_terminal": fs_g,
+                "inversion_inicial": fs_investment,
+            }
+            try:
+                fs_scenarios = FS.construir_escenarios(fs_base, fs_horizon)
+                fs_policies = FS.simular_politicas(
+                    fs_base, fs_horizon, ahorro_capex_pp=fs_capex_saving,
+                    mejora_margen_pp=fs_margin_uplift,
+                    costo_implantacion_pct=fs_impl_cost, minimo_capex_pct=fs_capex_floor,
+                )
+                fs_scenario_rows = []
+                for fs_name, fs_result in fs_scenarios.items():
+                    fs_scenario_rows.append({
+                        "Escenario": fs_name,
+                        "Crecimiento ingresos (%)": 100 * fs_result["supuestos"]["crecimiento_ingresos"],
+                        "Margen EBIT (%)": 100 * fs_result["supuestos"]["margen_ebit"],
+                        "CAPEX / ventas (%)": 100 * fs_result["supuestos"]["capex_pct_ventas"],
+                        "NWC / ventas (%)": 100 * fs_result["supuestos"]["nwc_pct_ventas"],
+                        "WACC (%)": 100 * fs_result["supuestos"]["wacc"],
+                        "EV": fs_result["ev"], "VPN": fs_result["vpn"],
+                        "TIR (%)": 100 * fs_result["tir"] if fs_result["tir"] is not None else None,
+                        "FCFF total": sum(fs_result["fcff"]),
+                    })
+                st.markdown("#### 1. Matriz de escenarios: cinco drivers conectados")
+                st.dataframe(pd.DataFrame(fs_scenario_rows).round(3), hide_index=True, width="stretch")
+                fs_policy_rows = []
+                for fs_name, fs_result in fs_policies["resultados"].items():
+                    fs_policy_rows.append({
+                        "Política": fs_name, "EV": fs_result["ev"], "VPN": fs_result["vpn"],
+                        "Δ VPN vs. base": fs_result["delta_vpn"], "TIR (%)": 100 * fs_result["tir"] if fs_result["tir"] is not None else None,
+                        "FCFF acumulado": fs_result["fcff_total"], "Δ FCFF": fs_result["delta_fcff_total"],
+                        "Dispersión FCFF": fs_result["riesgo_dispersion_fcff"],
+                        "Δ dispersión": fs_result["delta_riesgo_vs_base"],
+                        "Regla": fs_result["regla"],
+                    })
+                st.markdown("#### 2. Comparación de políticas")
+                st.dataframe(pd.DataFrame(fs_policy_rows).round(3), hide_index=True, width="stretch")
+                st.info(fs_policies["recomendacion_condicionada"])
+                st.caption(fs_policies["nota_riesgo"])
+                fs_detail = []
+                for fs_name, fs_result in fs_policies["resultados"].items():
+                    for fs_year, fs_cashflow in enumerate(fs_result["fcff"], start=1):
+                        fs_detail.append({"Política": fs_name, "Año": fs_year, "FCFF": fs_cashflow})
+                st.markdown("#### 3. Efecto anual en FCFF")
+                st.dataframe(pd.DataFrame(fs_detail).pivot(index="Año", columns="Política", values="FCFF").reset_index().round(3), hide_index=True, width="stretch")
+                st.warning(
+                    "Antes de entregar: sustituye los supuestos de demostración por datos verificables de ISA, "
+                    "registra fuente/fecha/moneda/escala y justifica los ajustes. La política de CAPEX no debe "
+                    "recortar mantenimiento, seguridad ni inversiones obligatorias."
+                )
+            except (ValueError, ArithmeticError) as fs_error:
+                st.error(f"No se pudo calcular el modelo: {fs_error}")
 
     st.markdown(
         '<div class="tf-footer">Herramienta pedagógica · Catálogo / Yahoo Finance · '
