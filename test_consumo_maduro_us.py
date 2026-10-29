@@ -50,11 +50,13 @@ class TestBetaNoInformativa(unittest.TestCase):
         self.assertTrue(p["beta_fuente"].startswith("yahoo"))
         self.assertNotAlmostEqual(p["beta_u"], p["beta_industria_u"], places=3)
 
-    def test_fuera_de_eeuu_sigue_el_proxy(self):
+    def test_fuera_de_eeuu_usa_la_beta_de_emergentes(self):
+        """Antes: beta de mercado 1,0 (no había tabla fuera de EE. UU.). Ahora: bottom-up de mercados emergentes."""
         info = dict(BASE, country="Colombia", currency="COP", financialCurrency="COP",
                     sector="Consumer Defensive", industry="Beverages - Non-Alcoholic")
         p = L.derivar_params_desde_cero(DF, info=info, ticker_yf="X.CL")
-        self.assertEqual(p["beta_fuente"], "proxy_mercado_1.0")
+        self.assertTrue(p["beta_fuente"].startswith("bottom-up"), p["beta_fuente"])
+        self.assertIn("Emergentes", p["beta_fuente"])
 
 
 if __name__ == "__main__":

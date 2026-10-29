@@ -2534,6 +2534,65 @@ def _dialogo_historico(empresa):
         st.rerun()
 
 
+@_como_dialogo("Narrativa: las palancas de la historia")
+def _dialogo_narrativa(empresa, tax_actual):
+    """Las cuatro palancas de Damodaran: el modelo propone (por estadística) y el usuario fija con una frase."""
+    st.caption("Toda valoración es una historia traducida a números. Aquí ves qué historia supone el modelo para "
+               "cada palanca y puedes reemplazarla. Lo que no fijes lo sigue decidiendo el modelo.")
+    try:
+        base, _msg = L.cargar_y_limpiar_excel(_archivo_para_logic(), empresa, bool(st.session_state.get("usar_publicos", True)))
+        base.attrs.pop("narrativa", None)  # propuesta del modelo, sin las palancas ya fijadas
+        _dp, meta = L.proyectar_variables_con_meta(base, 5, "drivers", float(tax_actual))
+    except Exception as e:
+        st.error(f"No hay histórico para proponer la narrativa: {e}")
+        return
+    actual = L.narrativa_sesion(empresa) or {}
+    pal_act, just_act = dict(actual.get("palancas") or {}), dict(actual.get("justificacion") or {})
+    propuesta = {f["palanca"]: f for f in meta.get("narrativa") or []}
+    nuevas, frases = {}, {}
+    formatos = {"g_ingresos": ("%", 100.0), "margen_ebitda": ("%", 100.0), "anios_convergencia": ("años", 1.0),
+                "ventas_capital": ("×", 1.0)}
+    for k, nombre in L.PALANCAS_NARRATIVA.items():
+        f = propuesta.get(k) or {}
+        unidad, esc = formatos[k]
+        v_mod = f.get("valor")
+        st.markdown(f"**{nombre}** — modelo: " + (f"{v_mod * esc:.2f} {unidad}" if isinstance(v_mod, (int, float)) else "no aplica")
+                    + f" · _{f.get('frase', '')}_")
+        c1, c2 = st.columns([1, 3])
+        fijar = c1.checkbox("Fijar", value=k in pal_act, key=f"nar_fijar_{k}")
+        if fijar:
+            v0 = pal_act.get(k, v_mod if isinstance(v_mod, (int, float)) else (1 if k == "anios_convergencia" else 0.0))
+            if k == "anios_convergencia":
+                val = c2.number_input(f"{nombre} (años)", 1, 10, int(v0 or 1), 1, key=f"nar_val_{k}")
+            else:
+                val = c2.number_input(f"{nombre} ({unidad})", value=float(v0 or 0) * esc, step=0.1 if unidad == "%" else 0.01,
+                                      format="%.2f", key=f"nar_val_{k}") / esc
+            nuevas[k] = val
+            frases[k] = st.text_input("¿Qué parte de la historia sostiene este número?", value=just_act.get(k, ""),
+                                      key=f"nar_frase_{k}", placeholder="Ej.: 2025 tuvo un cargo regulatorio que no se repite")
+    modo_def = pal_act.get("reinversion") or ("ligada" if L.REINVERSION_LIGADA_POR_DEFECTO else "mantenimiento")
+    modo = st.radio("Reinversión en los años proyectados", ["ligada", "mantenimiento"], horizontal=True,
+                    index=0 if modo_def == "ligada" else 1, key="nar_reinv",
+                    format_func=lambda x: ("Ligada al crecimiento (ventas/capital)" if x == "ligada"
+                                           else "CAPEX converge al mantenimiento (método anterior)"),
+                    help="Ligada: cada año reinvierte lo que exige el crecimiento del siguiente (g = reinversión × ROIC). "
+                         "Mantenimiento: el CAPEX converge a ≈ 1,3 × depreciación aunque los ingresos sigan creciendo.")
+    if modo != ("ligada" if L.REINVERSION_LIGADA_POR_DEFECTO else "mantenimiento"):
+        nuevas["reinversion"] = modo
+    c1, c2 = st.columns(2)
+    if c1.button("Aplicar narrativa", type="primary", width="stretch"):
+        try:
+            L.fijar_narrativa(empresa, nuevas, {k: v for k, v in frases.items() if v})
+            st.session_state["aviso_ajustes"] = "Narrativa actualizada. Ejecuta «Generar todo»."
+            st.rerun()
+        except ValueError as e:
+            st.error(str(e))
+    if c2.button("Volver a la del modelo", width="stretch", disabled=not actual):
+        L.fijar_narrativa(empresa, {})
+        st.session_state["aviso_ajustes"] = "Se restableció la narrativa del modelo. Ejecuta «Generar todo»."
+        st.rerun()
+
+
 @_como_dialogo("Valorar participadas por separado (suma de partes)")
 def _dialogo_suma_partes(empresa, ke_defecto, asociados_actual):
     """Cada participada con su método; el total reemplaza «Asociados» en el puente a equity."""
@@ -3553,6 +3612,13 @@ def main():
                      help="Ajusta partidas puntuales de la fuente pública con los estados financieros oficiales "
                           "(p. ej. el CAPEX de concesiones de ISA)."):
             _dialogo_historico(empresa)
+        if st.button("Narrativa (palancas de la historia)", width="stretch", key="btn_narrativa",
+                     help="Crecimiento, margen objetivo, años de convergencia y ventas/capital: qué historia supone el "
+                          "modelo y cómo cambiarla (marco de Damodaran)."):
+            _dialogo_narrativa(empresa, float((st.session_state.get("params") or {}).get("tax") or 0.25))
+        if L.narrativa_sesion(empresa):
+            st.caption("✎ Narrativa fijada por el usuario: " + ", ".join(
+                L.PALANCAS_NARRATIVA.get(k, k) for k in (L.narrativa_sesion(empresa).get("palancas") or {})))
         if L.historico_usuario(empresa):
             st.caption("✎ Histórico con correcciones del usuario: " + "; ".join(L.historico_usuario(empresa)["cambios"][:3]))
 
@@ -3582,9 +3648,28 @@ def main():
             st.markdown("**CAPM**")
             rf = _slider_y_caja("rf", 0.02, 0.16, float(st.session_state.get("rf", 0.12)), 0.005, f"rf_{ek}", "%.4f", paso_caja=0.0001)
             # Paso 0,0005: las primas de Damodaran (p. ej. 4,42 %) no son múltiplos de 0,5 pp.
-            erp = _slider_y_caja("ERP", 0.03, 0.10, float(st.session_state.get("erp", 0.055)), 0.0005, f"erp_{ek}", "%.4f", paso_caja=0.0001)
-            crp = _slider_y_caja("CRP", 0.0, 0.08, float(st.session_state.get("crp", 0.0)), 0.0005, f"crp_{ek}", "%.4f", paso_caja=0.0001)
             _mon_flujos = str(p.get("moneda") or "").upper()
+            _erp_def, _crp_def = float(st.session_state.get("erp", 0.055)), float(st.session_state.get("crp", 0.0))
+            _ops_txt = st.text_input(
+                "Ingresos por país (opcional)", key=f"ops_{ek}", placeholder="Ej.: Brasil 40, Colombia 30, Chile 15, Perú 15",
+                help="El riesgo país viene de dónde la empresa vende, no de su sede (Damodaran). Con pesos de ingresos "
+                     "por país, la prima de riesgo se pondera con las tablas de Damodaran. Vacío = país de la sede.")
+            try:
+                _pesos_ops = L.leer_pesos_paises(_ops_txt) if _ops_txt.strip() else None
+                L.fijar_paises_operacion(empresa, _pesos_ops)
+                if _pesos_ops:
+                    _ops = L.erp_por_operaciones(_pesos_ops)
+                    if _mon_flujos == "COP":  # ERP total ponderada (ya incluye el riesgo país); CRP aparte = 0
+                        _erp_def, _crp_def = _ops["erp"], 0.0
+                    else:                      # moneda dura: ERP madura + CRP ponderada
+                        _erp_def = float(((L.DAMODARAN or {}).get("riesgo_pais") or {}).get("meta", {}).get("erp_madura") or _erp_def)
+                        _crp_def = _ops["crp"]
+                    st.caption("Prima ponderada por operaciones: " + ", ".join(f"{k} {v:.0%}" for k, v in _ops["pesos"].items())
+                               + f" → ERP {_erp_def:.2%}, CRP {_crp_def:.2%}.")
+            except ValueError as _e_ops:
+                st.warning(str(_e_ops))
+            erp = _slider_y_caja("ERP", 0.03, 0.10, _erp_def, 0.0005, f"erp_{ek}", "%.4f", paso_caja=0.0001)
+            crp = _slider_y_caja("CRP", 0.0, 0.08, _crp_def, 0.0005, f"crp_{ek}", "%.4f", paso_caja=0.0001)
             if _mon_flujos == "COP" and float(crp or 0) > 0:
                 st.warning(f"CRP {crp:.2%} con flujos en pesos: el ERP de Damodaran para Colombia ya incluye el "
                            "riesgo país y rf (TES) ya trae el riesgo soberano. Sumar CRP lo cuenta dos veces; "
@@ -4992,6 +5077,14 @@ def main():
             format_func=lambda x: "Maximizar Sharpe" if x == "max_sharpe" else "Minimizar volatilidad",
             key="portfolio_objective",
         )
+        _pmodo_ret = st.radio(
+            "Retorno esperado de cada activo",
+            ["Anclado en riesgo y precio (recomendado)", "Media histórica de la ventana"],
+            key="portfolio_modo_retorno", horizontal=True,
+            help="Anclado: CAPM de cada activo en su mercado (rf + β × ERP de Damodaran) o, para la empresa valorada, "
+                 "el costo del patrimonio que implica su precio; la media histórica entra con el peso que merece su "
+                 "precisión. Con 5 años de datos, el error estándar de una media anual es de ±11–16 pp.",
+        )
         _pperiod = st.selectbox("Ventana histórica", ["2y", "5y", "10y"], index=1, key="portfolio_period")
         _pbase = st.selectbox(
             "Moneda de análisis", ["USD", "COP"], key="portfolio_base_currency",
@@ -5037,15 +5130,19 @@ def main():
                     convertir_a_moneda_comun as _fx_portfolio,
                     rendimientos_comunes as _rets_portfolio,
                     metricas_riesgo_historicas as _riesgo_portfolio,
+                    retornos_esperados_anclados as _anclar_portfolio,
+                    retorno_en_moneda as _fisher_portfolio,
+                    evaluar_fuera_de_muestra as _oos_portfolio,
                 )
                 _ptickers = list(_portfolio_tickers_final)
                 if len(_ptickers) < 2:
                     raise ValueError("Introduce al menos dos tickers distintos.")
-                _meta = {}
+                _meta, _betas_yf = {}, {}
                 for _ticker in _ptickers:
                     try:
                         _info = _yf.Ticker(_ticker).get_info() or {}
                         _meta[_ticker] = _info.get("currency")
+                        _betas_yf[_ticker] = L.beta_para_capm(dict(_info, symbol=_ticker))
                     except Exception:
                         _meta[_ticker] = None
                 _currencies = {str(v).upper() for v in _meta.values() if v}
@@ -5079,6 +5176,42 @@ def main():
                     _fx_series = _serie_cop_por_usd("10y" if _pperiod == "10y" else "5y")
                 _prices = _fx_portfolio(_prices, _meta, _fx_series, moneda_base=_pbase)
                 _mu, _cov = _prep_portfolio(_prices)
+                _mu_tabla = None
+                if _pmodo_ret.startswith("Anclado"):
+                    _anios_ventana = len(_rets_portfolio(_prices)) / 252.0
+                    _merc_base = L.MERCADO_POR_MONEDA.get(_pbase, "US")
+                    _anclas, _fuentes_ancla = {}, {}
+                    for _tk in _mu.index:
+                        _cur = str(_meta.get(_tk) or _pbase).upper()
+                        _merc = L.MERCADO_POR_MONEDA.get(_cur, "US")
+                        _cap = L.CAPM_POR_MERCADO.get(_merc, L.CAPM_POR_MERCADO["DEFAULT"])
+                        _r_loc, _fte = None, None
+                        if _portfolio_incluir_empresa and _tk == _portfolio_ticker_actual:
+                            try:  # costo del patrimonio que implica el precio (DCF inverso de la pestaña 4)
+                                _m4 = L.metricas_valoracion_sesion(_portfolio_empresa_actual) or {}
+                                _wi, _wc, _ke = _m4.get("wacc_implicito_mercado"), _m4.get("wacc_calc"), _m4.get("ke_calc")
+                                _de = float(_m4.get("de_ratio") or 0.0)
+                                if None not in (_wi, _wc, _ke):
+                                    _r_loc = float(_ke) + (float(_wi) - float(_wc)) * (1.0 + _de)
+                                    _fte = "costo del patrimonio implícito en el precio (DCF inverso)"
+                                    _merc = L.MERCADO_POR_MONEDA.get(str(_m4.get("moneda") or _cur).upper(), _merc)
+                            except Exception:
+                                _r_loc = None
+                        if _r_loc is None:
+                            _b, _bf = _betas_yf.get(_tk) or (1.0, "β 1,00 de mercado")
+                            _r_loc = float(_cap["rf"]) + float(_b) * float(_cap["erp"]) + float(_cap.get("crp", 0.0))
+                            _fte = f"CAPM {_merc}: rf {_cap['rf']:.2%} + {_bf} × ERP {_cap['erp']:.2%}"
+                            if _portfolio_incluir_empresa and _tk == _portfolio_ticker_actual:
+                                _fte += " (sin valoración vigente de la empresa: ejecuta «Generar todo» para usar su precio)"
+                        if _merc != _merc_base:
+                            _r_loc = _fisher_portfolio(_r_loc, L.INFLACION_LP.get(_merc, L.INFLACION_LP["US"]),
+                                                       L.INFLACION_LP.get(_merc_base, L.INFLACION_LP["US"]))
+                            _fte += f" · llevado a {_pbase} por inflación"
+                        _anclas[_tk], _fuentes_ancla[_tk] = _r_loc, _fte
+                    _vol_activos = pd.Series(np.sqrt(np.diag(_cov.to_numpy())), index=_cov.index)
+                    _mu_tabla = _anclar_portfolio(_mu, _vol_activos, _anios_ventana, pd.Series(_anclas))
+                    _mu_tabla["fuente_ancla"] = pd.Series(_fuentes_ancla)
+                    _mu = _mu_tabla["esperado"]
                 # Recuperar señal DCF de la empresa focal solo como contexto de valoración.
                 # No se mezcla con la media histórica de retornos del optimizador.
                 _focal_valuation = {}
@@ -5096,6 +5229,12 @@ def main():
                 except Exception as _e_riesgo:
                     _riesgo = {"error": str(_e_riesgo)}
                 _riesgo["contraccion_alpha"] = float(getattr(_cov, "attrs", {}).get("contraccion_alpha", 0.0))
+                try:
+                    _oos = _oos_portfolio(_prices, 0.7, mu_fijo=(_mu if _mu_tabla is not None else None),
+                                          objetivo=_pobjective, tasa_libre_riesgo=float(_prf), peso_maximo=float(_pmax))
+                    _oos = {"corte": _oos["corte"], "dentro": _oos["dentro"], "fuera": _oos["fuera"]}
+                except Exception as _e_oos:
+                    _oos = {"error": str(_e_oos)}
                 _frontier = _frontier_portfolio(
                     _mu, _cov, tasa_libre_riesgo=float(_prf),
                     peso_maximo=float(_pmax), n_puntos=20,
@@ -5106,6 +5245,10 @@ def main():
                     "volatility": _res["volatilidad"],
                     "sharpe": _res["sharpe"],
                     "riesgo": _riesgo,
+                    "fuera_de_muestra": _oos,
+                    "modo_retorno": _pmodo_ret,
+                    "mu_tabla": (_mu_tabla.reset_index().rename(columns={"index": "Activo"}).to_dict(orient="records")
+                                 if _mu_tabla is not None else None),
                     "currency": _pbase,
                     "monedas_origen": dict(_meta),
                     "period": _pperiod,
@@ -5150,6 +5293,33 @@ def main():
                             f"{_rz['retorno_compuesto_anual']:.2%}" if _rz.get("retorno_compuesto_anual") is not None else "N/D",
                             help="Lo que creció el capital por año con estos pesos. El «retorno esperado» de arriba es la "
                                  "media aritmética que usa el optimizador; con volatilidad, el compuesto es menor.")
+                _mt = _portfolio_saved.get("mu_tabla")
+                if _mt:
+                    st.markdown("###### Retorno esperado por activo")
+                    _mtd = pd.DataFrame(_mt)
+                    _col0 = _mtd.columns[0]
+                    st.dataframe(pd.DataFrame({
+                        "Activo": _mtd[_col0],
+                        "Media histórica": (_mtd["historico"] * 100).map("{:.1f} %".format),
+                        "Error estándar": (_mtd["error_estandar"] * 100).map("± {:.1f} pp".format),
+                        "Ancla": (_mtd["ancla"] * 100).map("{:.1f} %".format),
+                        "Peso del histórico": (_mtd["peso_historico"] * 100).map("{:.0f} %".format),
+                        "Esperado": (_mtd["esperado"] * 100).map("{:.1f} %".format),
+                        "Fuente del ancla": _mtd["fuente_ancla"],
+                    }), width="stretch", hide_index=True)
+                _oos = _portfolio_saved.get("fuera_de_muestra") or {}
+                if _oos.get("dentro"):
+                    st.markdown("###### Prueba fuera de muestra")
+                    st.caption(f"Pesos elegidos con los datos hasta {_oos['corte']} (70 % de la ventana) y medidos en el 30 % "
+                               "que el optimizador no vio. Si el resultado de fuera es mucho peor, el de arriba es sobreajuste.")
+                    _fm = lambda d: [f"{d['retorno_compuesto_anual']:.1%}", f"{d['max_drawdown']:.1%}", f"{d['var_diario']:.2%}",
+                                     f"{d['cvar_diario']:.2%}" if d.get("cvar_diario") is not None else "N/D"]
+                    st.dataframe(pd.DataFrame([_fm(_oos["dentro"]), _fm(_oos["fuera"])],
+                                              index=["Dentro de la muestra", "Fuera de la muestra"],
+                                              columns=["Rend. compuesto anual", "Caída máxima", "VaR diario 95 %", "CVaR diario 95 %"]),
+                                 width="stretch")
+                elif _oos.get("error"):
+                    st.caption(f"Prueba fuera de muestra no disponible: {_oos['error']}")
                 st.caption(
                     f"Covarianza con contracción de Ledoit-Wolf (α = {_rz.get('contraccion_alpha', 0):.2f}): reduce el ruido "
                     "de las correlaciones históricas. Todas las cifras describen el pasado (pesos actuales aplicados "

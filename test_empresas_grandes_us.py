@@ -88,11 +88,14 @@ class TestBetaBottomUp(unittest.TestCase):
         self.assertTrue(p["beta_fuente"].startswith("yahoo"))  # la regresión (Blume) sigue siendo la base
         self.assertNotAlmostEqual(p["beta_u"], p["beta_industria_u"], places=2)
 
-    def test_fuera_de_eeuu_no_cambia(self):
-        self.assertIsNone(L.damodaran_beta("Technology", "Consumer Electronics", "CO"))
+    def test_fuera_de_eeuu_regresion_informativa_se_conserva(self):
+        """Fuera de EE. UU. hay tabla de emergentes: es referencia y la regresión informativa sigue siendo la base."""
+        ref = L.damodaran_beta("Technology", "Consumer Electronics", "CO")
+        self.assertEqual(ref["region"], "Emergentes")
         info = dict(self.INFO, country="Colombia", currency="COP", financialCurrency="COP")
         p = L.derivar_params_desde_cero(self._df(), info=info, ticker_yf="X.CL")
         self.assertTrue(p["beta_fuente"].startswith("yahoo"))
+        self.assertIn("Emergentes", p["beta_fuente"])
 
 
 class TestInversionesFinancieras(unittest.TestCase):

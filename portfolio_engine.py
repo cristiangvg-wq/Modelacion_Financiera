@@ -300,6 +300,67 @@ def metricas_riesgo_historicas(rendimientos: pd.DataFrame, pesos, confianza: flo
     }
 
 
+def retornos_esperados_anclados(mu_hist: pd.Series, vol: pd.Series, anios: float, ancla: pd.Series,
+                                incertidumbre_ancla: float = 0.03) -> pd.DataFrame:
+    """Retorno esperado = mezcla de la media histórica y un ancla, ponderadas por su precisión.
+
+    peso_hist = (1/se²) / (1/se² + 1/τ²), con se = vol/√años (error estándar de la media anual) y
+    τ = incertidumbre del ancla. El ancla es el retorno que exige el riesgo (CAPM) o el precio (TIR
+    implícita del DCF). Con 5 años y una volatilidad de 30 %, se ≈ 13 pp y el histórico pesa ≈ 5 %:
+    una media de 5 años informa poco sobre el futuro (marco de Damodaran).
+    """
+    try:
+        anios = float(anios)
+        tau = float(incertidumbre_ancla)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Años e incertidumbre del ancla deben ser numéricos.") from exc
+    if not np.isfinite(anios) or anios <= 0 or not np.isfinite(tau) or tau <= 0:
+        raise ValueError("Años e incertidumbre del ancla deben ser positivos.")
+    mu_hist = pd.Series(mu_hist, dtype=float)
+    vol = pd.Series(vol, dtype=float).reindex(mu_hist.index)
+    ancla = pd.Series(ancla, dtype=float).reindex(mu_hist.index)
+    if ancla.isna().any():
+        raise ValueError("Falta el ancla de: " + ", ".join(map(str, ancla[ancla.isna()].index)))
+    if vol.isna().any() or (vol <= 0).any():
+        raise ValueError("Volatilidades inválidas para ponderar la media histórica.")
+    se = vol / np.sqrt(anios)
+    w = (1.0 / se ** 2) / (1.0 / se ** 2 + 1.0 / tau ** 2)
+    return pd.DataFrame({"historico": mu_hist, "ancla": ancla, "error_estandar": se,
+                         "peso_historico": w, "esperado": w * mu_hist + (1.0 - w) * ancla})
+
+
+def retorno_en_moneda(r_local: float, inflacion_local: float, inflacion_base: float) -> float:
+    """Lleva un retorno nominal de una moneda a otra por paridad de inflación (Fisher)."""
+    return (1.0 + float(r_local)) * (1.0 + float(inflacion_base)) / (1.0 + float(inflacion_local)) - 1.0
+
+
+def evaluar_fuera_de_muestra(precios: pd.DataFrame, fraccion: float = 0.7, mu_fijo: pd.Series | None = None,
+                             **kw) -> dict:
+    """Optimiza con la primera parte de la ventana y mide la cartera en la parte que no vio.
+
+    `mu_fijo` (p. ej. retornos anclados) reemplaza la media de la submuestra; la covarianza sale
+    siempre de la submuestra. Devuelve pesos y métricas dentro y fuera de muestra.
+    """
+    if not 0.3 <= float(fraccion) <= 0.9:
+        raise ValueError("La fracción de entrenamiento debe estar entre 30 % y 90 %.")
+    r = rendimientos_comunes(precios)
+    corte = int(len(r) * float(fraccion))
+    if corte < 120 or len(r) - corte < 60:
+        raise ValueError("Ventana demasiado corta para separar muestra y prueba (≥ 120 y ≥ 60 días).")
+    mu, cov = preparar_estadisticas(precios.loc[: r.index[corte - 1]])
+    if mu_fijo is not None:
+        mu = pd.Series(mu_fijo, dtype=float).reindex(mu.index)
+        if mu.isna().any():
+            raise ValueError("Falta el retorno esperado de algún activo.")
+    res = optimizar_portafolio(mu, cov, **kw)
+    return {
+        "pesos": res["pesos"],
+        "dentro": metricas_riesgo_historicas(r.iloc[:corte], res["pesos"]),
+        "fuera": metricas_riesgo_historicas(r.iloc[corte:], res["pesos"]),
+        "corte": str(r.index[corte - 1])[:10],
+    }
+
+
 def construir_frontera(
     mu: pd.Series,
     cov: pd.DataFrame,
@@ -329,7 +390,11 @@ def construir_frontera(
     frontier = pd.DataFrame(rows)
     if frontier.empty:
         raise RuntimeError("No se pudo construir la frontera con estas restricciones.")
-    return frontier.sort_values("Volatilidad").reset_index(drop=True)
+    frontier = frontier.sort_values("Volatilidad").reset_index(drop=True)
+    # Solo la rama eficiente: un punto con más volatilidad y menos retorno que otro ya listado es
+    # ineficiente (o un mínimo local del optimizador) y dibujaba una frontera en zigzag.
+    eficiente = frontier["Retorno esperado"] >= frontier["Retorno esperado"].cummax() - 1e-9
+    return frontier[eficiente].reset_index(drop=True)
 
 
 MONEDAS_SOPORTADAS_FX = {"COP", "USD"}

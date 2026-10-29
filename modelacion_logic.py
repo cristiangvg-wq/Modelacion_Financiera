@@ -1281,10 +1281,30 @@ def preparar_empresa(nombre_empresa, forzar=False):
                 completados.append("deuda_neta")
                 if pc.get("caja") is not None:
                     p["caja"] = pc["caja"]
+            # Industria de Damodaran del catálogo (curada) sobre la que infiere Yahoo: Celsia es «Power», no
+            # «Green & Renewable Energy» (0,46 frente a 0,59 desapalancada en emergentes).
+            if pc.get("industria_damodaran"):
+                _mk = _mercado_desde_pais(rt.get("pais")) or "CO"
+                _bd = damodaran_beta(explicita=pc["industria_damodaran"], mercado=_mk)
+                if _bd:
+                    _ref = (f"{_bd['fuente']}: {_bd['industria']} {_bd.get('region')} {float(_bd['beta_u']):.2f} "
+                            f"({int(_bd['n_firmas'] or 0)} empresas, corregida por caja)")
+                    if str(p.get("beta_fuente", "")).startswith("bottom-up"):
+                        p["beta_u"] = round(float(_bd["beta_u"]), 4)
+                        p["beta_fuente"] = f"bottom-up {_ref} (industria del catálogo; regresión no informativa)"
+                    p["beta_industria_u"] = round(float(_bd["beta_u"]), 4)
+                    p.pop("beta_brecha_industria", None)
+                    if not str(p.get("beta_fuente", "")).startswith("bottom-up") and abs(float(p.get("beta_u") or 0) - float(_bd["beta_u"])) >= 0.15:
+                        p["beta_brecha_industria"] = round(float(_bd["beta_u"]) - float(p.get("beta_u") or 0), 4)
             if str(p.get("beta_fuente", "")).startswith("proxy") and pc.get("beta_u"):
                 p["beta_u"] = pc["beta_u"]
                 p["beta_fuente"] = "catálogo (Yahoo sin β)"
                 completados.append("beta_u")
+            # Costo de la deuda: la calificación REAL del emisor (catálogo) manda sobre la sintética de Yahoo
+            # (Damodaran: la sintética es para quien no tiene calificación).
+            if cat.get("calificacion") and pc.get("kd"):
+                p["kd"], p["kd_fuente"] = pc["kd"], pc.get("kd_fuente") or f"calificación {cat['calificacion']}"
+                p.pop("calificacion_sintetica", None)
             rt["sector"] = cat.get("sector") or rt.get("sector")
             rt["descripcion"] = cat.get("descripcion") or rt.get("descripcion")
             rt["calificacion"] = cat.get("calificacion")
@@ -2976,6 +2996,56 @@ INDUSTRIA_DAMODARAN_REGLAS = (
 )
 
 
+def calificacion_sintetica(ebit, gasto_intereses, grande=True, tabla=None):
+    """Calificación y spread de default por cobertura de intereses (EBIT ÷ gasto financiero), tabla de Damodaran.
+
+    Damodaran usa dos tablas: empresas grandes (> 5.000 millones de USD) y pequeñas/riesgosas.
+    Devuelve None si no hay tabla o los datos no permiten calcular la cobertura.
+    """
+    cal = tabla or ((DAMODARAN or {}).get("calificaciones") or {}).get("grandes" if grande else "pequenas")
+    try:
+        ebit, gasto = float(ebit), abs(float(gasto_intereses))
+    except (TypeError, ValueError):
+        return None
+    if not cal or not np.isfinite(ebit) or not np.isfinite(gasto):
+        return None
+    cobertura = 1e5 if gasto <= 0 else ebit / gasto
+    # Tramos «> desde y ≤ hasta» con límites como 2,499999: se toma el último tramo cuyo «desde» no
+    # supera la cobertura, para no dejar huecos en los bordes (2,5 cae en Baa2/BBB, no en ninguno).
+    filas = sorted(cal, key=lambda x: float(x[0]))
+    elegido = filas[0]
+    for fila in filas:
+        if cobertura >= float(fila[0]):
+            elegido = fila
+    return {"calificacion": elegido[2], "spread": float(elegido[3]), "cobertura": cobertura,
+            "tabla": "empresas grandes" if grande else "empresas pequeñas"}
+
+
+def beta_para_capm(info):
+    """Beta con deuda para el CAPM de un activo del portafolio, con la misma regla que la valoración:
+    regresión de Yahoo si informa (≥ BETA_REGRESION_MIN); si no, bottom-up de Damodaran de su industria y
+    región, reapalancada con su D/E de mercado; si tampoco hay, 1,0 (mercado). Devuelve (beta, fuente)."""
+    info = info or {}
+    b = _safe_float(info.get("beta"))
+    explicita = None
+    tk = str(info.get("symbol") or "").upper()
+    for emp in EMPRESAS.values():  # emisor del catálogo: su industria curada
+        if tk and str(emp.get("ticker_yf") or "").upper() == tk:
+            explicita = (emp.get("params") or {}).get("industria_damodaran")
+    if b is not None and BETA_REGRESION_MIN <= b <= 3.0:
+        return float(b), f"β {b:.2f} (Yahoo)"
+    pais = _mercado_desde_pais(info.get("country")) or ("CO" if str(info.get("symbol") or "").upper().endswith(".CL") else "US")
+    bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", pais, explicita=explicita)
+    if bd:
+        deuda, mcap = _safe_float(info.get("totalDebt")), _safe_float(info.get("marketCap"))
+        de = (deuda / mcap) if deuda and mcap and mcap > 0 else 0.0
+        t = TASA_ESTATUTARIA.get(pais, 0.25)
+        bl = float(bd["beta_u"]) * (1 + (1 - t) * min(de, 3.0))
+        motivo = "Yahoo sin beta" if b is None else f"regresión {b:.2f} no informativa"
+        return bl, f"β {bl:.2f} bottom-up {bd['industria']} {bd.get('region')} ({motivo})"
+    return 1.0, "β 1,00 de mercado (sin beta ni industria)"
+
+
 def industria_damodaran(sector="", industry="", explicita=None):
     if explicita:
         return explicita
@@ -3020,9 +3090,15 @@ def damodaran_beta(sector="", industry="", mercado="US", explicita=None):
     un DCF que suma la caja aparte en el puente. Promedia decenas de empresas, por lo que tiene
     mucho menos error estándar que la regresión de una sola acción. Solo hay tabla de EE. UU.
     """
-    if not DAMODARAN or str(mercado or "").upper() != "US":
+    if not DAMODARAN:
         return None
-    bloque = (DAMODARAN.get("betas") or {}).get("US") or {}
+    mk = str(mercado or "").upper()
+    region = "US" if mk == "US" else (REGION_MULTIPLOS.get(mk) or ("Emergentes" if mk in ("CO", "BR", "MX", "CL", "PE") else "Global"))
+    if mk in ("EMERGENTES", "GLOBAL"):
+        region = mk.title()
+    bloque = (DAMODARAN.get("betas") or {}).get(region) or {}
+    if not bloque:
+        return None
     ind = industria_damodaran(sector, industry, explicita)
     fila = (bloque.get("industrias") or {}).get(ind) if ind else None
     if not fila:
@@ -3035,7 +3111,7 @@ def damodaran_beta(sector="", industry="", mercado="US", explicita=None):
     if not (0.2 <= b <= 3.0):
         return None
     return {"industria": ind, "beta_u": b, "beta_u_sin_corregir": fila.get("beta_u"), "n_firmas": fila.get("n_firmas"),
-            "fecha": bloque.get("fecha"), "fuente": f"Damodaran {bloque.get('archivo')} ({bloque.get('fecha')})"}
+            "region": region, "fecha": bloque.get("fecha"), "fuente": f"Damodaran {bloque.get('archivo')} ({bloque.get('fecha')})"}
 
 
 def _aplicar_damodaran_a_capm():
@@ -3196,6 +3272,20 @@ def _completar_info_yahoo(info, t_obj=None, ticker=None):
                     if v is not None:
                         info["ebitda"] = v
                         hechos.append("EBITDA 12m de los trimestres")
+        except Exception:
+            pass
+    # Gasto financiero del último ejercicio (para la calificación sintética del costo de la deuda).
+    if t_obj is not None and info.get("_gasto_intereses") is None:
+        try:
+            f = getattr(t_obj, "financials", None)
+            if f is not None and not getattr(f, "empty", True):
+                idx = {str(i).strip().lower(): i for i in f.index}
+                for n in ("interest expense", "interest expense non operating"):
+                    if n in idx:
+                        v = pd.to_numeric(f.loc[idx[n]], errors="coerce").dropna()
+                        if len(v) and float(v.iloc[0]) != 0:
+                            info["_gasto_intereses"] = abs(float(v.iloc[0]))
+                            break
         except Exception:
             pass
     if hechos:
@@ -4048,8 +4138,16 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     if shares is not None and shares > 0:
         # Yahoo sharesOutstanding viene en unidades; el modelo usa millones.
         sh = float(shares)
-        p["acciones"] = round(sh / 1e6, 4) if sh >= 1e6 else round(sh, 4)
         p["acciones_fuente"] = "sharesOutstanding"
+        # Acciones diluidas (Damodaran: las opciones y acciones restringidas en circulación son derechos sobre
+        # el patrimonio). Yahoo las da como impliedSharesOutstanding; se usan si exceden a las básicas en ≤ 25 %
+        # (más que eso suele ser otra clase de acción o un error de unidades).
+        _impl = _safe_float(info.get("impliedSharesOutstanding"))
+        if _impl and 1.0 < _impl / sh <= 1.25:
+            p["acciones_basicas"] = round(sh / 1e6, 4) if sh >= 1e6 else round(sh, 4)
+            sh = _impl
+            p["acciones_fuente"] = f"impliedSharesOutstanding (diluidas; básicas {p['acciones_basicas']:,.1f} M)"
+        p["acciones"] = round(sh / 1e6, 4) if sh >= 1e6 else round(sh, 4)
     # marketCap / precio da el número de unidades COTIZADAS (ADS en un ADR, o todas
     # las clases en emisores multiclase). El VPS se compara con el precio de esa
     # unidad, así que esta es la base correcta cuando difiere de sharesOutstanding.
@@ -4250,7 +4348,24 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
 
     # kd: interés propio o rf de su mercado + spread (+ CDS si la deuda está en moneda dura de un emisor emergente)
     ir = _safe_float(info.get("interestRate") or info.get("borrowRate"))
-    if ir is not None and 0 < ir < 0.4:
+    _sint = None
+    try:
+        _ebit_u = float(df_hist["EBIT"].iloc[-1]) * 1e9 if df_hist is not None and "EBIT" in df_hist.columns else None
+        _int_u = _safe_float(info.get("_gasto_intereses"))
+        _mcap_usd = mcap if str(px_cur_p or "").upper() == "USD" else (
+            mcap / float(convertir_precio_a_moneda_modelo(1.0, "USD", px_cur_p).get("fx") or 0) if mcap and px_cur_p == "COP" else None)
+        if _ebit_u is not None and _int_u is not None:
+            _sint = calificacion_sintetica(_ebit_u, _int_u, grande=bool(_mcap_usd and _mcap_usd > 5e9))
+    except Exception:
+        _sint = None
+    if _sint:
+        _rf_kd = float(capm.get("rf_bruto", capm["rf"]))
+        p["kd"] = round(_rf_kd + _sint["spread"] + float(capm.get("crp_deuda", 0.0)), 4)
+        p["kd_fuente"] = (f"calificación sintética {_sint['calificacion']} (cobertura de intereses {_sint['cobertura']:.1f}×, "
+                          f"Damodaran): rf {_rf_kd:.2%} + spread {_sint['spread']:.2%}"
+                          + (f" + riesgo país {capm.get('crp_deuda', 0):.2%}" if capm.get("crp_deuda") else ""))
+        p["calificacion_sintetica"] = _sint["calificacion"]
+    elif ir is not None and 0 < ir < 0.4:
         p["kd"] = round(float(ir), 4)
     else:
         ie = _safe_float(info.get("interestExpense"))
@@ -4277,13 +4392,19 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
     # Pasa a ser la BASE cuando la regresión no informa: Yahoo no trae beta (KO: antes 1,0 de mercado) o la
     # beta bruta es < BETA_REGRESION_MIN (GIS 0,02, HSY 0,09: con un error estándar de ≈ 0,2, son ruido y
     # llevaban el WACC a 6 %).
-    if merc == "US" and _mercado_desde_pais(country) == "US":
-        _bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", "US")
+    _merc_beta = "US" if (merc == "US" and _mercado_desde_pais(country) == "US") else (_mercado_desde_pais(country) or merc)
+    if _merc_beta:
+        _bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", _merc_beta)
         if _bd:
             p["beta_industria_u"] = round(float(_bd["beta_u"]), 4)
             p["industria_beta"] = _bd["industria"]
-            _ref = (f"{_bd['fuente']}: {_bd['industria']} {p['beta_industria_u']:.2f} "
+            _ref = (f"{_bd['fuente']}: {_bd['industria']} {_bd.get('region', 'US')} {p['beta_industria_u']:.2f} "
                     f"({int(_bd['n_firmas'] or 0)} empresas, corregida por caja)")
+            # Diferencia material entre la regresión y la industria: se deja constancia (en mercados poco
+            # líquidos la regresión contra el índice local suele subestimar el riesgo; Damodaran prefiere la
+            # bottom-up). La base sigue la misma regla en todos los mercados: regresión si informa.
+            if beta is not None and beta > 0 and abs(float(p["beta_u"]) - float(_bd["beta_u"])) >= 0.15:
+                p["beta_brecha_industria"] = round(float(_bd["beta_u"]) - float(p["beta_u"]), 4)
             if beta is None or beta <= 0 or float(beta) < BETA_REGRESION_MIN:
                 p["beta_regresion_u"] = p["beta_u"] if beta is not None and beta > 0 else None
                 p["beta_u"] = p["beta_industria_u"]
@@ -4506,7 +4627,109 @@ HISTORICO_EDITABLE = ["Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NW
 
 
 def _ajustes_usuario():
-    return _almacen_estado().setdefault("ajustes_usuario", {"historico": {}, "suma_partes": {}})
+    a = _almacen_estado().setdefault("ajustes_usuario", {"historico": {}, "suma_partes": {}})
+    a.setdefault("narrativa", {})
+    a.setdefault("paises_operacion", {})
+    return a
+
+
+# Narrativa explícita (marco de Damodaran): cada valoración es una historia traducida a cuatro
+# palancas. El modelo propone valores por estadística; el usuario puede fijarlos con una frase.
+PALANCAS_NARRATIVA = {
+    "g_ingresos": "Crecimiento de ingresos (año 1)",
+    "margen_ebitda": "Margen EBITDA objetivo",
+    "anios_convergencia": "Años para llegar al margen objetivo",
+    "ventas_capital": "Ventas por unidad de capital reinvertido",
+}
+
+
+def fijar_narrativa(nombre_empresa, palancas, justificacion=None):
+    """Guarda las palancas que el usuario fija (las que no estén, las decide el modelo)."""
+    limpio = {}
+    for k, v in (palancas or {}).items():
+        if k == "reinversion" and v in ("ligada", "mantenimiento"):
+            limpio[k] = v
+            continue
+        if k not in PALANCAS_NARRATIVA or v is None:
+            continue
+        v = float(v)
+        if not np.isfinite(v):
+            raise ValueError(f"{PALANCAS_NARRATIVA[k]} no es un número válido.")
+        if k == "g_ingresos" and not -0.30 <= v <= 0.60:
+            raise ValueError("El crecimiento del año 1 debe estar entre −30 % y 60 %.")
+        if k == "margen_ebitda" and not -0.5 <= v <= 0.95:
+            raise ValueError("El margen EBITDA debe estar entre −50 % y 95 %.")
+        if k == "anios_convergencia" and not 1 <= v <= 10:
+            raise ValueError("La convergencia del margen debe tomar entre 1 y 10 años.")
+        if k == "ventas_capital" and not 0.05 <= v <= 10:
+            raise ValueError("Ventas/capital debe estar entre 0,05 y 10.")
+        limpio[k] = int(round(v)) if k == "anios_convergencia" else v
+    if limpio:
+        _ajustes_usuario()["narrativa"][nombre_empresa] = {"palancas": limpio, "justificacion": dict(justificacion or {})}
+    else:
+        _ajustes_usuario()["narrativa"].pop(nombre_empresa, None)
+
+
+def narrativa_sesion(nombre_empresa):
+    return (_ajustes_usuario()["narrativa"] or {}).get(nombre_empresa)
+
+
+# Nombres en español → nombre de la tabla de Damodaran (ctryprem).
+_PAISES_DAMODARAN = {
+    "colombia": "Colombia", "brasil": "Brazil", "brazil": "Brazil", "chile": "Chile", "peru": "Peru", "perú": "Peru",
+    "mexico": "Mexico", "méxico": "Mexico", "estados unidos": "United States", "eeuu": "United States",
+    "ee. uu.": "United States", "ee.uu.": "United States", "usa": "United States", "united states": "United States",
+    "panama": "Panama", "panamá": "Panama", "guatemala": "Guatemala", "el salvador": "El Salvador",
+    "honduras": "Honduras", "costa rica": "Costa Rica", "ecuador": "Ecuador", "argentina": "Argentina",
+    "bolivia": "Bolivia", "uruguay": "Uruguay", "paraguay": "Paraguay", "canada": "Canada", "canadá": "Canada",
+    "españa": "Spain", "espana": "Spain", "spain": "Spain", "reino unido": "United Kingdom",
+    "alemania": "Germany", "francia": "France", "china": "China", "japon": "Japan", "japón": "Japan",
+}
+
+
+def leer_pesos_paises(texto):
+    """«Brasil 40, Colombia 30, Chile 15» → {'Brazil': 40.0, 'Colombia': 30.0, 'Chile': 15.0}."""
+    import re as _re
+    pesos = {}
+    for parte in _re.split(r"[;,\n]+", str(texto or "")):
+        m = _re.match(r"\s*(.+?)\s*[:=]?\s*(-?\d+(?:[.,]\d+)?)\s*%?\s*$", parte)
+        if not m:
+            if parte.strip():
+                raise ValueError(f"No entendí «{parte.strip()}»: usa «País peso», p. ej. «Brasil 40».")
+            continue
+        nombre = m.group(1).strip()
+        pais = _PAISES_DAMODARAN.get(nombre.lower(), nombre.strip().title())
+        peso = float(m.group(2).replace(",", "."))
+        if peso < 0:
+            raise ValueError(f"Peso negativo para {nombre}.")
+        pesos[pais] = pesos.get(pais, 0.0) + peso
+    return pesos
+
+
+def erp_por_operaciones(pesos_ingresos, paises=None):
+    """Prima de riesgo ponderada por dónde la empresa genera sus ingresos (Damodaran: el riesgo país
+    viene de las operaciones, no de la sede). Devuelve ERP total y CRP ponderados con su detalle."""
+    paises = paises if paises is not None else ((DAMODARAN or {}).get("riesgo_pais") or {}).get("paises") or {}
+    total = float(sum(pesos_ingresos.values()))
+    if total <= 0:
+        raise ValueError("Los pesos de ingresos deben sumar más que cero.")
+    faltan = [p for p in pesos_ingresos if p not in paises]
+    if faltan:
+        raise ValueError("Sin prima de Damodaran para: " + ", ".join(faltan))
+    w = {p: float(v) / total for p, v in pesos_ingresos.items()}
+    return {"erp": sum(w[p] * float(paises[p]["erp_rating"]) for p in w),
+            "crp": sum(w[p] * float(paises[p]["crp_rating"]) for p in w), "pesos": w}
+
+
+def fijar_paises_operacion(nombre_empresa, pesos):
+    if pesos:
+        _ajustes_usuario()["paises_operacion"][nombre_empresa] = dict(pesos)
+    else:
+        _ajustes_usuario()["paises_operacion"].pop(nombre_empresa, None)
+
+
+def paises_operacion_sesion(nombre_empresa):
+    return (_ajustes_usuario()["paises_operacion"] or {}).get(nombre_empresa)
 
 
 def completar_historico(df, tax):
@@ -4691,7 +4914,9 @@ def firma_ajustes_usuario(nombre_empresa):
     """Huella de las correcciones del usuario (invalida resultados cuando cambian)."""
     a = _ajustes_usuario()
     return json.dumps({"h": (a["historico"].get(nombre_empresa) or {}).get("datos"),
-                       "s": (a["suma_partes"].get(nombre_empresa) or {}).get("total")}, sort_keys=True, default=str)
+                       "s": (a["suma_partes"].get(nombre_empresa) or {}).get("total"),
+                       "n": a["narrativa"].get(nombre_empresa),
+                       "o": a["paises_operacion"].get(nombre_empresa)}, sort_keys=True, default=str)
 
 
 def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
@@ -4727,6 +4952,19 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
             _roic = roic_observado(_dfr, (params_empresa(nombre_empresa) or {}).get("capital_invertido"))
             df.attrs["roic_observado"] = _roic
             fijar_roic_referencia(nombre_empresa, _roic)
+        except Exception:
+            pass
+        try:
+            _pp = params_empresa(nombre_empresa) or {}
+            _ci = _pp.get("capital_invertido")
+            if _ci and float(_ci) > 0:
+                # Capital OPERATIVO: sin las participaciones en asociadas, cuyos resultados no están en el
+                # EBIT (Damodaran: las participaciones cruzadas se valoran aparte). GEB: 38.000 → 24.312.
+                _as = float(_pp.get("asociados") or 0.0)
+                df.attrs["capital_invertido"] = float(_ci) - _as if 0 <= _as < 0.8 * float(_ci) else float(_ci)
+            _nar = narrativa_sesion(nombre_empresa)
+            if _nar:
+                df.attrs["narrativa"] = dict(_nar)
         except Exception:
             pass
         try:
@@ -5463,6 +5701,42 @@ def calcular_nopat(ebit, tax):
     return resultado
 
 
+VENTAS_CAPITAL_RANGO = (0.10, 10.0)
+# Reinversión ligada al crecimiento: opción de la narrativa (pestaña «Narrativa»), no el valor por defecto.
+# Con datos reales (28-oct-2026) baja ISA 17 %, BVC 34 % y lleva Celsia a ≈ 0: en utilities con tarifas
+# indexadas, parte del crecimiento nominal no exige capital nuevo y la razón ventas/capital histórica lo
+# sobrestima. Queda a decisión del usuario, con el impacto visible.
+REINVERSION_LIGADA_POR_DEFECTO = False
+
+
+def ventas_capital_historica(df_hist, capital_invertido=None, anios=3):
+    """Ingresos adicionales por unidad de capital reinvertido (Damodaran: sales-to-capital).
+
+    Marginal = Δingresos ÷ reinversión neta de los últimos años; si es inestable (fuera de 0,5–2 ×
+    la media) o no se puede calcular, se usa la media = ingresos ÷ capital invertido.
+    Devuelve (valor, fuente) o (None, motivo).
+    """
+    try:
+        ing = df_hist["Ingresos"].astype(float)
+        dnwc = df_hist["Delta_NWC"].astype(float) if "Delta_NWC" in df_hist.columns else df_hist["NWC"].astype(float).diff().fillna(0.0)
+        reinv = (df_hist["CAPEX"].astype(float) - df_hist["Depreciacion"].astype(float) + dnwc).tail(anios)
+        d_ing = ing.diff().tail(anios)
+    except (KeyError, TypeError, ValueError):
+        return None, "histórico sin CAPEX, depreciación o ingresos"
+    media = None
+    if capital_invertido and float(capital_invertido) > 0:
+        media = float(ing.iloc[-1]) / float(capital_invertido)
+    marginal = float(d_ing.sum() / reinv.sum()) if float(reinv.sum()) > 0 else None
+    lo, hi = VENTAS_CAPITAL_RANGO
+    if media is not None and marginal is not None and 0.5 * media <= marginal <= 2.0 * media and lo <= marginal <= hi:
+        return marginal, f"marginal de los últimos {anios} años (Δingresos ÷ reinversión neta)"
+    if media is not None and lo <= media <= hi:
+        return media, "media: ingresos ÷ capital invertido"
+    if marginal is not None and lo <= marginal <= hi:
+        return marginal, f"marginal de los últimos {anios} años (sin capital invertido para contrastar)"
+    return None, "no calculable de forma estable"
+
+
 def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, convergencia_capex=True):
     """
     Proyección por drivers con estimadores ROBUSTOS (mediana + Hampel) e identidad FCFF:
@@ -5497,6 +5771,16 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
         g0 = float(g_path[0])
         info_g = dict(info_g, estimador=(f"tres etapas: consenso de analistas {', '.join(f'{x:.1%}' for x in consenso['g'])} "
                                          f"→ convergencia lineal a {g_conv:.1%} en el año {H}"))
+    narr = (getattr(df_hist, "attrs", {}).get("narrativa") or {})
+    pal = dict(narr.get("palancas") or {})
+    fuentes_pal = {}
+    if pal.get("g_ingresos") is not None:
+        g0 = float(pal["g_ingresos"])
+        g_path = None  # la ruta del usuario reemplaza la de consenso o estadística
+        info_g = dict(info_g, estimador=f"narrativa del usuario: {g0:.1%} el año 1 → {g_conv:.1%} al final")
+        fuentes_pal["g_ingresos"] = "usuario"
+    if g_path is not None:
+        pass
     elif H > 1:
         g_path = np.array([g0 + (g_conv - g0) * i / (H - 1) for i in range(H)])
     else:
@@ -5518,8 +5802,22 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     ing_proj = ing_base * np.cumprod(1 + g_path)
     ing_prev = np.concatenate([[ing_base], ing_proj[:-1]])
 
-    ebitda_proj = ing_proj * m_ebitda
-    ebit_proj = ing_proj * m_ebit
+    # Margen: el modelo lo fija en el representativo desde el año 1 (eso ya es una historia: «el último
+    # año fue atípico»). La narrativa puede fijar otro objetivo y cuántos años toma llegar a él.
+    try:
+        m_ultimo = float(df_hist["EBITDA"].iloc[-1]) / float(ing.iloc[-1])
+    except (ZeroDivisionError, TypeError, ValueError):
+        m_ultimo = m_ebitda
+    m_obj = float(pal["margen_ebitda"]) if pal.get("margen_ebitda") is not None else m_ebitda
+    n_conv = int(pal.get("anios_convergencia") or 1)
+    if pal.get("margen_ebitda") is not None:
+        fuentes_pal["margen_ebitda"] = "usuario"
+    if pal.get("anios_convergencia") is not None:
+        fuentes_pal["anios_convergencia"] = "usuario"
+    m_inicio = m_ultimo if (n_conv > 1 and not base_ltm) else m_obj
+    m_path = np.array([m_inicio + (m_obj - m_inicio) * min((i + 1) / n_conv, 1.0) for i in range(H)])
+    ebitda_proj = ing_proj * m_path
+    ebit_proj = ing_proj * (m_ebit + (m_path - m_ebitda))  # la D&A no cambia con la historia de margen
     dep_proj = ing_proj * m_da
 
     capex_r, info_c = driver_robusto(df_hist["CAPEX"].astype(float) / ing.replace(0, np.nan))
@@ -5535,6 +5833,27 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     nwc_r = float(np.clip(nwc_r if np.isfinite(nwc_r) else 0.10, -0.30, 0.40))
     delta_nwc = nwc_r * (ing_proj - ing_prev)
     nwc_proj = float(df_hist["NWC"].iloc[-1]) + np.cumsum(delta_nwc)
+
+    # Reinversión atada al crecimiento (g = tasa de reinversión × ROIC): la reinversión neta de cada año
+    # financia los ingresos adicionales del año siguiente a la eficiencia histórica (ventas/capital), y el
+    # último año financia el primero de la perpetuidad. Antes el CAPEX convergía al mantenimiento por su
+    # cuenta mientras los ingresos seguían creciendo: un «valle» de reinversión antes del valor terminal
+    # (ISA: FCFF 2030 un 52 % mayor que el primer flujo de la perpetuidad). No aplica a materias primas,
+    # cuyos ingresos se mueven por precio y no por capacidad instalada.
+    s2c, s2c_fuente = (None, None)
+    reinversion_ligada = False
+    if pal.get("ventas_capital") is not None:
+        s2c, s2c_fuente = float(pal["ventas_capital"]), "usuario"
+        fuentes_pal["ventas_capital"] = "usuario"
+    elif not ciclico:
+        s2c, s2c_fuente = ventas_capital_historica(df_hist, getattr(df_hist, "attrs", {}).get("capital_invertido"))
+    modo_reinv = pal.get("reinversion") or ("ligada" if REINVERSION_LIGADA_POR_DEFECTO else "mantenimiento")
+    if s2c and not ciclico and convergencia_capex and modo_reinv == "ligada":
+        ing_sig = np.concatenate([ing_proj[1:], [ing_proj[-1] * (1.0 + g_conv)]])
+        reinv_neta = np.maximum((ing_sig - ing_proj) / s2c, 0.0)  # sin liberar capital si los ingresos caen
+        capex_proj = np.maximum(dep_proj + reinv_neta - delta_nwc, 0.0)
+        capex_path = capex_proj / ing_proj
+        reinversion_ligada = True
 
     nopat_proj = calcular_nopat(ebit_proj, tax)
     fcff_proj = nopat_proj + dep_proj - capex_proj - delta_nwc
@@ -5576,8 +5895,46 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
         # Fuera de dominio: crecimiento observado muy por encima del techo del motor (12 %).
         # Un DCF de 5 años con convergencia rápida subestima sistemáticamente a estos emisores.
         "fuera_de_dominio_crecimiento": bool(g_hist is not None and not ciclico and g_hist > 0.25),
+        "reinversion_ligada": reinversion_ligada,
+        "modo_reinversion": modo_reinv if not ciclico else "materia prima: CAPEX converge al mantenimiento",
+        "ventas_capital": s2c,
+        "ventas_capital_fuente": s2c_fuente,
+        "margen_ebitda_ultimo": m_ultimo,
+        "margen_ebitda_objetivo": m_obj,
+        "anios_convergencia_margen": n_conv,
+        "narrativa": narrativa_modelo(g0, m_obj, n_conv, s2c, m_ultimo, info_g, info_m, s2c_fuente,
+                                      fuentes_pal, narr.get("justificacion") or {}, ciclico, base_ltm),
     }
     return df_proj, meta
+
+
+def narrativa_modelo(g0, m_obj, n_conv, s2c, m_ultimo, info_g, info_m, s2c_fuente, fuentes_pal, justif, ciclico, base_ltm):
+    """Las cuatro palancas de la historia con su valor, quién la decidió y la frase que la sostiene."""
+    def frase(k, por_defecto):
+        return justif.get(k) or por_defecto
+    est_m = (info_m.get("ebitda") or {}).get("estimador") or "estimador robusto"
+    dif = m_obj - m_ultimo
+    if base_ltm:
+        txt_m = "margen de los últimos doce meses (materia prima a precio de ciclo medio)"
+    elif abs(dif) > 0.02:
+        txt_m = (f"{est_m}: supone que el margen del último año ({m_ultimo:.1%}) "
+                 + ("fue anormalmente bajo y se recupera" if dif > 0 else "fue anormalmente alto y se normaliza"))
+    else:
+        txt_m = f"{est_m}: cercano al último año ({m_ultimo:.1%})"
+    filas = [
+        {"palanca": "g_ingresos", "nombre": PALANCAS_NARRATIVA["g_ingresos"], "valor": g0,
+         "fuente": fuentes_pal.get("g_ingresos", "modelo"), "frase": frase("g_ingresos", info_g.get("estimador") or "")},
+        {"palanca": "margen_ebitda", "nombre": PALANCAS_NARRATIVA["margen_ebitda"], "valor": m_obj,
+         "fuente": fuentes_pal.get("margen_ebitda", "modelo"), "frase": frase("margen_ebitda", txt_m)},
+        {"palanca": "anios_convergencia", "nombre": PALANCAS_NARRATIVA["anios_convergencia"], "valor": n_conv,
+         "fuente": fuentes_pal.get("anios_convergencia", "modelo"),
+         "frase": frase("anios_convergencia", "inmediata (año 1)" if n_conv <= 1 else f"lineal en {n_conv} años")},
+        {"palanca": "ventas_capital", "nombre": PALANCAS_NARRATIVA["ventas_capital"], "valor": s2c,
+         "fuente": fuentes_pal.get("ventas_capital", "modelo"),
+         "frase": frase("ventas_capital", "no aplica: materia prima (ingresos por precio, no por capacidad)" if ciclico
+                        else (s2c_fuente or "no calculable: CAPEX converge al mantenimiento"))},
+    ]
+    return filas
 
 
 def proyectar_por_ets(df_hist, horizonte=5, tax=0.35):
@@ -6042,7 +6399,13 @@ def motor_decision_institucional(
     except (TypeError, ValueError):
         margen_mercado = None
     precio_sobre_valor = margen_mercado is not None and margen_mercado <= -UMBRAL_SOBREVALORACION
-    if precio_sobre_valor:
+    if precio_sobre_valor and margen_mercado <= -0.999:
+        # Valor por acción 0 (patrimonio ≤ 0): «el precio supera el valor en x %» sería una división por cero.
+        alertas.append(
+            "Con estos supuestos el modelo no asigna valor a la acción (patrimonio ≤ 0 tras restar deuda y otros "
+            "derechos), mientras el mercado le da precio: revisa crecimiento, reinversión, márgenes y deuda."
+        )
+    elif precio_sobre_valor:
         alertas.append(
             f"El precio de mercado supera en {(-margen_mercado / (1 + margen_mercado)) * 100:.0f}% el valor por acción "
             f"del modelo (downside {margen_mercado * 100:.0f}%): no hay margen de seguridad en el caso base. "
@@ -10890,7 +11253,10 @@ def calidad_variables(nombre_empresa, usados=None):
         filas.append(["Asociadas", _fmt_monto(sdp.get("total")), "USUARIO", "suma de partes de las participadas"])
     else:
         fila("Asociadas", "asociados", _fmt_monto(u.get("asociados", p.get("asociados"))), _fuente_puente("asociados"))
-    fila("Beta sin deuda", "beta_u", f"{float(u.get('beta_u', p.get('beta_u')) or 0):.2f}", p.get("beta_fuente"))
+    _bf = p.get("beta_fuente")
+    if p.get("beta_brecha_industria") is not None:
+        _bf = f"{_bf}; la industria difiere en {float(p['beta_brecha_industria']):+.2f}"
+    fila("Beta sin deuda", "beta_u", f"{float(u.get('beta_u', p.get('beta_u')) or 0):.2f}", _bf)
     fila("Tasa de impuestos", "tax", _pct_txt(u.get("tax", p.get("tax")), 1), p.get("tax_fuente"))
     fila("Costo de la deuda (Kd)", "kd", _pct_txt(u.get("kd", p.get("kd"))), p.get("kd_fuente") or "regla: rf + spread")
     mon = str(p.get("moneda") or "").upper()
@@ -10901,7 +11267,10 @@ def calidad_variables(nombre_empresa, usados=None):
     crp = float(u.get("crp") or 0)
     filas.append(["Primas ERP / CRP", f"{_pct_txt(u.get('erp'))} / {_pct_txt(crp)}",
                   "USUARIO" if u.get("erp_editada") else "OBSERVADO",
-                  "Damodaran (NYU Stern)" + (" · CRP con flujos en pesos: posible doble conteo" if mon == "COP" and crp > 0 else "")])
+                  "Damodaran (NYU Stern)"
+                  + (" · ponderada por ingresos: " + ", ".join(f"{k} {v:.0f}" for k, v in paises_operacion_sesion(nombre_empresa).items())
+                     if paises_operacion_sesion(nombre_empresa) else " · país de la sede")
+                  + (" · CRP con flujos en pesos: posible doble conteo" if mon == "COP" and crp > 0 else "")])
     px_ref = p.get("precio_referencia")
     snap = instantanea_precio_mercado(nombre_empresa) or {}
     if px_ref and not snap.get("precio"):
@@ -10938,7 +11307,11 @@ def _datos_informe_v3(nombre_empresa, *, df_hist, df_proj, meta_proj, val_base, 
     out["supuestos"] = [
         ["Tasa libre de riesgo (rf)", _pct_txt(rf), CAPM_POR_MERCADO.get(MERCADO_POR_MONEDA.get(mon, "DEFAULT"), {}).get("rf_fuente")
          or CAPM_POR_MERCADO.get(MERCADO_POR_MONEDA.get(mon, "DEFAULT"), {}).get("rf_bruto_fuente") or "Parámetros del modelo"],
-        ["Prima de mercado (ERP)", _pct_txt(erp), CAPM_POR_MERCADO.get(MERCADO_POR_MONEDA.get(mon, "DEFAULT"), {}).get("erp_fuente") or "Parámetros del modelo"],
+        ["Prima de mercado (ERP)", _pct_txt(erp), (
+            "ponderada por ingresos: " + ", ".join(f"{k} {v / sum(paises_operacion_sesion(nombre_empresa).values()):.0%}"
+                                                 for k, v in paises_operacion_sesion(nombre_empresa).items()) + " (Damodaran)")
+         if paises_operacion_sesion(nombre_empresa) else
+         (CAPM_POR_MERCADO.get(MERCADO_POR_MONEDA.get(mon, "DEFAULT"), {}).get("erp_fuente") or "Parámetros del modelo")],
         ["Prima de riesgo país (CRP)", _pct_txt(crp), "Solo si los flujos están en moneda dura de un emisor emergente"],
         ["Beta sin deuda / con deuda", f"{float(beta_u):.2f} / {float(beta_l):.2f}", (params_empresa(nombre_empresa) or {}).get("beta_fuente") or "Parámetros del modelo"],
         ["Costo del patrimonio (Ke)", _pct_txt(ke), "rf + beta con deuda × ERP + CRP"],
@@ -10953,10 +11326,25 @@ def _datos_informe_v3(nombre_empresa, *, df_hist, df_proj, meta_proj, val_base, 
         ["Horizonte explícito", f"{int(horizonte)} años", "Descuento a mitad de año" if mid_year else "Descuento a fin de año"],
     ]
     est = (meta_proj or {}).get("estimador_ingresos") or ""
+
+    def _fmt_palanca(f):
+        v = f.get("valor")
+        if v is None:
+            return "no aplica"
+        if f["palanca"] in ("g_ingresos", "margen_ebitda"):
+            return _pct_txt(v, 1)
+        if f["palanca"] == "anios_convergencia":
+            return f"{int(v)} año(s)"
+        return f"{float(v):.2f} ×"
+    out["narrativa"] = [[f["nombre"], _fmt_palanca(f), "Usuario" if f.get("fuente") == "usuario" else "Modelo", f.get("frase") or ""]
+                        for f in (meta_proj or {}).get("narrativa") or []]
     out["proyeccion"] = (
         f"Ingresos: {est or 'mediana robusta del histórico'}; crecimiento año 1 {_pct_txt((meta_proj or {}).get('g_ingresos'), 1)}. "
-        f"Margen EBITDA representativo {_pct_txt((meta_proj or {}).get('margen_ebitda'), 1)}; CAPEX converge hacia el nivel de "
-        f"mantenimiento. Valor terminal: {_pct_txt(val_base.get('tv_pct_ev'), 0)} del valor de la empresa."
+        f"Margen EBITDA objetivo {_pct_txt((meta_proj or {}).get('margen_ebitda_objetivo', (meta_proj or {}).get('margen_ebitda')), 1)}; "
+        + (f"reinversión ligada al crecimiento (ventas/capital {float((meta_proj or {}).get('ventas_capital')):.2f}): cada año "
+           "reinvierte lo que exige el crecimiento del siguiente. " if (meta_proj or {}).get("reinversion_ligada")
+           else "CAPEX converge hacia el nivel de mantenimiento. ")
+        + f"Valor terminal: {_pct_txt(val_base.get('tv_pct_ev'), 0)} del valor de la empresa."
         + (" Emisor de materias primas: precio de ciclo medio (base últimos doce meses)." if (meta_proj or {}).get("ciclico") else "")
     )
     b = val_base.get("bridge") or {}
@@ -11166,6 +11554,12 @@ def generar_pdf_informe(ruta_pdf, nombre_empresa, datos):
     if datos.get("supuestos"):
         story.append(tabla([["Supuesto", "Valor", "Fuente o regla"]] + datos["supuestos"],
                            [2.35 * inch, 1.35 * inch, W - 3.7 * inch], der=(1,)))
+    if datos.get("narrativa"):
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("<b>La historia en cuatro palancas</b> (quién decidió cada una y qué la sostiene)", st_["Cuerpo"]))
+        story.append(Spacer(1, 2))
+        story.append(tabla([["Palanca", "Valor", "Decide", "Historia que la sostiene"]] + datos["narrativa"],
+                           [1.9 * inch, 0.8 * inch, 0.7 * inch, W - 3.4 * inch], der=(1,)))
     if datos.get("proyeccion"):
         story.append(Spacer(1, 4))
         story.append(Paragraph("<b>Proyección:</b> " + e(datos["proyeccion"]), st_["Cuerpo"]))
