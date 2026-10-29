@@ -39,6 +39,18 @@ pip install pytest
 streamlit run streamlit_app.py
 ```
 
+## Manual de usuario
+
+La app ofrece desde la pantalla de inicio (y en la barra lateral, sección «Experiencia») el botón **📘 Descargar manual (PDF)**, una guía para principiantes con imágenes de ejemplo y un caso práctico completo.
+
+- Texto fuente: `docs/manual_usuario.md` (las líneas `[[IMG:clave|pie]]` insertan los gráficos).
+- PDF publicado: `docs/Manual_Usuario_Modelacion_Financiera.pdf`.
+- Tras editar el texto, regenera gráficos y PDF:
+
+```bash
+python scripts/generar_manual_pdf.py
+```
+
 ## Configurar el comité IA
 
 No guardes claves en el código ni en archivos versionados. Puedes definir `GEMINI_API_KEY` como variable de entorno o en `.streamlit/secrets.toml`:

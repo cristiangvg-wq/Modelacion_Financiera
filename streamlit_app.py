@@ -708,6 +708,16 @@ section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-prim
   margin-right: 6px;
 }
 
+.tf-manual {
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.22) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(45, 212, 191, 0.55);
+  border-radius: 14px;
+  padding: 0.85rem 1.1rem;
+  color: #ECFDF5;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.tf-manual b { color: #99F6E4; }
 .tf-tour {
   background: linear-gradient(135deg, rgba(19, 78, 74, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
   border: 1px solid #14B8A6;
@@ -2947,6 +2957,55 @@ def _semaforo_desde_checks(g, wacc, de_ratio, n_hist, tax):
     return items
 
 
+RUTA_MANUAL_PDF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs",
+                               "Manual_Usuario_Modelacion_Financiera.pdf")
+NOMBRE_MANUAL_PDF = "Manual_Usuario_Modelacion_Financiera.pdf"
+
+
+@st.cache_data(show_spinner=False)
+def _bytes_manual_usuario(ruta: str, _mtime: float) -> bytes | None:
+    """Lee el PDF del manual (se regenera con scripts/generar_manual_pdf.py)."""
+    try:
+        with open(ruta, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _manual_usuario_pdf() -> bytes | None:
+    try:
+        mtime = os.path.getmtime(RUTA_MANUAL_PDF)
+    except OSError:
+        return None
+    return _bytes_manual_usuario(RUTA_MANUAL_PDF, mtime)
+
+
+def _tarjeta_manual_usuario():
+    """Tarjeta visible al entrar: descarga del manual de usuario en PDF."""
+    datos = _manual_usuario_pdf()
+    if not datos:
+        return
+    c_txt, c_btn = st.columns([3, 1], vertical_alignment="center")
+    with c_txt:
+        st.markdown(
+            '<div class="tf-manual">📘 <b>¿Primera vez aquí?</b> Descarga el <b>manual de usuario</b>: '
+            "explica cada pestaña en palabras sencillas, con imágenes y un ejemplo completo paso a paso. "
+            "No necesitas saber de finanzas.</div>",
+            unsafe_allow_html=True,
+        )
+    with c_btn:
+        st.download_button(
+            "📘 Descargar manual (PDF)",
+            data=datos,
+            file_name=NOMBRE_MANUAL_PDF,
+            mime="application/pdf",
+            type="primary",
+            width="stretch",
+            key="btn_manual_inicio",
+            help=f"Guía para principiantes · PDF de {len(datos) / 1024 / 1024:.1f} MB",
+        )
+
+
 def _tour_guiado():
     if st.session_state.get("tour_done"):
         return
@@ -3491,6 +3550,12 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # Manual de usuario: visible desde el inicio
+    try:
+        _tarjeta_manual_usuario()
+    except Exception:
+        pass
+
     # Workflow 4 pasos
     try:
         _wizard_flujo()
@@ -3789,6 +3854,12 @@ def main():
         # «Modo claro (experimental)» se retiró: inyectaba un <script> que Streamlit no ejecuta
         # (st.markdown no corre JavaScript) y no existía CSS claro, así que no hacía nada.
         st.markdown('<p class="tf-sidebar-label">Experiencia</p>', unsafe_allow_html=True)
+        _pdf_manual = _manual_usuario_pdf()
+        if _pdf_manual:
+            st.download_button(
+                "📘 Manual de usuario (PDF)", data=_pdf_manual, file_name=NOMBRE_MANUAL_PDF,
+                mime="application/pdf", width="stretch", key="btn_manual_sidebar",
+            )
         if st.button("Repetir tour guiado", width="stretch", key="btn_retour"):
             st.session_state["tour_done"] = False
             st.session_state["tour_step"] = 1
