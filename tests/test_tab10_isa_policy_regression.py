@@ -119,3 +119,71 @@ def test_policy_valuation_uses_same_bridge_and_reports_delta_ev_not_project_npv(
     np.testing.assert_allclose(delta_equity, delta_ev, rtol=1e-9, atol=1e-9)
     # El indicador es delta de valoración empresarial con TV, no una TIR ni VPN
     # de inversión aislada; no se calcula TIR con FCFF corporativo.
+
+
+def test_two_policies_are_valued_under_each_isa_scenario():
+    """Regresión de la matriz escenario × política (supuestos sintéticos del caso ISA)."""
+    base = isa_projection()
+    bridge = {
+        "deuda_neta": 30.21,
+        "caja": 0.0,
+        "nci": 0.0,
+        "otros_claims": 0.0,
+        "asociados": 0.0,
+    }
+    scenario_specs = [
+        ("Pesimista", WACC + 0.015, max(0.005, G_TERMINAL - 0.01)),
+        ("Base", WACC, G_TERMINAL),
+        ("Optimista", max(WACC - 0.01, 0.06),
+         max(0.005, min(G_TERMINAL + 0.01, WACC - 0.015))),
+    ]
+
+    for scenario_name, scenario_wacc, scenario_g in scenario_specs:
+        scenario_df = L.aplicar_shocks_drivers_proyeccion(
+            base, tax=TAX, shock=L.SHOCKS_ESCENARIOS[scenario_name]
+        )
+        scenario_fcff = pd.to_numeric(scenario_df["FCFF"], errors="raise").astype(float).tolist()
+        scenario_value = L.valorar_con_bridge(
+            scenario_fcff, scenario_wacc, scenario_g, bridge,
+            ebitda_salida=float(scenario_df["EBITDA"].iloc[-1]),
+            mid_year=True, g_max_macro=G_MAX_MACRO,
+            nopat_final=float(scenario_df["NOPAT"].iloc[-1]),
+        )
+
+        capex_df = scenario_df.copy()
+        capex_df["CAPEX"] = np.maximum(
+            capex_df["Ingresos"].to_numpy(dtype=float) * 0.03,
+            capex_df["CAPEX"].to_numpy(dtype=float) - capex_df["Ingresos"].to_numpy(dtype=float) * 0.01,
+        )
+        capex_df = L.recalcular_fcff(capex_df, tax=TAX, capex_extra=0.0)
+
+        efficiency_df = scenario_df.copy()
+        implementation_cost = float(efficiency_df["Ingresos"].iloc[0]) * 0.01
+        efficiency_df.loc[0, ["EBIT", "EBITDA"]] = (
+            efficiency_df.loc[0, ["EBIT", "EBITDA"]].astype(float) - implementation_cost
+        )
+        uplift = efficiency_df["Ingresos"].astype(float) * 0.015
+        efficiency_df["EBIT"] = efficiency_df["EBIT"].astype(float) + uplift
+        efficiency_df["EBITDA"] = efficiency_df["EBITDA"].astype(float) + uplift
+        efficiency_df = L.recalcular_fcff(efficiency_df, tax=TAX, capex_extra=0.0)
+
+        assert np.isfinite(float(scenario_value["EV"]))
+        assert np.isfinite(float(scenario_value["Equity_Value"]))
+        for policy_df in (capex_df, efficiency_df):
+            policy_fcff = pd.to_numeric(policy_df["FCFF"], errors="raise").astype(float).tolist()
+            policy_value = L.valorar_con_bridge(
+                policy_fcff, scenario_wacc, scenario_g, bridge,
+                ebitda_salida=float(policy_df["EBITDA"].iloc[-1]),
+                mid_year=True, g_max_macro=G_MAX_MACRO,
+                nopat_final=float(policy_df["NOPAT"].iloc[-1]),
+            )
+            assert np.isfinite(np.asarray(policy_fcff, dtype=float)).all()
+            assert np.isfinite(float(policy_value["EV"]))
+            assert np.isfinite(float(policy_value["Equity_Value"]))
+            # El mismo puente de deuda/claims implica el mismo delta EV y Equity.
+            np.testing.assert_allclose(
+                float(policy_value["Equity_Value"]) - float(scenario_value["Equity_Value"]),
+                float(policy_value["EV"]) - float(scenario_value["EV"]),
+                rtol=1e-8, atol=1e-8,
+            )
+
