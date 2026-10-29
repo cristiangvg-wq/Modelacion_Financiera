@@ -37,6 +37,9 @@
         "capital_invertido": 45000,
         "inversion_inicial": 5000,
         "fuente_de_ratio": "Instantánea de mercado BVC del 29-oct-2026 11:38:41 (hora Colombia): precio COP 27.500; 1.107,7 millones de acciones; capitalización calculada COP 30.461,75 miles de millones. D/E = deuda financiera bruta nominal COP 34.155 / capitalización de mercado COP 30.461,75 = 1,1212. Fuente de cotización: La República/BVC, https://www.larepublica.co/indicadores-economicos/movimiento-accionario/isa. Instantánea fechada; debe actualizarse para valoraciones futuras.",
+        "precio_ref_mercado": 27500,
+        "fecha_precio_ref": "2026-10-29 11:38:41 America/Bogota",
+        "fuente_precio_ref": "La República, fuente BVC: https://www.larepublica.co/indicadores-economicos/movimiento-accionario/isa",
         "fuente_tax": "El reporte consolidado ISA 2025 informa impuesto a las ganancias de 1.111 y utilidad antes de impuestos de 5.020 miles de millones COP, una tasa efectiva contable aproximada de 22,13% (1.111/5.020). Esto da contexto al 22% del catálogo, pero no valida que sea la tasa fiscal operativa apropiada sobre EBIT para FCFF: el gasto incluye efectos corrientes/diferidos y varias jurisdicciones. Mantener 22% como aproximación provisional para reproducibilidad, documentar la limitación y ejecutar sensibilidad al 35% solo como estrés, no como tasa consolidada definitiva.",
         "tax_estado": "provisional_no_validado"
       },
