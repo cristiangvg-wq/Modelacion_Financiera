@@ -6103,7 +6103,88 @@ def main():
                                    ". La adopción sigue condicionada a validar ejecución, mantenimiento y seguridad.")
                     else:
                         st.warning("Ninguna política aumenta el EV frente al caso base con estos supuestos; no se recomienda adoptarlas automáticamente.")
-                    st.markdown("#### 3. FCFF anual comparado")
+                    # Cumplimiento del taller: medir cada política dentro de cada escenario.
+                    # Se conserva el mismo WACC, g, puente EV→Equity y convención de valoración del escenario.
+                    fs_scenario_policy_rows = []
+                    fs_scenario_specs = [
+                        ("Pesimista", fs_base_wacc + 0.015, max(0.005, fs_base_g - 0.01), "Pesimista"),
+                        ("Base", fs_base_wacc, fs_base_g, "Base"),
+                        ("Optimista", max(fs_base_wacc - 0.01, 0.06),
+                         max(0.005, min(fs_base_g + 0.01, fs_base_wacc - 0.015)), "Optimista"),
+                    ]
+                    for fs_sname, fs_swacc, fs_sg, fs_shock_name in fs_scenario_specs:
+                        fs_sdf = L.aplicar_shocks_drivers_proyeccion(
+                            fs_base_df, tax=tax, shock=fs_shocks.get(fs_shock_name, {})
+                        )
+                        fs_sbase_fcff = pd.to_numeric(fs_sdf["FCFF"], errors="coerce").astype(float).tolist()
+                        fs_sbase_value = L.valorar_con_bridge(
+                            fs_sbase_fcff, fs_swacc, fs_sg, fs_bridge,
+                            ebitda_salida=float(fs_sdf["EBITDA"].iloc[-1]),
+                            precio_mercado=fs_price, mid_year=bool(mid_year),
+                            g_max_macro=float(g_max_macro), nopat_final=float(fs_sdf["NOPAT"].iloc[-1]),
+                        )
+                        fs_scenario_policy_rows.append({
+                            "Escenario": fs_sname, "Política": "Base del escenario",
+                            "EV": fs_sbase_value.get("EV"), "Equity": fs_sbase_value.get("Equity_Value"),
+                            "Δ EV vs. escenario": 0.0, "Δ Equity vs. escenario": 0.0,
+                            "FCFF acumulado": sum(fs_sbase_fcff), "Δ FCFF acumulado": 0.0,
+                        })
+
+                        # Política 1: reducción de CAPEX con piso configurable sobre ingresos.
+                        fs_sp_capex = fs_sdf.copy()
+                        fs_sp_rev = pd.to_numeric(fs_sp_capex["Ingresos"], errors="coerce").astype(float)
+                        fs_sp_capex["CAPEX"] = np.maximum(
+                            (fs_sp_rev * fs_capex_floor).to_numpy(),
+                            (pd.to_numeric(fs_sp_capex["CAPEX"], errors="coerce").astype(float)
+                             - fs_sp_rev * fs_capex_saving).to_numpy(),
+                        )
+                        fs_sp_capex = L.recalcular_fcff(fs_sp_capex, tax=tax, capex_extra=0.0)
+
+                        # Política 2: mejora del margen EBIT/EBITDA menos costo de implementación en año 1.
+                        fs_sp_eff = fs_sdf.copy()
+                        fs_sp_impl_cost = float(fs_sp_eff["Ingresos"].iloc[0]) * fs_impl_cost
+                        fs_sp_eff.loc[0, "EBIT"] = float(fs_sp_eff.loc[0, "EBIT"]) - fs_sp_impl_cost
+                        fs_sp_eff.loc[0, "EBITDA"] = float(fs_sp_eff.loc[0, "EBITDA"]) - fs_sp_impl_cost
+                        fs_sp_eff["EBIT"] = pd.to_numeric(fs_sp_eff["EBIT"], errors="coerce") + (
+                            pd.to_numeric(fs_sp_eff["Ingresos"], errors="coerce") * fs_margin_uplift
+                        )
+                        fs_sp_eff["EBITDA"] = pd.to_numeric(fs_sp_eff["EBITDA"], errors="coerce") + (
+                            pd.to_numeric(fs_sp_eff["Ingresos"], errors="coerce") * fs_margin_uplift
+                        )
+                        fs_sp_eff = L.recalcular_fcff(fs_sp_eff, tax=tax, capex_extra=0.0)
+
+                        for fs_pname, fs_pdf in [
+                            ("Optimización CAPEX", fs_sp_capex),
+                            ("Eficiencia operativa", fs_sp_eff),
+                        ]:
+                            fs_pfcff = pd.to_numeric(fs_pdf["FCFF"], errors="coerce").astype(float).tolist()
+                            fs_pvalue = L.valorar_con_bridge(
+                                fs_pfcff, fs_swacc, fs_sg, fs_bridge,
+                                ebitda_salida=float(fs_pdf["EBITDA"].iloc[-1]),
+                                precio_mercado=fs_price, mid_year=bool(mid_year),
+                                g_max_macro=float(g_max_macro), nopat_final=float(fs_pdf["NOPAT"].iloc[-1]),
+                            )
+                            fs_scenario_policy_rows.append({
+                                "Escenario": fs_sname, "Política": fs_pname,
+                                "EV": fs_pvalue.get("EV"), "Equity": fs_pvalue.get("Equity_Value"),
+                                "Δ EV vs. escenario": float(fs_pvalue.get("EV") or 0.0)
+                                    - float(fs_sbase_value.get("EV") or 0.0),
+                                "Δ Equity vs. escenario": float(fs_pvalue.get("Equity_Value") or 0.0)
+                                    - float(fs_sbase_value.get("Equity_Value") or 0.0),
+                                "FCFF acumulado": sum(fs_pfcff),
+                                "Δ FCFF acumulado": sum(fs_pfcff) - sum(fs_sbase_fcff),
+                            })
+
+                    st.markdown("#### 3. Impacto de cada política dentro de cada escenario")
+                    st.dataframe(
+                        pd.DataFrame(fs_scenario_policy_rows).round(3),
+                        hide_index=True, width="stretch"
+                    )
+                    st.caption(
+                        "Cada delta se compara contra el caso base del mismo escenario; así se separa el efecto de la política "
+                        "del efecto de los supuestos pesimistas u optimistas. Los deltas de EV/Equity incluyen el valor terminal."
+                    )
+                    st.markdown("#### 4. FCFF anual comparado")
                     fs_detail_df = pd.DataFrame(fs_policy_detail)
                     if not fs_detail_df.empty:
                         st.dataframe(
