@@ -124,6 +124,36 @@ class TestContratoMultisectorial(unittest.TestCase):
         self.assertAlmostEqual(deuda_bruta, 34155.0, places=6)
         self.assertAlmostEqual(capitalizacion_miles_millones, 30461.75, places=2)
 
+    def test_isa_2024_2025_catalog_matches_official_statements_and_flags_provisional_items(self):
+        data = json.loads((Path(__file__).resolve().parents[1] / "datos_curados.json").read_text(encoding="utf-8"))
+        isa = data["empresas"]["ISA — Interconexión Eléctrica"]
+        h = isa["historico"]
+        # Cifras en COP miles de millones; 2024 y 2025 conciliados con EEFF oficiales.
+        self.assertAlmostEqual(h["Ingresos"][1], 14934.751, places=3)
+        self.assertAlmostEqual(h["Ingresos"][2], 15918.005, places=3)
+        self.assertAlmostEqual(h["EBIT"][1], 7870.095, places=3)
+        self.assertAlmostEqual(h["EBIT"][2], 6841.990, places=3)
+        self.assertAlmostEqual(h["Depreciacion"][1], 1027.230, places=3)
+        self.assertAlmostEqual(h["Depreciacion"][2], 1080.192, places=3)
+        # EBITDA se deriva de EBIT operativo + D&A, con asociadas fuera del EBIT.
+        self.assertAlmostEqual(h["EBITDA"][1], h["EBIT"][1] + h["Depreciacion"][1], places=6)
+        self.assertAlmostEqual(h["EBITDA"][2], h["EBIT"][2] + h["Depreciacion"][2], places=6)
+        # CAPEX de caja = PP&E + intangibles; no usar el dato anterior 6.278 como equivalente.
+        self.assertAlmostEqual(h["CAPEX"][1], 1578.149, places=3)
+        self.assertAlmostEqual(h["CAPEX"][2], 1706.308, places=3)
+        # NWC es una estimación reproducible, no una cifra certificada.
+        self.assertAlmostEqual(h["NWC"][1], 3767.732, places=3)
+        self.assertAlmostEqual(h["NWC"][2], 3995.661, places=3)
+        self.assertIn("no certificado", isa["verificacion"].lower())
+        self.assertIn("2023", isa["calidad_historico_por_anio"])
+        self.assertIn("no reconciliados", isa["calidad_historico_por_anio"]["2023"].lower())
+
+    def test_isa_official_2025_illustrative_fcff_is_reproducible(self):
+        # FCFF ilustrativo; tasa 22% y delta NWC siguen siendo supuestos/provisionales.
+        ebit, tax, da, capex, delta_nwc = 6841.990, 0.22, 1080.192, 1706.308, 227.929
+        fcff = ebit * (1 - tax) + da - capex - delta_nwc
+        self.assertAlmostEqual(fcff, 4482.7072, places=3)
+
     def test_dcf_rejects_terminal_growth_at_or_above_discount_rate_after_anchoring(self):
         # La función debe producir una valoración finita y no dejar Gordon singular.
         val = L.valoracion_dcf([100.0, 110.0, 120.0], 0.10, 0.10, mid_year=False)
