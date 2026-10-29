@@ -10,7 +10,7 @@ Archivos:
 ## Ejecutar
 ```bash
 python scripts/taller_isa.py
-python -m unittest tests.test_taller_isa -v
+python -m unittest discover -s tests -p 'test_taller_isa.py' -v
 ```
 
 **Advertencia importante:** las políticas y shocks son hipótesis académicas. El WACC del script es ilustrativo y los resultados no son un precio objetivo. Antes de una recomendación definitiva deben verificarse el CAPEX, NWC, WACC y puente EV–patrimonio con datos vigentes y el motor principal de la aplicación.
