@@ -19,7 +19,6 @@ import importlib
 
 import modelacion_logic as L
 import portfolio_engine as _portfolio_engine_mod
-import financial_scenarios as FS
 
 # Streamlit (y Streamlit Cloud tras un `git pull`) vuelve a ejecutar este script
 # SIN reiniciar el proceso: los módulos importados quedan en caché con su versión
@@ -5999,7 +5998,7 @@ def main():
                     for fs_name, fs_wacc, fs_g, fs_wshock in [
                         ("Pesimista", fs_base_wacc + 0.015, max(0.005, fs_base_g - 0.01), "Pesimista"),
                         ("Base", fs_base_wacc, fs_base_g, "Base"),
-                        ("Optimista", max(fs_base_wacc - 0.01, 0.06), min(fs_base_g + 0.01, fs_base_wacc - 0.015), "Optimista"),
+                        ("Optimista", max(fs_base_wacc - 0.01, 0.06), max(0.005, min(fs_base_g + 0.01, fs_base_wacc - 0.015)), "Optimista"),
                     ]:
                         fs_scenario_df = L.aplicar_shocks_drivers_proyeccion(
                             fs_base_df, tax=tax, shock=fs_shocks.get(fs_wshock, {})
