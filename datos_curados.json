@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "as_of": "2026-10-27",
+  "as_of": "2026-10-29",
   "moneda": "COP",
   "unidad": "miles de millones",
   "nota": "Respaldo cuando no hay estados financieros del usuario ni descarga de Yahoo. Los años 2016-2021 del catálogo anterior eran cifras de relleno (valores redondos y crecimientos constantes) y se eliminaron.",
