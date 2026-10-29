@@ -1,5 +1,7 @@
 """Pruebas de contrato multisectorial: las identidades financieras no dependen de ISA."""
 import unittest
+import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -104,6 +106,23 @@ class TestContratoMultisectorial(unittest.TestCase):
         )
         self.assertIsNone(result["upside_pct"])
         self.assertIn("sin FX", result["nota_vps"])
+
+
+    def test_isa_catalog_market_de_ratio_matches_dated_bvc_snapshot(self):
+        # Verifica la instantánea de mercado curada; no es un test de cotización en vivo.
+        data = json.loads((Path(__file__).resolve().parents[1] / "datos_curados.json").read_text(encoding="utf-8"))
+        isa = data["empresas"]["ISA — Interconexión Eléctrica"]
+        sup = isa["supuestos"]
+        bridge = isa["puente"]
+        self.assertEqual(sup["fecha_precio_ref"], "2026-10-29 11:38:41 America/Bogota")
+        self.assertEqual(sup["precio_ref_mercado"], 27500)
+        acciones_millones = bridge["acciones"]
+        deuda_bruta = bridge["deuda_neta"] + bridge["caja"]
+        capitalizacion_miles_millones = sup["precio_ref_mercado"] * acciones_millones / 1000.0
+        de_calculado = round(deuda_bruta / capitalizacion_miles_millones, 4)
+        self.assertAlmostEqual(de_calculado, sup["de_ratio"], places=4)
+        self.assertAlmostEqual(deuda_bruta, 34155.0, places=6)
+        self.assertAlmostEqual(capitalizacion_miles_millones, 30461.75, places=2)
 
     def test_dcf_rejects_terminal_growth_at_or_above_discount_rate_after_anchoring(self):
         # La función debe producir una valoración finita y no dejar Gordon singular.
