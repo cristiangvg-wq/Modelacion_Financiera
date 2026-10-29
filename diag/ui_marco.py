@@ -20,16 +20,6 @@ with sync_playwright() as pw:
         pg.keyboard.press("Escape"); pg.wait_for_timeout(2000)
     except Exception as e:
         log.append(f"narrativa error {e}")
-    # parametros: ingresos por pais
-    try:
-        pg.get_by_text("Parámetros del modelo").first.click(timeout=10000); pg.wait_for_timeout(2000)
-        f = pg.get_by_role("textbox", name="Ingresos por país (opcional)").first
-        f.fill("Brasil 40, Colombia 30, Chile 15, Perú 15"); f.press("Enter"); pg.wait_for_timeout(6000)
-        sb = pg.locator('[data-testid="stSidebar"]').inner_text()
-        i = sb.find("Prima ponderada"); log.append("OPS: " + sb[i:i + 200].replace("\n", " "))
-        log.append("ERP caja: " + pg.get_by_label("ERP (valor exacto)").first.input_value())
-    except Exception as e:
-        log.append(f"ops error {e}")
     # portafolio
     pg.get_by_role("tab").nth(7).click(); pg.wait_for_timeout(5000)
     f = pg.get_by_label("Otros tickers del universo, separados por coma").first
@@ -39,5 +29,15 @@ with sync_playwright() as pw:
     open(f"{OUT}/tab8.txt", "w").write(t)
     pg.locator('[role="tabpanel"]:visible').first.screenshot(path=f"{OUT}/tab8.png")
     log.append(f"excepciones: {[x[:300] for x in pg.locator('[data-testid=stException]').all_inner_texts()]}")
+    # parametros: ingresos por pais
+    try:
+        pg.get_by_text("Parámetros del modelo").first.click(timeout=10000); pg.wait_for_timeout(2000)
+        f = pg.get_by_role("textbox", name="Ingresos por país (opcional)").first
+        f.fill("Brasil 40, Colombia 30, Chile 15, Perú 15"); f.press("Enter"); pg.wait_for_timeout(6000)
+        sb = pg.locator('[data-testid="stSidebar"]').inner_text()
+        i = sb.find("Prima ponderada"); log.append("OPS: " + sb[i:i + 200].replace("\n", " "))
+        log.append("ERP caja: " + pg.get_by_role("spinbutton", name="ERP (valor exacto)").first.input_value())
+    except Exception as e:
+        log.append(f"ops error {e}")
     b.close()
 open(f"{OUT}/log.txt", "w").write("\n".join(log)); print("\n".join(log))

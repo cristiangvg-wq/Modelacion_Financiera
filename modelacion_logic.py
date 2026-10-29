@@ -3021,6 +3021,26 @@ def calificacion_sintetica(ebit, gasto_intereses, grande=True, tabla=None):
             "tabla": "empresas grandes" if grande else "empresas pequeñas"}
 
 
+def beta_para_capm(info):
+    """Beta con deuda para el CAPM de un activo del portafolio, con la misma regla que la valoración:
+    regresión de Yahoo si informa (≥ BETA_REGRESION_MIN); si no, bottom-up de Damodaran de su industria y
+    región, reapalancada con su D/E de mercado; si tampoco hay, 1,0 (mercado). Devuelve (beta, fuente)."""
+    info = info or {}
+    b = _safe_float(info.get("beta"))
+    if b is not None and BETA_REGRESION_MIN <= b <= 3.0:
+        return float(b), f"β {b:.2f} (Yahoo)"
+    pais = _mercado_desde_pais(info.get("country")) or ("CO" if str(info.get("symbol") or "").upper().endswith(".CL") else "US")
+    bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", pais)
+    if bd:
+        deuda, mcap = _safe_float(info.get("totalDebt")), _safe_float(info.get("marketCap"))
+        de = (deuda / mcap) if deuda and mcap and mcap > 0 else 0.0
+        t = TASA_ESTATUTARIA.get(pais, 0.25)
+        bl = float(bd["beta_u"]) * (1 + (1 - t) * min(de, 3.0))
+        motivo = "Yahoo sin beta" if b is None else f"regresión {b:.2f} no informativa"
+        return bl, f"β {bl:.2f} bottom-up {bd['industria']} {bd.get('region')} ({motivo})"
+    return 1.0, "β 1,00 de mercado (sin beta ni industria)"
+
+
 def industria_damodaran(sector="", industry="", explicita=None):
     if explicita:
         return explicita

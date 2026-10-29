@@ -16,9 +16,9 @@ jobs:
       - run: |
           set +e
           mkdir -p out/ui
-          python diag/comparar.py > out/comparar.json 2> out/comparar_err.txt
+          true
           git fetch -q origin main --depth 1 && git checkout -q FETCH_HEAD -- modelacion_logic.py portfolio_engine.py comite_ia.py datos_damodaran.json scripts/contraste_mercado_real.py
-          python diag/comparar.py > out/comparar_main.json 2> out/comparar_main_err.txt || true
+          true
           git checkout -q HEAD -- modelacion_logic.py portfolio_engine.py comite_ia.py datos_damodaran.json scripts/contraste_mercado_real.py
           streamlit run streamlit_app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > out/ui/streamlit.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8501/_stcore/health && break; sleep 2; done

@@ -5142,7 +5142,7 @@ def main():
                     try:
                         _info = _yf.Ticker(_ticker).get_info() or {}
                         _meta[_ticker] = _info.get("currency")
-                        _betas_yf[_ticker] = _info.get("beta")
+                        _betas_yf[_ticker] = L.beta_para_capm(dict(_info, symbol=_ticker))
                     except Exception:
                         _meta[_ticker] = None
                 _currencies = {str(v).upper() for v in _meta.values() if v}
@@ -5198,10 +5198,11 @@ def main():
                             except Exception:
                                 _r_loc = None
                         if _r_loc is None:
-                            _b = _betas_yf.get(_tk)
-                            _b = float(_b) if isinstance(_b, (int, float)) and 0.1 <= float(_b) <= 3.0 else 1.0
-                            _r_loc = float(_cap["rf"]) + _b * float(_cap["erp"]) + float(_cap.get("crp", 0.0))
-                            _fte = f"CAPM {_merc}: rf {_cap['rf']:.2%} + β {_b:.2f} × ERP {_cap['erp']:.2%}"
+                            _b, _bf = _betas_yf.get(_tk) or (1.0, "β 1,00 de mercado")
+                            _r_loc = float(_cap["rf"]) + float(_b) * float(_cap["erp"]) + float(_cap.get("crp", 0.0))
+                            _fte = f"CAPM {_merc}: rf {_cap['rf']:.2%} + {_bf} × ERP {_cap['erp']:.2%}"
+                            if _portfolio_incluir_empresa and _tk == _portfolio_ticker_actual:
+                                _fte += " (sin valoración vigente de la empresa: ejecuta «Generar todo» para usar su precio)"
                         if _merc != _merc_base:
                             _r_loc = _fisher_portfolio(_r_loc, L.INFLACION_LP.get(_merc, L.INFLACION_LP["US"]),
                                                        L.INFLACION_LP.get(_merc_base, L.INFLACION_LP["US"]))

@@ -390,7 +390,11 @@ def construir_frontera(
     frontier = pd.DataFrame(rows)
     if frontier.empty:
         raise RuntimeError("No se pudo construir la frontera con estas restricciones.")
-    return frontier.sort_values("Volatilidad").reset_index(drop=True)
+    frontier = frontier.sort_values("Volatilidad").reset_index(drop=True)
+    # Solo la rama eficiente: un punto con más volatilidad y menos retorno que otro ya listado es
+    # ineficiente (o un mínimo local del optimizador) y dibujaba una frontera en zigzag.
+    eficiente = frontier["Retorno esperado"] >= frontier["Retorno esperado"].cummax() - 1e-9
+    return frontier[eficiente].reset_index(drop=True)
 
 
 MONEDAS_SOPORTADAS_FX = {"COP", "USD"}
