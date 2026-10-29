@@ -3706,6 +3706,12 @@ def main():
             de_ratio = _slider_y_caja("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.2) or 1.2), 0.01, f"de_{ek}", "%.4f", paso_caja=0.0001)
             kd = _slider_y_caja("Kd", 0.0, 0.25, float(p.get("kd", 0.08) or 0.08), 0.005, f"kd_{ek}", "%.4f", paso_caja=0.0001)
             tax = _slider_y_caja("Tax", 0.0, 0.50, float(p.get("tax", 0.35) or 0.35), 0.01, f"tax_{ek}", "%.4f", paso_caja=0.0001)
+            if "ISA" in str(empresa).upper() or "INTERCONEXIÓN" in str(empresa).upper():
+                st.warning(
+                    "ISA: la tasa fiscal de 22% del catálogo es provisional y no está conciliada con una fuente fiscal "
+                    "específica. Mantén la tasa editable y valida impuestos operativos por jurisdicción antes de usar "
+                    "la valoración; compara sensibilidades y no asumas automáticamente que 35% sea la tasa consolidada."
+                )
             g = _slider_y_caja("g terminal", 0.0, 0.08, float(p.get("g", 0.03) or 0.03), 0.005, f"g_{ek}", "%.4f", paso_caja=0.0001)
             capex_extra = _slider_y_caja("CAPEX extra", 0.0, 8000.0, 0.0, 50.0, f"cx_{ek}", "%.1f", paso_caja=1.0)
             beta_u = _slider_y_caja("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5) or 0.5), 0.05, f"bu_{ek}", "%.4f", paso_caja=0.0001)
@@ -6036,6 +6042,12 @@ def main():
                     st.markdown("#### 1. Escenarios conectados al pronóstico y DCF existente")
                     fs_scenarios_df = pd.DataFrame(fs_scenario_rows)
                     st.dataframe(fs_scenarios_df.round(3), hide_index=True, width="stretch")
+                    st.caption(
+                        "Lectura de escenarios: los factores de ingresos son multiplicadores del nivel de ingresos proyectado "
+                        "en todos los años (no cambios en la tasa de crecimiento anual). CAPEX y variación de NWC reciben "
+                        "shocks independientes; la depreciación conserva la senda base. Son hipótesis ilustrativas, no un "
+                        "pronóstico oficial ni un modelo completamente recalibrado por ratios."
+                    )
                     fs_ev_scenarios = fs_scenarios_df.dropna(subset=["EV"]).sort_values("EV")
                     if not fs_ev_scenarios.empty:
                         fs_low = fs_ev_scenarios.iloc[0]
@@ -6105,8 +6117,13 @@ def main():
                             "Δ FCFF acumulado": fs_delta_fcff, "Dispersión FCFF": fs_std,
                             "Δ dispersión": fs_std - fs_base_std, "Regla": fs_rule,
                         })
+                        fs_years = (
+                            pd.to_numeric(fs_policy_df["Año"], errors="coerce").astype("Int64").tolist()
+                            if "Año" in fs_policy_df.columns
+                            else [int(datetime.now().year + fs_i + 1) for fs_i in range(len(fs_fcff))]
+                        )
                         for fs_i, fs_flow in enumerate(fs_fcff):
-                            fs_policy_detail.append({"Año": int(fs_i + 1), "Política": fs_name, "FCFF": fs_flow})
+                            fs_policy_detail.append({"Año": int(fs_years[fs_i]), "Política": fs_name, "FCFF": fs_flow})
                     st.markdown("#### 2. Efecto de las políticas sobre valoración y flujos")
                     fs_policy_df = pd.DataFrame(fs_policy_rows)
                     st.dataframe(fs_policy_df.round(3), hide_index=True, width="stretch")

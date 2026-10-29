@@ -33,6 +33,13 @@ class TestTallerISA(unittest.TestCase):
             expected = r["nopat"] + r["depreciacion"] - r["capex"] - r["delta_nwc"]
             self.assertAlmostEqual(r["fcff"], expected, places=7)
 
+    def test_tax_sensitivity_is_explicit_and_material(self):
+        base = build_projection("Base", "Sin política", self.isa, tax_rate=0.22)
+        stress = build_projection("Base", "Sin política", self.isa, tax_rate=0.35)
+        self.assertAlmostEqual(base[0]["impuestos_sobre_ebit"], base[0]["ebit"] * 0.22)
+        self.assertAlmostEqual(stress[0]["impuestos_sobre_ebit"], stress[0]["ebit"] * 0.35)
+        self.assertNotAlmostEqual(sum(r["fcff"] for r in base), sum(r["fcff"] for r in stress))
+
     def test_policy_changes_results(self):
         base = build_projection("Base", "Sin política", self.isa)
         capex = build_projection("Base", "Priorizar CAPEX", self.isa)
@@ -45,10 +52,15 @@ class TestTallerISA(unittest.TestCase):
             result = run_model(DEFAULT_DATA, Path(tmp))
             self.assertEqual(len(result["summary"]), 9)
             self.assertEqual(len(result["detail"]), 45)
-            for filename in ("detalle_escenarios_politicas.csv", "resumen_escenarios_politicas.csv", "metadatos_modelo.json"):
+            for filename in ("detalle_escenarios_politicas.csv", "resumen_escenarios_politicas.csv", "sensibilidad_tasa_impuesto.csv", "metadatos_modelo.json"):
                 self.assertTrue((Path(tmp) / filename).exists())
             metadata = json.loads((Path(tmp) / "metadatos_modelo.json").read_text(encoding="utf-8"))
             self.assertIn("CAPEX", " ".join(metadata["drivers"]))
+            self.assertEqual(metadata["estado_tasa_impuesto"], "provisional_no_validado")
+            with (Path(tmp) / "sensibilidad_tasa_impuesto.csv").open(encoding="utf-8-sig") as f:
+                sensitivity = f.read()
+            self.assertIn("0.35", sensitivity)
+            self.assertIn("no una conclusión fiscal", sensitivity)
 
 
 if __name__ == "__main__":
