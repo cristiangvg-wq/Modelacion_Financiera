@@ -7532,8 +7532,10 @@ def _nopat_final(df, fac=1.0):
     return float(_escalar_fcff([float(df["NOPAT"].iloc[-1])], fac)[0])
 
 
-# Escenarios por shocks de drivers: UNA sola definición para las pestañas 2, 4 y 7 (antes la 2 usaba shocks
-# de drivers y la 4/7 escalaban el FCFF × 0,75: «Equity pesimista» de ISA 6.651 en la 2 y 5.883 en la 4).
+# Escenarios por shocks de drivers: UNA sola definición para las pestañas 2, 4 y 7.
+# g_ingresos es multiplicador de NIVEL de ingresos, no variación de crecimiento anual.
+# CAPEX y Delta_NWC reciben shocks independientes; D&A conserva su senda base.
+# Los factores son hipótesis ilustrativas y no deben presentarse como pronóstico oficial.
 SHOCKS_ESCENARIOS = {
     "Pesimista": {"g_ingresos": 0.90, "margen_ebitda": 0.92, "capex_factor": 1.15, "nwc_factor": 1.10},
     "Base": {"g_ingresos": 1.00, "margen_ebitda": 1.00, "capex_factor": 1.00, "nwc_factor": 1.00},
@@ -7561,9 +7563,13 @@ def insumos_escenario(df_proj, nombre, tax=0.35):
 def aplicar_shocks_drivers_proyeccion(df_proj, tax=0.35, shock=None):
     """
     Escenario por drivers (no solo escalado de FCFF).
-    shock keys (multiplicadores, 1.0 = base):
-      g_ingresos, margen_ebitda, capex_factor, nwc_factor
-    Recalcula EBIT, NOPAT, FCFF por identidad contable.
+    Todos los shocks son multiplicadores de NIVEL/ratio, no cambios en tasas anuales:
+      g_ingresos: multiplica el nivel de ingresos proyectado en todos los años;
+      margen_ebitda: multiplica el margen EBITDA implícito;
+      capex_factor: multiplica CAPEX;
+      nwc_factor: multiplica Delta_NWC.
+    Recalcula EBIT, NOPAT y FCFF. No interpreta g_ingresos como crecimiento anual
+    ni recalcula automáticamente D&A/CAPEX/NWC a partir de ratios nuevos.
     """
     if df_proj is None or not hasattr(df_proj, "copy"):
         return df_proj
