@@ -25,18 +25,18 @@
         "nci": 10539,
         "otros_claims": 0,
         "asociados": 4332,
-        "acciones": 1108,
+        "acciones": 1107.7,
         "fuente": "Informe consolidado ISA 2T26: deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539; inversiones en negocios conjuntos y asociadas 4.332 (valor contable, jun-2026)."
       },
       "supuestos": {
         "beta_u": 0.42,
         "tax": 0.22,
-        "de_ratio": 1.09,
+        "de_ratio": 1.1212,
         "g": 0.05,
         "exit_multiple": 8.4,
         "capital_invertido": 45000,
         "inversion_inicial": 5000,
-        "fuente_de_ratio": "WACC: deuda financiera bruta nominal 34.155 / capitalización de mercado (28.300 COP × 1.107,7 M acciones), cotización BVC 27-oct-2026; D/E ≈ 1,09.",
+        "fuente_de_ratio": "Instantánea de mercado BVC del 29-oct-2026 11:38:41 (hora Colombia): precio COP 27.500; 1.107,7 millones de acciones; capitalización calculada COP 30.461,75 miles de millones. D/E = deuda financiera bruta nominal COP 34.155 / capitalización de mercado COP 30.461,75 = 1,1212. Fuente de cotización: La República/BVC, https://www.larepublica.co/indicadores-economicos/movimiento-accionario/isa. Instantánea fechada; debe actualizarse para valoraciones futuras.",
         "fuente_tax": "El reporte consolidado ISA 2025 informa impuesto a las ganancias de 1.111 y utilidad antes de impuestos de 5.020 miles de millones COP, una tasa efectiva contable aproximada de 22,13% (1.111/5.020). Esto da contexto al 22% del catálogo, pero no valida que sea la tasa fiscal operativa apropiada sobre EBIT para FCFF: el gasto incluye efectos corrientes/diferidos y varias jurisdicciones. Mantener 22% como aproximación provisional para reproducibilidad, documentar la limitación y ejecutar sensibilidad al 35% solo como estrés, no como tasa consolidada definitiva.",
         "tax_estado": "provisional_no_validado"
       },
