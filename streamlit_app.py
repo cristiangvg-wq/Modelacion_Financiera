@@ -6058,9 +6058,8 @@ def main():
 
                     fs_policy_rows = [{
                         "Política": "Base actual", "EV": fs_base_val.get("EV"),
-                        "Equity": fs_base_val.get("Equity_Value"), "Δ EV vs. base": 0.0,
-                        "Δ Equity vs. base": 0.0, "VPN incremental FCFF": 0.0,
-                        "TIR proyecto (%)": None, "FCFF acumulado": sum(fs_base_fcff),
+                        "Equity": fs_base_val.get("Equity_Value"), "Δ EV vs. base (incl. terminal)": 0.0,
+                        "Δ Equity vs. base": 0.0, "FCFF acumulado": sum(fs_base_fcff),
                         "Δ FCFF acumulado": 0.0, "Dispersión FCFF": float(np.std(fs_base_fcff, ddof=0)),
                         "Regla": "Caso de referencia",
                     }]
@@ -6077,20 +6076,13 @@ def main():
                             g_max_macro=float(g_max_macro), nopat_final=float(fs_policy_df["NOPAT"].iloc[-1]),
                         )
                         fs_dcf_incremental = float(fs_val.get("EV") or 0.0) - fs_base_ev
-                        fs_project_metrics = L.metricas_proyecto_robustas(
-                            fs_fcff, fs_base_wacc, inversion_inicial=float(inversion_inicial or 0.0),
-                            capital_invertido=float(capital_invertido or 0.0),
-                        )
-                        fs_tir = fs_project_metrics.get("tir")
-                        fs_tir_pct = 100 * float(fs_tir) if fs_tir is not None and np.isfinite(float(fs_tir)) else None
                         fs_std = float(np.std(fs_fcff, ddof=0))
                         fs_delta_fcff = sum(fs_fcff) - sum(fs_base_fcff)
                         fs_policy_rows.append({
                             "Política": fs_name, "EV": fs_val.get("EV"), "Equity": fs_val.get("Equity_Value"),
-                            "Δ EV vs. base": fs_dcf_incremental,
+                            "Δ EV vs. base (incl. terminal)": fs_dcf_incremental,
                             "Δ Equity vs. base": float(fs_val.get("Equity_Value") or 0.0) - fs_base_equity,
-                            "VPN incremental FCFF": fs_dcf_incremental,
-                            "TIR proyecto (%)": fs_tir_pct, "FCFF acumulado": sum(fs_fcff),
+                            "FCFF acumulado": sum(fs_fcff),
                             "Δ FCFF acumulado": fs_delta_fcff, "Dispersión FCFF": fs_std,
                             "Δ dispersión": fs_std - fs_base_std, "Regla": fs_rule,
                         })
@@ -6098,7 +6090,7 @@ def main():
                             fs_policy_detail.append({"Año": int(fs_i + 1), "Política": fs_name, "FCFF": fs_flow})
                     st.markdown("#### 2. Efecto de las políticas sobre valoración y flujos")
                     st.dataframe(pd.DataFrame(fs_policy_rows).round(3), hide_index=True, width="stretch")
-                    fs_adopt = [row["Política"] for row in fs_policy_rows[1:] if row["VPN incremental FCFF"] > 0]
+                    fs_adopt = [row["Política"] for row in fs_policy_rows[1:] if row["Δ EV vs. base (incl. terminal)"] > 0]
                     if fs_adopt:
                         st.success("Políticas que aumentan el EV bajo estos supuestos: " + ", ".join(fs_adopt) +
                                    ". La adopción sigue condicionada a validar ejecución, mantenimiento y seguridad.")
@@ -6113,8 +6105,8 @@ def main():
                         )
                     st.caption(
                         f"Moneda: {moneda}. Los importes conservan la unidad/escala del modelo de empresa. "
-                        "VPN incremental FCFF se muestra como cambio en EV manteniendo el mismo puente a Equity. "
-                        "La TIR es de proyecto y usa la inversión inicial configurada en la barra lateral; no es la TIR de la acción."
+                        "El cambio de EV incorpora los flujos explícitos y el valor terminal; el cambio de Equity aplica el mismo puente de valoración. "
+                        "No se presenta TIR de proyecto porque estos flujos son de la empresa completa y no los flujos incrementales de una inversión aislada."
                     )
                     st.warning(
                         "Los cambios de CAPEX y margen son supuestos de política, no hechos observados. "
