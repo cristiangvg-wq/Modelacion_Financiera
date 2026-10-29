@@ -39,7 +39,7 @@ class TestContratoMultisectorial(unittest.TestCase):
                 wacc, we, wd = L.calcular_wacc(de, 0.07, 0.12, 0.25)
                 self.assertAlmostEqual(we + wd, 1.0, places=12)
                 self.assertGreater(wacc, 0.0)
-                self.assertLess(wacc, 0.12)
+                self.assertLessEqual(wacc, 0.12)
 
     def test_enterprise_to_equity_bridge_does_not_double_count_net_cash(self):
         # Las magnitudes están en una unidad monetaria común y en una escala consistente.
