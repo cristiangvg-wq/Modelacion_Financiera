@@ -5,7 +5,7 @@ import modelacion_logic as L
 
 class TestSectorMethodology(unittest.TestCase):
     def test_bancos_y_aseguradoras(self):
-        for sector in ("Banco comercial", "Seguros de vida", "Financial Services"):
+        for sector in ("Banco comercial", "Seguros de vida", "Insurance"):
             with self.subTest(sector=sector):
                 r = L.recomendar_metodologia_sectorial(sector)
                 self.assertEqual(r["metodo_principal"], "FCFE/dividendos/exceso de retornos")
