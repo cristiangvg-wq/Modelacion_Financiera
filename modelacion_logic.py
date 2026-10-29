@@ -9754,6 +9754,7 @@ def tab1_carga_y_pronostico(nombre_empresa, archivo, horizonte, metodo="Drivers 
             fig,
             fig_norm,   # figura o None; el wrapper controla visible
             help_norm if visible_norm else "",
+            df_proj.copy(),  # proyección cruda, sin redondeo, para cálculos conectados (pestaña 10)
         )
     except Exception as e:
         return (
@@ -9761,6 +9762,7 @@ def tab1_carga_y_pronostico(nombre_empresa, archivo, horizonte, metodo="Drivers 
             None, None, None,
             None,
             "",
+            None,
         )
 
 
