@@ -40,6 +40,11 @@ class TestTallerISA(unittest.TestCase):
         self.assertAlmostEqual(stress[0]["impuestos_sobre_ebit"], stress[0]["ebit"] * 0.35)
         self.assertNotAlmostEqual(sum(r["fcff"] for r in base), sum(r["fcff"] for r in stress))
 
+    def test_tax_and_d_and_a_reconciliation_are_documented(self):
+        self.assertIn("22,13%", self.isa["tax_source"])
+        self.assertIn("impuestos operacionales de 266", self.isa["source"])
+        self.assertNotIn("Reconciliación pendiente: EBITDA−EBIT difiere", self.isa["source"])
+
     def test_policy_changes_results(self):
         base = build_projection("Base", "Sin política", self.isa)
         capex = build_projection("Base", "Priorizar CAPEX", self.isa)
