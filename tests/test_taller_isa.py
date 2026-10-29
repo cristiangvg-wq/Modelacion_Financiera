@@ -42,7 +42,7 @@ class TestTallerISA(unittest.TestCase):
 
     def test_tax_and_d_and_a_reconciliation_are_documented(self):
         self.assertIn("22,13%", self.isa["tax_source"])
-        self.assertIn("impuestos operacionales de 266", self.isa["source"])
+        self.assertIn("EBITDA derivado como EBIT + D&A", self.isa["source"])
         self.assertNotIn("Reconciliación pendiente: EBITDA−EBIT difiere", self.isa["source"])
 
     def test_policy_changes_results(self):
