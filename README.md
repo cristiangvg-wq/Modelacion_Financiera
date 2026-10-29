@@ -104,3 +104,14 @@ La actualización de tasas requiere conectividad a los endpoints públicos del T
 - Diferenciar el upside simple del valor por acción de la TIR calculada sobre flujos de caja fechados.
 - Revisar el puente EV–equity, la deuda neta, NCI, otros claims, asociadas, acciones/ADS y FX antes de interpretar el precio objetivo.
 - Las recomendaciones generadas por IA deben basarse en métricas y hechos con procedencia identificable y respetar los vetos cuantitativos.
+
+## Taller evaluativo 2026 — ISA
+
+Módulo académico reproducible de pronóstico 2026–2030, tres escenarios y dos políticas:
+
+```bash
+python scripts/taller_isa.py
+python -m unittest discover -s tests -p 'test_taller_isa.py' -v
+```
+
+Consulta `docs/ENTREGA_TALLER_ISA.md` para los archivos, supuestos y limitaciones. Los shocks de escenarios y políticas son hipótesis editables; el WACC del módulo es ilustrativo, y no se debe usar como precio objetivo sin conciliar CAPEX, NWC y el puente EV–patrimonio.
