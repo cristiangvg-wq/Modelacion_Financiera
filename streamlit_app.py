@@ -3706,6 +3706,12 @@ def main():
             de_ratio = _slider_y_caja("D/E", 0.0, 5.0, float(p.get("de_ratio", 1.2) or 1.2), 0.01, f"de_{ek}", "%.4f", paso_caja=0.0001)
             kd = _slider_y_caja("Kd", 0.0, 0.25, float(p.get("kd", 0.08) or 0.08), 0.005, f"kd_{ek}", "%.4f", paso_caja=0.0001)
             tax = _slider_y_caja("Tax", 0.0, 0.50, float(p.get("tax", 0.35) or 0.35), 0.01, f"tax_{ek}", "%.4f", paso_caja=0.0001)
+            if "ISA" in str(empresa).upper() or "INTERCONEXIÓN" in str(empresa).upper():
+                st.warning(
+                    "ISA: la tasa fiscal de 22% del catálogo es provisional y no está conciliada con una fuente fiscal "
+                    "específica. Mantén la tasa editable y valida impuestos operativos por jurisdicción antes de usar "
+                    "la valoración; compara sensibilidades y no asumas automáticamente que 35% sea la tasa consolidada."
+                )
             g = _slider_y_caja("g terminal", 0.0, 0.08, float(p.get("g", 0.03) or 0.03), 0.005, f"g_{ek}", "%.4f", paso_caja=0.0001)
             capex_extra = _slider_y_caja("CAPEX extra", 0.0, 8000.0, 0.0, 50.0, f"cx_{ek}", "%.1f", paso_caja=1.0)
             beta_u = _slider_y_caja("β unlevered", 0.0, 3.0, float(p.get("beta_u", 0.5) or 0.5), 0.05, f"bu_{ek}", "%.4f", paso_caja=0.0001)
