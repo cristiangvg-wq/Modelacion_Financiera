@@ -6034,7 +6034,19 @@ def main():
                             "FCFF acumulado": sum(fs_fcff),
                         })
                     st.markdown("#### 1. Escenarios conectados al pronóstico y DCF existente")
-                    st.dataframe(pd.DataFrame(fs_scenario_rows).round(3), hide_index=True, width="stretch")
+                    fs_scenarios_df = pd.DataFrame(fs_scenario_rows)
+                    st.dataframe(fs_scenarios_df.round(3), hide_index=True, width="stretch")
+                    fs_ev_scenarios = fs_scenarios_df.dropna(subset=["EV"]).sort_values("EV")
+                    if not fs_ev_scenarios.empty:
+                        fs_low = fs_ev_scenarios.iloc[0]
+                        fs_high = fs_ev_scenarios.iloc[-1]
+                        st.info(
+                            f"**Interpretación sencilla:** el escenario **{fs_low['Escenario']}** muestra el menor valor de empresa "
+                            f"(EV: {float(fs_low['EV']):,.2f}), mientras que **{fs_high['Escenario']}** muestra el mayor "
+                            f"(EV: {float(fs_high['EV']):,.2f}). La diferencia refleja cómo cambian los resultados cuando se "
+                            "modifican los supuestos operativos, el costo de capital (WACC) y el crecimiento de largo plazo. "
+                            "El escenario optimista no es una promesa: depende de que se cumplan sus supuestos."
+                        )
                     st.caption(
                         "Los shocks operativos proceden de SHOCKS_ESCENARIOS del modelo principal. WACC y g se modifican "
                         "por escenario; el puente a Equity, método terminal y convención mid-year son los de la valoración existente."
@@ -6096,7 +6108,26 @@ def main():
                         for fs_i, fs_flow in enumerate(fs_fcff):
                             fs_policy_detail.append({"Año": int(fs_i + 1), "Política": fs_name, "FCFF": fs_flow})
                     st.markdown("#### 2. Efecto de las políticas sobre valoración y flujos")
-                    st.dataframe(pd.DataFrame(fs_policy_rows).round(3), hide_index=True, width="stretch")
+                    fs_policy_df = pd.DataFrame(fs_policy_rows)
+                    st.dataframe(fs_policy_df.round(3), hide_index=True, width="stretch")
+                    fs_policy_options = fs_policy_df[fs_policy_df["Política"] != "Base actual"].copy()
+                    if not fs_policy_options.empty:
+                        fs_best_policy = fs_policy_options.sort_values("Δ EV vs. base (incl. terminal)", ascending=False).iloc[0]
+                        fs_best_delta = float(fs_best_policy["Δ EV vs. base (incl. terminal)"])
+                        if fs_best_delta > 0:
+                            st.info(
+                                f"**Interpretación sencilla:** con los supuestos elegidos, **{fs_best_policy['Política']}** "
+                                f"genera el mayor aumento estimado del valor de empresa frente al caso actual "
+                                f"({fs_best_delta:,.2f}). Un cambio positivo significa que el modelo estima más valor; "
+                                "no significa que el beneficio esté garantizado. Revisa también el flujo de caja, el costo "
+                                "de implementación y que no se comprometan mantenimiento ni seguridad."
+                            )
+                        else:
+                            st.warning(
+                                "**Interpretación sencilla:** ninguna de las políticas evaluadas aumenta el valor de empresa "
+                                "frente al caso actual con estos supuestos. Antes de aplicar una, habría que revisar sus costos "
+                                "y la justificación de los ahorros o mejoras esperadas."
+                            )
                     fs_adopt = [row["Política"] for row in fs_policy_rows[1:] if row["Δ EV vs. base (incl. terminal)"] > 0]
                     if fs_adopt:
                         st.success("Políticas que aumentan el EV bajo estos supuestos: " + ", ".join(fs_adopt) +
@@ -6184,13 +6215,49 @@ def main():
                         "Cada delta se compara contra el caso base del mismo escenario; así se separa el efecto de la política "
                         "del efecto de los supuestos pesimistas u optimistas. Los deltas de EV/Equity incluyen el valor terminal."
                     )
+                    fs_scenario_policy_df = pd.DataFrame(fs_scenario_policy_rows)
+                    fs_policy_deltas = fs_scenario_policy_df[
+                        fs_scenario_policy_df["Política"] != "Base del escenario"
+                    ].copy()
+                    if not fs_policy_deltas.empty:
+                        fs_positive_count = int((pd.to_numeric(fs_policy_deltas["Δ EV vs. escenario"], errors="coerce") > 0).sum())
+                        fs_total_count = len(fs_policy_deltas)
+                        fs_best_by_scenario = (
+                            fs_policy_deltas.sort_values("Δ EV vs. escenario", ascending=False)
+                            .iloc[0]
+                        )
+                        st.info(
+                            f"**Interpretación sencilla:** se probaron dos políticas dentro de cada escenario, comparándolas "
+                            f"con la situación base de ese mismo escenario. En **{fs_positive_count} de {fs_total_count}** "
+                            f"comparaciones, la política aumenta el valor de empresa. La mayor mejora estimada aparece en "
+                            f"**{fs_best_by_scenario['Política']}**, bajo el escenario **{fs_best_by_scenario['Escenario']}** "
+                            f"(cambio de EV: {float(fs_best_by_scenario['Δ EV vs. escenario']):,.2f}). Esto permite ver si una "
+                            "política resiste un contexto difícil o si solo funciona con supuestos favorables; los resultados "
+                            "siguen dependiendo de las hipótesis del modelo."
+                        )
                     st.markdown("#### 4. FCFF anual comparado")
                     fs_detail_df = pd.DataFrame(fs_policy_detail)
                     if not fs_detail_df.empty:
+                        fs_annual_pivot = fs_detail_df.pivot(index="Año", columns="Política", values="FCFF").reset_index()
                         st.dataframe(
-                            fs_detail_df.pivot(index="Año", columns="Política", values="FCFF").reset_index().round(3),
+                            fs_annual_pivot.round(3),
                             hide_index=True, width="stretch"
                         )
+                        fs_flow_cols = [col for col in fs_annual_pivot.columns if col != "Año"]
+                        if fs_flow_cols:
+                            fs_totals = {col: float(pd.to_numeric(fs_annual_pivot[col], errors="coerce").fillna(0).sum()) for col in fs_flow_cols}
+                            fs_top_flow = max(fs_totals, key=fs_totals.get)
+                            fs_bottom_flow = min(fs_totals, key=fs_totals.get)
+                            st.info(
+                                f"**Interpretación sencilla:** el FCFF es el efectivo que queda disponible para quienes financian "
+                                f"la empresa, después de los gastos operativos, impuestos e inversiones del modelo. Sumando los "
+                                f"años proyectados, **{fs_top_flow}** presenta el mayor FCFF acumulado "
+                                f"({fs_totals[fs_top_flow]:,.2f}) y **{fs_bottom_flow}** el menor "
+                                f"({fs_totals[fs_bottom_flow]:,.2f}). Mira también cada año: una política puede reducir el flujo "
+                                "al principio por sus costos y mejorarlo después. Estos importes son proyecciones, no efectivo ya recibido."
+                            )
+                    else:
+                        st.caption("No hay flujos anuales disponibles para comparar.")
                     st.caption(
                         f"Moneda: {moneda}. Los importes conservan la unidad/escala del modelo de empresa. "
                         "El cambio de EV incorpora los flujos explícitos y el valor terminal; el cambio de Equity aplica el mismo puente de valoración. "
