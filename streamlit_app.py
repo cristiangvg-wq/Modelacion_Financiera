@@ -5918,9 +5918,16 @@ def main():
                 "- La dispersión anual de FCFF es descriptiva; no equivale a VaR, CVaR ni a una distribución probabilística."
             )
         fs_forecast = st.session_state.get("resultados", {}).get("tab1")
-        fs_proj_display = fs_forecast[2] if isinstance(fs_forecast, (list, tuple)) and len(fs_forecast) > 2 else None
+        # Prioriza la proyección numérica original de la pestaña 1 (sin redondeo de presentación).
+        # El índice 2 se conserva como fallback para sesiones antiguas antes de esta versión.
+        fs_proj_display = (
+            fs_forecast[6] if isinstance(fs_forecast, (list, tuple)) and len(fs_forecast) > 6
+            and isinstance(fs_forecast[6], pd.DataFrame)
+            else fs_forecast[2] if isinstance(fs_forecast, (list, tuple)) and len(fs_forecast) > 2
+            else None
+        )
         if not isinstance(fs_proj_display, pd.DataFrame) or fs_proj_display.empty:
-            st.warning("Primero configura los datos de la empresa y pulsa **Generar todo**. La pestaña utilizará la proyección real resultante de la pestaña 1.")
+            st.warning("Primero configura los datos de la empresa y pulsa **Generar todo**. La pestaña 10 usa exclusivamente la proyección calculada por el modelo en la pestaña 1; no necesita ni vuelve a leer un Excel.")
         elif st.session_state.get("modelo_dirty"):
             st.warning("Los supuestos del modelo cambiaron y los resultados anteriores están invalidados. Pulsa **Generar todo** antes de simular políticas.")
         else:
