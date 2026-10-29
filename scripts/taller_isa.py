@@ -46,7 +46,7 @@ POLICIES = {
 }
 
 WACC_ILLUSTRATIVE = 0.105  # Solo para descuento de comparación; validar contra pestaña DCF.
-TAX_RATE = 0.22
+TAX_SENSITIVITY = (0.22, 0.35)  # 35% es solo estrés, no una tasa consolidada validada.
 FORECAST_YEARS = range(2026, 2031)
 
 
@@ -61,6 +61,8 @@ def load_isa(data_path: Path = DEFAULT_DATA) -> dict:
     return {
         "history": rows,
         "tax": float(company["supuestos"]["tax"]),
+        "tax_source": company["supuestos"].get("fuente_tax", "Sin fuente específica documentada."),
+        "tax_status": company["supuestos"].get("tax_estado", "sin_estado_documentado"),
         "data_as_of": data.get("as_of"),
         "verification": company.get("verificacion", ""),
         "source": company.get("fuente_historico", ""),
@@ -69,7 +71,7 @@ def load_isa(data_path: Path = DEFAULT_DATA) -> dict:
     }
 
 
-def build_projection(scenario_name: str, policy_name: str, isa: dict) -> list[dict]:
+def build_projection(scenario_name: str, policy_name: str, isa: dict, tax_rate: float | None = None) -> list[dict]:
     h = isa["history"]
     last = h[-1]
     scenario = SCENARIOS[scenario_name]
@@ -80,7 +82,9 @@ def build_projection(scenario_name: str, policy_name: str, isa: dict) -> list[di
     da_ratio = last["Depreciacion"] / last["Ingresos"]
     capex_ratio = last["CAPEX"] / last["Ingresos"]
     nwc_ratio = last["NWC"] / last["Ingresos"]
-    tax = isa["tax"]
+    tax = isa["tax"] if tax_rate is None else float(tax_rate)
+    if not 0 <= tax <= 1:
+        raise ValueError("La tasa tributaria debe estar entre 0 y 1.")
     result = []
     for year in FORECAST_YEARS:
         revenue *= 1 + scenario["growth"]
@@ -121,6 +125,7 @@ def run_model(data_path: Path = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT) ->
     output_dir.mkdir(parents=True, exist_ok=True)
     detail = []
     summary = []
+    tax_sensitivity = []
     for scenario_name in SCENARIOS:
         for policy_name in POLICIES:
             rows = build_projection(scenario_name, policy_name, isa)
@@ -135,7 +140,26 @@ def run_model(data_path: Path = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT) ->
                 "wacc_usado_solo_para_descuento": WACC_ILLUSTRATIVE,
                 "tasa_impuestos": isa["tax"],
             })
-    for name, rows in (("detalle_escenarios_politicas.csv", detail), ("resumen_escenarios_politicas.csv", summary)):
+    # Sensibilidad tributaria: conserva la tasa de catálogo como base provisional y compara un estrés al 35%.
+    # No declara que el 35% sea la tasa correcta para ISA consolidada.
+    for scenario_name in SCENARIOS:
+        for policy_name in POLICIES:
+            base_rows = build_projection(scenario_name, policy_name, isa, tax_rate=isa["tax"])
+            base_total = sum(r["fcff"] for r in base_rows)
+            for sensitivity_tax in TAX_SENSITIVITY:
+                sens_rows = build_projection(scenario_name, policy_name, isa, tax_rate=sensitivity_tax)
+                sens_total = sum(r["fcff"] for r in sens_rows)
+                tax_sensitivity.append({
+                    "escenario": scenario_name,
+                    "politica": policy_name,
+                    "tasa_impuestos": sensitivity_tax,
+                    "fcff_acumulado_2026_2030": sens_total,
+                    "diferencia_vs_tasa_catalogo": sens_total - base_total,
+                    "tasa_catalogo": isa["tax"],
+                    "estado_tasa_catalogo": isa["tax_status"],
+                    "nota": "35% es un estrés de sensibilidad, no una conclusión fiscal para ISA consolidada."
+                })
+    for name, rows in (("detalle_escenarios_politicas.csv", detail), ("resumen_escenarios_politicas.csv", summary), ("sensibilidad_tasa_impuesto.csv", tax_sensitivity)):
         with (output_dir / name).open("w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             writer.writeheader()
@@ -151,12 +175,18 @@ def run_model(data_path: Path = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT) ->
         "escenarios": SCENARIOS,
         "politicas": POLICIES,
         "wacc_ilustrativo": WACC_ILLUSTRATIVE,
+        "tasa_impuesto_catalogo": isa["tax"],
+        "estado_tasa_impuesto": isa["tax_status"],
+        "fuente_tasa_impuesto": isa["tax_source"],
+        "sensibilidad_tasa_impuesto": list(TAX_SENSITIVITY),
         "advertencias": [
             "Los shocks de escenarios y políticas son hipótesis editables, no datos observados ni metas oficiales de ISA.",
             "La ratio CAPEX/ingresos de 2025 es elevada; debe verificarse clasificación, perímetro y unidad antes de usar el FCFF como valoración.",
             "El valor presente reportado es solo el de los FCFF explícitos; no incluye valor terminal ni es un VPN de proyecto porque no hay inversión inicial incremental definida.",
             "El WACC de 10,5% es ilustrativo para comparación y debe sustituirse por el WACC validado de la pestaña de valoración.",
             "NWC está estimado en la fuente curada y requiere conciliación con balances detallados.",
+            "La tasa tributaria de 22% se conserva solo como supuesto provisional sin soporte fiscal específico documentado; revisar la sensibilidad al 35% sin tratarla como tasa consolidada definitiva.",
+            "EBITDA menos EBIT no coincide con la depreciación reportada; conciliar amortización y definición de D&A antes de cerrar FCFF.",
         ],
         "fuente_historico": isa["source"],
         "verificacion_historico": isa["verification"],
@@ -175,7 +205,7 @@ def main():
     print(f"Histórico: {result['metadata']['historia']} | proyección: 2026–2030")
     print(f"Escenarios: {len(SCENARIOS)} | políticas: {len(POLICIES)} | filas de detalle: {len(result['detail'])}")
     print(f"Archivos generados en: {args.out}")
-    print("ADVERTENCIA: supuestos ilustrativos; validar CAPEX, NWC y WACC antes de interpretar la valoración.")
+    print("ADVERTENCIA: tasa fiscal provisional; revisar sensibilidad tributaria y validar CAPEX, D&A, NWC y WACC antes de interpretar FCFF.")
 
 
 if __name__ == "__main__":
