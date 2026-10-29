@@ -64,7 +64,7 @@ class TestCatalogoCurado(BaseFuentes):
         self.assertIsNone(datos["empresas"]["ENEL Colombia"]["historico"])
         # ISA 2025 usa CAPEX de caja identificable (PP&E + intangibles), no inversión ejecutada de gestión.
         self.assertAlmostEqual(datos["empresas"][ISA]["historico"]["CAPEX"][-1], 1706.308, places=3)
-        self.assertIn("no plenamente comparable", datos["empresas"][ISA]["calidad_historico_por_anio"]["2023"])
+        self.assertIn("no reconciliados", datos["empresas"][ISA]["calidad_historico_por_anio"]["2023"])
 
     def test_historico_curado_cumple_identidades(self):
         h = pd.DataFrame(L.EMPRESAS[ISA]["historico"]).set_index("Año")
