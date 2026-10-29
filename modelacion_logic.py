@@ -13552,7 +13552,7 @@ def recomendar_metodologia_sectorial(sector, descripcion=""):
         (("banco", "bank", "credit institution", "banca"),
          "FCFE/dividendos/exceso de retornos",
          "La deuda y el capital regulatorio forman parte del negocio; no aplicar FCFF/WACC industrial sin justificación."),
-        (("asegur", "insurance", "insurer", "reasegur"),
+        (("asegur", "seguro", "insurance", "insurer", "reasegur"),
          "FCFE/dividendos/exceso de retornos",
          "Modelar solvencia, capital regulatorio, reservas y capacidad de distribución."),
         (("reit", "real estate investment trust"),
