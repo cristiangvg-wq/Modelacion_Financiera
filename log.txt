@@ -1,0 +1,19 @@
+/home/runner/work/Modelacion_Financiera/Modelacion_Financiera/scripts/actualizar_damodaran.py:92: Pandas4Warning: The xlrd engine is deprecated and will be removed in a future version. Use the calamine engine instead, by setting engine='calamine'.
+  hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+/home/runner/work/Modelacion_Financiera/Modelacion_Financiera/scripts/actualizar_damodaran.py:92: Pandas4Warning: The xlrd engine is deprecated and will be removed in a future version. Use the calamine engine instead, by setting engine='calamine'.
+  hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+/home/runner/work/Modelacion_Financiera/Modelacion_Financiera/scripts/actualizar_damodaran.py:92: Pandas4Warning: The xlrd engine is deprecated and will be removed in a future version. Use the calamine engine instead, by setting engine='calamine'.
+  hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+/home/runner/work/Modelacion_Financiera/Modelacion_Financiera/scripts/actualizar_damodaran.py:129: Pandas4Warning: The xlrd engine is deprecated and will be removed in a future version. Use the calamine engine instead, by setting engine='calamine'.
+  hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+/home/runner/work/Modelacion_Financiera/Modelacion_Financiera/scripts/actualizar_damodaran.py:129: Pandas4Warning: The xlrd engine is deprecated and will be removed in a future version. Use the calamine engine instead, by setting engine='calamine'.
+  hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+/home/runner/work/Modelacion_Financiera/Modelacion_Financiera/scripts/actualizar_damodaran.py:129: Pandas4Warning: The xlrd engine is deprecated and will be removed in a future version. Use the calamine engine instead, by setting engine='calamine'.
+  hojas = pd.read_excel(io.BytesIO(raw), sheet_name=None, header=None)
+/home/runner/work/Modelacion_Financiera/Modelacion_Financiera/scripts/actualizar_damodaran.py:165: Pandas4Warning: The xlrd engine is deprecated and will be removed in a future version. Use the calamine engine instead, by setting engine='calamine'.
+  df = pd.read_excel(io.BytesIO(raw), sheet_name=0, header=None)
+Riesgo país {'fecha': '2026-07-01', 'erp_madura': 0.042, 'erp_us': 0.0442, 'multiplicador_volatilidad': 1.554495526258941, 'archivo': 'ctrypremJuly26.xlsx'}; múltiplos: US (96 industrias), Emergentes (96 industrias), Global (96 industrias)
+Ajuste Colombia: {'CO': {'mediana_local': 7.692, 'n': 12, 'emisores': [{'ticker': 'ISA.CL', 'ev_ebitda': 8.1}, {'ticker': 'GEB.CL', 'ev_ebitda': 13.61}, {'ticker': 'ECOPETROL.CL', 'ev_ebitda': 4.74}, {'ticker': 'CELSIA.CL', 'ev_ebitda': 7.8}, {'ticker': 'PROMIGAS.CL', 'ev_ebitda': 10.07}, {'ticker': 'CEMARGOS.CL', 'ev_ebitda': 7.58}, {'ticker': 'EXITO.CL', 'ev_ebitda': 5.88}, {'ticker': 'TERPEL.CL', 'ev_ebitda': 3.75}, {'ticker': 'ENKA.CL', 'ev_ebitda': 6.37}, {'ticker': 'CONCONCRET.CL', 'ev_ebitda': 37.51}, {'ticker': 'GRUPOARGOS.CL', 'ev_ebitda': 8.37}, {'ticker': 'ETB.CL', 'ev_ebitda': 2.66}], 'referencia_emergentes': 12.281, 'descuento': 0.3737, 'fecha': '2026-10-29', 'fuente': 'Yahoo Finance (enterpriseToEbitda, BVC) vs Damodaran Total Market (without financials), emergentes'}}
+Calificaciones: 15 tramos
+Betas: US (96 industrias), Emergentes (96 industrias), Global (96 industrias)
+exit=0
