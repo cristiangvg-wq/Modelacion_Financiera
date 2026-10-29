@@ -110,3 +110,21 @@ No es una cifra certificada de valoración: combina tasa fiscal supuesta y ΔNWC
 ## Referencia oficial
 
 ISA, *Estados financieros consolidados al 31 de diciembre de 2025 y 2024*, publicado en el sitio corporativo. Las cifras de estados financieros están expresadas en millones de pesos colombianos; las cifras en miles de millones de este informe son conversiones aritméticas de esas cifras.
+
+
+## 10. Propagación al catálogo de valoración
+
+La serie curada de ISA para 2024–2025 se actualizó para usar el mismo perímetro operativo que este informe:
+
+| Campo (COP miles de millones) | 2024 | 2025 |
+|---|---:|---:|
+| Ingresos | 14.934,751 | 15.918,005 |
+| EBIT ex participación de asociadas | 7.870,095 | 6.841,990 |
+| D&A | 1.027,230 | 1.080,192 |
+| EBITDA derivado (EBIT + D&A) | 8.897,325 | 7.922,182 |
+| CAPEX de caja PP&E + intangibles | 1.578,149 | 1.706,308 |
+| NWC operativo preliminar | 3.767,732 | 3.995,661 |
+
+Esto reemplaza en el catálogo los valores anteriores de ingresos, EBIT/D&A, CAPEX y NWC para 2024–2025 que no coincidían con este perímetro. EBITDA se deriva de EBIT operativo más D&A para mantener consistencia y excluir la participación de asociadas, que se considera separadamente en el puente EV–Equity.
+
+**Límite de comparabilidad:** 2023 permanece como serie heredada y no debe tratarse como plenamente comparable en CAPEX/NWC hasta reconciliar sus fuentes y perímetro con las mismas reglas. Los CAPEX 2024–2025 reflejan únicamente las adquisiciones de PP&E e intangibles pagadas en caja; no son equivalentes a inversión ejecutada de gestión ni a adiciones contables. El NWC 2024–2025 continúa siendo una estimación preliminar, no un dato auditado. La tasa fiscal del 22 % sigue provisional. Estas actualizaciones mejoran la consistencia de los datos base, pero **no certifican el DCF completo ni el valor razonable de las asociadas**.

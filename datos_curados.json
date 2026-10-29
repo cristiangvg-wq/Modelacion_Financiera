@@ -51,38 +51,43 @@
         ],
         "Ingresos": [
           14168,
-          15829,
-          16034
+          14934.751,
+          15918.005
         ],
         "EBITDA": [
           8584,
-          9207,
-          8186
+          8897.325,
+          7922.182
         ],
         "EBIT": [
           7068,
-          7870,
-          6842
+          7870.095,
+          6841.99
         ],
         "Depreciacion": [
           1268,
-          1072,
-          1078
+          1027.23,
+          1080.192
         ],
         "CAPEX": [
           4600,
-          4785,
-          6278
+          1578.149,
+          1706.308
         ],
         "NWC": [
           1750,
-          1850,
-          1950
+          3767.732,
+          3995.661
         ]
       },
-      "fuente_historico": "Informes oficiales de resultados consolidados ISA 4T23, 4T24 y 4T25. EBITDA y EBIT ajustados excluyendo resultados de co-controladas y asociadas (2023: 530; 2024: 540; 2025: 494) porque el DCF valora el negocio operativo y el puente agrega las inversiones en participadas. Depreciación, ingresos y CAPEX tomados de los informes oficiales. Para 2025, EBITDA−EBIT ajustado = 1.344; se reconcilia con depreciaciones, amortizaciones y deterioro de 1.078 más impuestos operacionales de 266 reportados por ISA; no es una diferencia pendiente de D&A. NWC estimado; requiere validación con balances detallados. CAPEX/ingresos 2025 = 39,15% frente a 30,24% en 2024; verificar clasificación, perímetro y consistencia entre inversiones ejecutadas y CAPEX contable.",
-      "verificacion": "parcial: ingresos, EBITDA/EBIT ajustados, depreciación, impuestos operacionales y CAPEX 2023–2025 contrastados con informes oficiales; la tasa efectiva contable 2025 de 22,13% es referencia, no tasa operativa validada para FCFF; NWC estimado; valor de participadas a valor contable, no de mercado.",
-      "industria_damodaran": "Power"
+      "fuente_historico": "ISA EEFF consolidados oficiales 2025/2024 para ingresos, EBIT operativo ex participación de asociadas y D&A; EBITDA derivado como EBIT + D&A para consistencia con el perímetro operativo. CAPEX 2024/2025 corresponde solo a adquisiciones de PP&E + intangibles pagadas en caja (1.578,149 y 1.706,308 COP miles de millones), no al CAPEX/inversión ejecutada de reportes de gestión. NWC 2024/2025 preliminar derivado de partidas corrientes del balance (3.767,732 y 3.995,661), no certificado por posible mezcla de componentes de concesiones/deudores. 2023 conserva la serie anterior y no es plenamente comparable: CAPEX y NWC no reconciliados con el mismo perímetro. Participación de asociadas excluida del EBIT porque el puente EV agrega participadas por separado; verificar valoración de asociadas y evitar doble conteo.",
+      "verificacion": "parcial: ingresos, EBIT ex asociadas y D&A de 2024/2025 conciliados con EEFF oficiales; EBITDA derivado; CAPEX 2024/2025 corresponde a dos líneas de inversión de caja; NWC preliminar no auditado y no certificado; 2023 y su CAPEX/NWC no plenamente comparables; tasa fiscal provisional; asociadas a valor contable, no valor de mercado.",
+      "industria_damodaran": "Power",
+      "calidad_historico_por_anio": {
+        "2023": "Serie heredada de informes previos; CAPEX y NWC no reconciliados con el perímetro de caja/operación del informe 2025.",
+        "2024": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance.",
+        "2025": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance."
+      }
     },
     "GEB — Grupo Energía Bogotá": {
       "ticker_bvc": "GEB",
