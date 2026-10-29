@@ -63,6 +63,27 @@ class TestContratoMultisectorial(unittest.TestCase):
         with self.assertRaises(ValueError):
             L.recalcular_fcff(incomplete, tax=0.25)
 
+
+    def test_currency_conversion_requires_explicit_rates_for_non_cop_usd_pairs(self):
+        # Tasas expresadas como COP por una unidad de cada divisa; números sintéticos.
+        rates = {"USD": 4000.0, "EUR": 4400.0, "GBP": 5000.0}
+        eur_to_usd = L.convertir_precio_a_moneda_modelo(10.0, "EUR", "USD", rates)
+        self.assertTrue(eur_to_usd["convertido"])
+        self.assertAlmostEqual(eur_to_usd["precio"], 11.0, places=8)
+        self.assertAlmostEqual(eur_to_usd["fx"], 1.1, places=8)
+
+        missing = L.convertir_precio_a_moneda_modelo(10.0, "JPY", "USD")
+        self.assertIsNone(missing["precio"])
+        self.assertFalse(missing["convertido"])
+
+    def test_currency_conversion_rejects_non_finite_prices_and_invalid_rates(self):
+        bad_price = L.convertir_precio_a_moneda_modelo(float("nan"), "EUR", "USD",
+                                                        {"EUR": 4400.0, "USD": 4000.0})
+        self.assertIsNone(bad_price["precio"])
+        bad_rate = L.convertir_precio_a_moneda_modelo(10.0, "EUR", "USD",
+                                                       {"EUR": -1.0, "USD": 4000.0})
+        self.assertIsNone(bad_rate["precio"])
+
     def test_dcf_rejects_terminal_growth_at_or_above_discount_rate_after_anchoring(self):
         # La función debe producir una valoración finita y no dejar Gordon singular.
         val = L.valoracion_dcf([100.0, 110.0, 120.0], 0.10, 0.10, mid_year=False)
