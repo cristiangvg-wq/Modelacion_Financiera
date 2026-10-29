@@ -13535,3 +13535,41 @@ INFO = {
     "mid_year": "Descontar flujos a mitad de año (más realista que fin de año).",
 }
 
+
+
+# =============================================================================
+# GUARDRAILS METODOLÓGICOS POR TIPO DE NEGOCIO
+# Recomendación explicable: no sustituye la decisión del analista ni certifica
+# la clasificación sectorial. Los sectores financieros no deben valorarse
+# automáticamente como empresas industriales mediante FCFF/WACC.
+# =============================================================================
+def recomendar_metodologia_sectorial(sector, descripcion=""):
+    """Devuelve método recomendado y advertencia sectorial basada en señales textuales."""
+    texto = unicodedata.normalize(
+        "NFKD", f"{sector or ''} {descripcion or ''}"
+    ).encode("ascii", "ignore").decode("ascii").lower()
+    reglas = (
+        (("banco", "bank", "credit institution", "banca"),
+         "FCFE/dividendos/exceso de retornos",
+         "La deuda y el capital regulatorio forman parte del negocio; no aplicar FCFF/WACC industrial sin justificación."),
+        (("asegur", "seguro", "insurance", "insurer", "reasegur"),
+         "FCFE/dividendos/exceso de retornos",
+         "Modelar solvencia, capital regulatorio, reservas y capacidad de distribución."),
+        (("reit", "real estate investment trust"),
+         "FFO/AFFO y NAV",
+         "Normalizar FFO/AFFO, ocupación, rentas, deuda inmobiliaria y valor neto de activos."),
+        (("holding", "conglomerado", "conglomerate", "participaciones materiales"),
+         "Suma de partes",
+         "Valorar participadas por separado y reconciliar deuda, impuestos, descuentos y doble conteo."),
+    )
+    for claves, metodo, nota in reglas:
+        if any(k in texto for k in claves):
+            return {"metodo_principal": metodo, "nota": nota,
+                    "requiere_revision": True, "clasificacion": "regla_textual_provisional"}
+    if not texto.strip():
+        return {"metodo_principal": "Seleccionar método y validar actividad",
+                "nota": "No hay sector o descripción suficiente para recomendar un método.",
+                "requiere_revision": True, "clasificacion": "sin_datos"}
+    return {"metodo_principal": "DCF FCFF/WACC",
+            "nota": "Método inicial para negocio operativo no financiero; comprobar estabilidad del FCFF, deuda, CAPEX, NWC y participadas.",
+            "requiere_revision": False, "clasificacion": "regla_textual_provisional"}
