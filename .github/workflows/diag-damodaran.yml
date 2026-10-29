@@ -1,0 +1,19 @@
+name: Diag Damodaran
+on:
+  push:
+    branches: [diag/damodaran]
+permissions:
+  contents: write
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install pandas xlrd openpyxl
+      - run: |
+          mkdir -p out && python diag/ver_damodaran.py > out/ver.txt 2>&1
+          cd out && git init -q && git checkout -q -b diag/damodaran-resultados
+          git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
+          git add -A && git commit -q -m r && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/damodaran-resultados
