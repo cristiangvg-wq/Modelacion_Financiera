@@ -10,7 +10,8 @@
 ## 1. Alcance y trazabilidad
 El script `scripts/taller_isa.py` lee el histórico de ISA del catálogo `datos_curados.json` (2023–2025), proyecta 2026–2030 y exporta:
 - `salidas_taller_isa/detalle_escenarios_politicas.csv`: FCFF y drivers por año, escenario y política.
-- `salidas_taller_isa/resumen_escenarios_politicas.csv`: FCFF acumulado y valor presente explícito con tasa ilustrativa.\n- `salidas_taller_isa/sensibilidad_tasa_impuesto.csv`: sensibilidad del FCFF acumulado a tasas de 22% y 35% para cada escenario y política.
+- `salidas_taller_isa/resumen_escenarios_politicas.csv`: FCFF acumulado y valor presente explícito con tasa ilustrativa.
+- `salidas_taller_isa/sensibilidad_tasa_impuesto.csv`: sensibilidad del FCFF acumulado a tasas de 22% y 35% para cada escenario y política.
 - `salidas_taller_isa/metadatos_modelo.json`: supuestos, fuente y advertencias.
 
 Los valores históricos de ingresos, EBIT, depreciación y CAPEX se declaran en el catálogo como contrastados parcialmente con informes oficiales de ISA; el NWC es estimado. Por ello, los resultados no se presentan como guía oficial de ISA ni como valoración definitiva.
@@ -74,7 +75,8 @@ Los umbrales definitivos (VPN mínimo, caja mínima, ratio de endeudamiento) deb
 Desde la raíz del repositorio:
 ```bash
 python scripts/taller_isa.py
-python -m unittest tests.test_taller_isa -v\n# La ejecución también genera sensibilidad_tasa_impuesto.csv
+python -m unittest tests.test_taller_isa -v
+# La ejecución también genera sensibilidad_tasa_impuesto.csv
 ```
 Las salidas CSV/JSON se regeneran en `salidas_taller_isa/`. La ejecución no requiere una API de IA ni datos de mercado intradía.
 
