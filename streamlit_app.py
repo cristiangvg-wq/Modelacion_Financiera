@@ -3525,6 +3525,49 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
     st.rerun()
 
 
+
+@st.cache_data(show_spinner=False)
+def _informe_taller_isa_bytes(equipo: tuple, fecha: str, mc_n: int) -> bytes:
+    """Genera el PDF del Taller ISA 2026 (caché por parámetros para no recalcular en cada rerun)."""
+    from scripts.generar_informe_taller_isa import generar_pdf_bytes
+    return generar_pdf_bytes(list(equipo), fecha, mc_n=mc_n)
+
+
+def _ui_informe_taller_isa():
+    """Botón de la pestaña 10 para generar y descargar el informe del Taller evaluativo 2026 (ISA)."""
+    from scripts.generar_informe_taller_isa import DEFAULT_DATE, DEFAULT_TEAM
+    with st.expander("📄 Informe del Taller evaluativo 2026 — ISA (PDF)", expanded=False):
+        st.caption(
+            "Genera el informe completo del taller (pronóstico, escenarios, políticas, decisión, Monte Carlo y anexo de "
+            "prompts) con el modelo de `scripts/taller_isa.py` y la instantánea `datos_taller_isa_2026.json`. "
+            "No depende de la empresa cargada en la barra lateral."
+        )
+        tf_c1, tf_c2 = st.columns([3, 1])
+        with tf_c1:
+            tf_equipo = st.text_area("Integrantes (uno por línea)", value="\n".join(DEFAULT_TEAM), height=96,
+                                     key="taller_isa_equipo")
+        with tf_c2:
+            tf_fecha = st.text_input("Fecha de entrega", value=DEFAULT_DATE, key="taller_isa_fecha")
+            tf_mc = st.select_slider("Simulaciones Monte Carlo", options=[1000, 2000, 5000, 10000], value=5000,
+                                     key="taller_isa_mc")
+        tf_miembros = tuple(m.strip() for m in tf_equipo.splitlines() if m.strip())
+        if st.button("Generar informe del taller", key="taller_isa_generar", type="primary"):
+            if not tf_miembros:
+                st.error("Escribe al menos un integrante.")
+            else:
+                try:
+                    with st.spinner("Ejecutando el modelo y armando el PDF…"):
+                        st.session_state["taller_isa_pdf"] = _informe_taller_isa_bytes(
+                            tf_miembros, tf_fecha.strip(), int(tf_mc))
+                except Exception as tf_error:  # el informe no debe tumbar la pestaña
+                    st.session_state.pop("taller_isa_pdf", None)
+                    st.error(f"No se pudo generar el informe: {tf_error}")
+        if st.session_state.get("taller_isa_pdf"):
+            st.download_button(
+                "⬇️ Descargar Informe_Taller_ISA_2026.pdf", data=st.session_state["taller_isa_pdf"],
+                file_name="Informe_Taller_ISA_2026.pdf", mime="application/pdf", key="taller_isa_descargar",
+            )
+
 def main():
     # Registros de la capa lógica (empresas descargadas, resultados de pestañas,
     # credenciales del conector) ligados a ESTA sesión: sin esto eran globales del
@@ -5954,6 +5997,7 @@ def main():
                 "- La optimización de CAPEX nunca debe recortar mantenimiento, seguridad ni inversión obligatoria.\n"
                 "- La dispersión anual de FCFF es descriptiva; no equivale a VaR, CVaR ni a una distribución probabilística."
             )
+        _ui_informe_taller_isa()
         fs_forecast = st.session_state.get("resultados", {}).get("tab1")
         # Prioriza la proyección numérica original de la pestaña 1 (sin redondeo de presentación).
         # El índice 2 se conserva como fallback para sesiones antiguas antes de esta versión.
