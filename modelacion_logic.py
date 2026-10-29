@@ -225,12 +225,53 @@ def _construir_catalogo(datos):
             "acciones": pu.get("acciones"), "moneda": datos.get("moneda", "COP"),
             "ciclico": c.get("ciclico"),
             "industria_damodaran": c.get("industria_damodaran"),
+            # Los supuestos se exponen junto con su calidad; no inferir que un valor
+            # numérico es auditado solo porque existe en el catálogo.
+            "tax_estado": sup.get("tax_estado") or (
+                "supuesto_con_fuente_no_validado" if sup.get("fuente_tax")
+                else "supuesto_no_validado"
+            ),
+            "fuente_tax": sup.get("fuente_tax"),
+            "calidad_datos": {
+                "historico": (
+                    (c.get("calidad_datos") or {}).get("historico")
+                    or ("parcial_no_certificado" if c.get("historico") else "no_disponible")
+                ),
+                "nwc": (
+                    (c.get("calidad_datos") or {}).get("nwc")
+                    or ("estimado_no_auditado" if c.get("historico") else "no_disponible")
+                ),
+                "impuestos": (
+                    (c.get("calidad_datos") or {}).get("impuestos")
+                    or (sup.get("tax_estado") or (
+                        "supuesto_con_fuente_no_validado" if sup.get("fuente_tax")
+                        else "supuesto_no_validado"
+                    ))
+                ),
+                "asociadas": (
+                    (c.get("calidad_datos") or {}).get("asociadas")
+                    or ("valor_contable_no_valorado" if float(pu.get("asociados") or 0) > 0
+                        else "sin_valoracion_independiente")
+                ),
+                "mercado": (
+                    (c.get("calidad_datos") or {}).get("mercado")
+                    or ("snapshot_fechado" if sup.get("fecha_precio_ref")
+                        else "sin_snapshot_curado")
+                ),
+                "metodologia": (
+                    (c.get("calidad_datos") or {}).get("metodologia")
+                    or "FCFF/WACC es el método general; validar metodología sectorial antes de certificar"
+                ),
+            },
         }
         emp = {
             "ticker_bvc": c.get("ticker_bvc"), "ticker_yf": c.get("ticker_yf"),
             "sector": c.get("sector"), "descripcion": c.get("descripcion"),
             "calificacion": c.get("calificacion"), "verificacion": c.get("verificacion"),
             "fuente_curada": c.get("fuente_historico"), "fuente_puente": pu.get("fuente"),
+            "calidad_datos": params["calidad_datos"],
+            "fuente_tax": params["fuente_tax"],
+            "tax_estado": params["tax_estado"],
             "params": params,
         }
         if c.get("historico"):
