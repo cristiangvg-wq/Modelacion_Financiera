@@ -9,8 +9,10 @@ Fuentes (https://pages.stern.nyu.edu/~adamodar/pc/datasets/):
     por país, calificación, spread por calificación, CDS neto y CRP/ERP.
   - vebitda.xls (EE. UU.), vebitdaemerg.xls (emergentes), vebitdaGlobal.xls (global):
     EV/EBITDA y EV/EBIT por industria (firmas con EBITDA positivo).
-  - betas.xls (EE. UU.): beta desapalancada por industria corregida por caja (beta del negocio,
-    base de la beta «bottom-up» de las empresas de EE. UU.).
+  - betas.xls (EE. UU.), betaemerg.xls (emergentes), betaGlobal.xls (global): beta desapalancada por
+    industria corregida por caja (beta del negocio, base de la beta «bottom-up»).
+  - ratings.xls: calificación sintética por cobertura de intereses (EBIT ÷ gasto financiero) y spread
+    de default, para empresas grandes y pequeñas (costo de la deuda).
 Damodaran actualiza en enero (todo) y en julio (riesgo país). Requiere xlrd para .xls.
 """
 from __future__ import annotations
@@ -158,6 +160,36 @@ def leer_betas(raw, archivo):
     raise ValueError(f"{archivo}: no se encontró la tabla de betas")
 
 
+def leer_calificaciones(raw, archivo="ratings.xls"):
+    """Tablas de calificación sintética: [(cobertura >, cobertura ≤, calificación, spread)] por tamaño."""
+    df = pd.read_excel(io.BytesIO(raw), sheet_name=0, header=None)
+    bloques, fecha = [], None
+    for i in range(len(df)):
+        fila = [str(x).strip() for x in df.iloc[i].tolist()]
+        if any("date" in x.lower() and "update" in x.lower() for x in fila):
+            for v in df.iloc[i].tolist():
+                try:
+                    fecha = str(pd.Timestamp(v).date()) if isinstance(v, (pd.Timestamp, dt.datetime)) else fecha
+                except Exception:
+                    pass
+        if any(x.startswith("Rating is") for x in fila) and any(x.startswith("Spread is") for x in fila):
+            c_rat = next(j for j, x in enumerate(fila) if x.startswith("Rating is"))
+            c_spr = next(j for j, x in enumerate(fila) if x.startswith("Spread is"))
+            tabla = []
+            for k in range(i + 1, min(i + 25, len(df))):
+                lo, hi = _f(df.iat[k, c_rat - 2]), _f(df.iat[k, c_rat - 1])
+                rat, spr = df.iat[k, c_rat], _f(df.iat[k, c_spr])
+                if lo is None or hi is None or spr is None or not isinstance(rat, str):
+                    break
+                tabla.append([lo, hi, rat.strip(), spr])
+            if tabla:
+                bloques.append(tabla)
+    if len(bloques) < 2:
+        raise ValueError(f"{archivo}: no se encontraron las dos tablas de calificación")
+    return {"archivo": archivo, "fecha": fecha, "grandes": bloques[0], "pequenas": bloques[1],
+            "nota": "Empresas grandes: capitalización > 5.000 millones de USD (criterio de Damodaran)."}
+
+
 # Emisores no financieros de la BVC para medir cuánto paga la bolsa colombiana por cada peso de EBITDA
 # frente al total de mercados emergentes (método del modelo del curso, hoja 7_Multiplos).
 TICKERS_BVC = ["ISA.CL", "GEB.CL", "ECOPETROL.CL", "CELSIA.CL", "PROMIGAS.CL", "CEMARGOS.CL", "EXITO.CL",
@@ -219,7 +251,7 @@ def construir(carpeta=None):
             raw = _bajar(archivo, carpeta)
         if raw:
             out["multiplos"][region] = leer_multiplos(raw, archivo)
-    for nombre, region in {"betas.xls": "US"}.items():
+    for nombre, region in {"betas.xls": "US", "betaemerg.xls": "Emergentes", "betaGlobal.xls": "Global"}.items():
         raw, archivo = _bajar(nombre, carpeta), nombre
         if not raw and carpeta:
             archivo = nombre.replace(".xls", ".csv")
@@ -229,6 +261,12 @@ def construir(carpeta=None):
                 out.setdefault("betas", {})[region] = leer_betas(raw, archivo)
             except ValueError:
                 pass
+    raw = _bajar("ratings.xls", carpeta)
+    if raw:
+        try:
+            out["calificaciones"] = leer_calificaciones(raw)
+        except Exception:
+            pass
     if out["riesgo_pais"] is None or not out["multiplos"]:
         raise SystemExit("No se pudieron leer las tablas de Damodaran.")
     aj = ajuste_colombia(out["multiplos"])
@@ -248,4 +286,5 @@ if __name__ == "__main__":
     rp = datos["riesgo_pais"]["meta"]
     print(f"Riesgo país {rp}; múltiplos: " + ", ".join(f"{k} ({len(v['industrias'])} industrias)" for k, v in datos["multiplos"].items()))
     print(f"Ajuste Colombia: {datos.get('ajuste_pais')}")
+    print(f"Calificaciones: {len((datos.get('calificaciones') or {}).get('grandes') or [])} tramos")
     print("Betas: " + ", ".join(f"{k} ({len(v['industrias'])} industrias)" for k, v in (datos.get("betas") or {}).items()))

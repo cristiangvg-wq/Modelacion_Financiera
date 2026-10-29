@@ -1,0 +1,19 @@
+name: Diag Damodaran 2
+on:
+  push:
+    branches: [diag/damodaran2]
+permissions:
+  contents: write
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt xlrd openpyxl
+      - run: |
+          mkdir -p out && python scripts/actualizar_damodaran.py --salida out/datos_damodaran.json > out/log.txt 2>&1; echo "exit=$?" >> out/log.txt
+          cd out && git init -q && git checkout -q -b diag/damodaran2-resultados
+          git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
+          git add -A && git commit -q -m r && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/damodaran2-resultados
