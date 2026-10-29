@@ -1,0 +1,28 @@
+name: Diag marco
+on:
+  push:
+    branches: [diag/marco]
+permissions:
+  contents: write
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt pypdf playwright && python -m playwright install --with-deps chromium
+      - run: |
+          set +e
+          mkdir -p out/ui
+          python diag/comparar.py > out/comparar.json 2> out/comparar_err.txt
+          git stash -q 2>/dev/null; git checkout -q origin/main -- . 2>/dev/null
+          python diag/comparar.py > out/comparar_main.json 2> out/comparar_main_err.txt || true
+          git checkout -q HEAD -- .
+          streamlit run streamlit_app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > out/ui/streamlit.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8501/_stcore/health && break; sleep 2; done
+          timeout 900 python diag/ui_marco.py http://127.0.0.1:8501 out/ui > out/ui/salida.txt 2>&1
+          cd out && git init -q && git checkout -q -b diag/marco-resultados
+          git config user.name "diag-bot" && git config user.email "diag@users.noreply.github.com"
+          git add -A && git commit -q -m r && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diag/marco-resultados
