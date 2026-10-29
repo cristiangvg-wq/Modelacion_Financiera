@@ -528,12 +528,26 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
     return out_pdf
 
 
+DEFAULT_TEAM = ["Luisa Fernanda Cardona Vega", "Gustavo Adolfo Castro Grijalba", "Cristian Gabriel Vargas Gaviria"]
+DEFAULT_DATE = "5 de noviembre de 2026"
+DEFAULT_COURSE = "Modelación financiera aplicada — Prof. Julio César Riascos"
+
+
+def generar_pdf_bytes(equipo: list[str] | None = None, fecha: str = DEFAULT_DATE, curso: str = DEFAULT_COURSE,
+                      mc_n: int = 5000) -> bytes:
+    """Ejecuta el modelo y devuelve el informe como bytes (para botones de descarga en la app)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        r = run_model(output_dir=Path(tmp) / "salidas", mc_n=mc_n)
+        pdf = build(r, equipo or DEFAULT_TEAM, fecha, curso, Path(tmp) / "Informe_Taller_ISA_2026.pdf")
+        return pdf.read_bytes()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--equipo", default="Luisa Fernanda Cardona Vega; Gustavo Adolfo Castro Grijalba; Cristian Gabriel Vargas Gaviria",
+    ap.add_argument("--equipo", default="; ".join(DEFAULT_TEAM),
                     help="Integrantes separados por ';'")
-    ap.add_argument("--fecha", default="5 de noviembre de 2026")
-    ap.add_argument("--curso", default="Modelación financiera aplicada — Prof. Julio César Riascos")
+    ap.add_argument("--fecha", default=DEFAULT_DATE)
+    ap.add_argument("--curso", default=DEFAULT_COURSE)
     ap.add_argument("--mc", type=int, default=5000)
     ap.add_argument("--out", type=Path, default=OUT_PDF)
     a = ap.parse_args()
