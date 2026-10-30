@@ -3527,21 +3527,63 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
 
 
 @st.cache_data(show_spinner=False)
-def _informe_taller_isa_bytes(equipo: tuple, fecha: str, mc_n: int) -> bytes:
-    """Genera el PDF del Taller ISA 2026 (caché por parámetros para no recalcular en cada rerun)."""
-    from scripts.generar_informe_taller_isa import generar_pdf_bytes
-    return generar_pdf_bytes(list(equipo), fecha, mc_n=mc_n)
+def _informe_taller_isa(equipo: tuple, fecha: str, mc_n: int, datos_json: str | None) -> dict:
+    """Genera PDF + JSON de entrada del Taller 2026 (caché por parámetros y por el contenido de los datos)."""
+    from scripts.generar_informe_taller_isa import generar_informe
+    datos = json.loads(datos_json) if datos_json else None
+    return generar_informe(list(equipo), fecha, mc_n=mc_n, data=datos)
 
 
-def _ui_informe_taller_isa():
-    """Botón de la pestaña 10 para generar y descargar el informe del Taller evaluativo 2026 (ISA)."""
+def _datos_taller_desde_app(ctx: dict) -> dict:
+    """Datos de entrada del taller con la empresa y los supuestos actuales de la app.
+
+    Usa la misma carga de histórico que la pestaña 1 (cargar_y_limpiar_excel) y los valores de la barra
+    lateral; no lee las tuplas internas de resultados de otras pestañas.
+    """
+    from scripts.taller_isa import inputs_from_app
+    empresa = ctx["empresa"]
+    df_hist, _msg = L.cargar_y_limpiar_excel(ctx.get("archivo"), empresa, usar_datos_publicos=bool(ctx.get("usar_publicos")))
+    params = st.session_state.get("params") or {}
+    moneda = str(ctx.get("moneda") or params.get("moneda") or "COP").upper()
+    moneda_px = str(st.session_state.get("moneda_precio_alineada") or moneda).upper()
+    if moneda_px != moneda:
+        raise ValueError(f"El precio está en {moneda_px} y el modelo en {moneda}; alinea monedas antes de generar el informe.")
+    precio = st.session_state.get("precio_mercado_alineado")
+    if not precio:
+        raise ValueError("No hay precio de mercado para la empresa; sin él no se pueden calcular el VPN ni la TIR implícita.")
+    return inputs_from_app(
+        empresa, df_hist, tax=ctx["tax"], g=ctx["g"], de_ratio=ctx["de_ratio"], kd=ctx["kd"], beta_u=ctx["beta_u"],
+        rf=ctx["rf"], erp=ctx["erp"], crp=ctx["crp"], deuda_neta=ctx["deuda_neta"], caja=ctx["caja"], nci=ctx["nci"],
+        otros_claims=ctx["otros_claims"], asociados=ctx["asociados"], acciones=ctx["acciones"], precio=float(precio),
+        mid_year=bool(ctx.get("mid_year", True)), deuda_es_bruta=bool(params.get("deuda_es_bruta", False)), moneda=moneda,
+        fuente_precio=st.session_state.get("fuente_precio_mercado"), fecha_precio=st.session_state.get("fecha_precio_mercado"),
+        fuente_historico=_msg if isinstance(_msg, str) else None,
+        ticker=params.get("ticker_bvc") or params.get("ticker_yf"),
+    )
+
+
+def _ui_informe_taller_isa(ctx: dict | None = None):
+    """Pestaña 10: genera el informe del Taller evaluativo 2026 con los datos de la app o con la instantánea."""
     from scripts.generar_informe_taller_isa import DEFAULT_DATE, DEFAULT_TEAM
-    with st.expander("📄 Informe del Taller evaluativo 2026 — ISA (PDF)", expanded=False):
-        st.caption(
-            "Genera el informe completo del taller (pronóstico, escenarios, políticas, decisión, Monte Carlo y anexo de "
-            "prompts) con el modelo de `scripts/taller_isa.py` y la instantánea `datos_taller_isa_2026.json`. "
-            "No depende de la empresa cargada en la barra lateral."
+    ctx = ctx or {}
+    fuente_app = "Modelo de la app (empresa y supuestos actuales)"
+    fuente_snap = "Instantánea del taller (ISA, reproducible)"
+    with st.expander("📄 Informe del Taller evaluativo 2026 (PDF)", expanded=False):
+        tf_fuente = st.radio(
+            "Fuente de datos", [fuente_app, fuente_snap], index=0 if ctx.get("empresa") else 1, horizontal=True,
+            key="taller_isa_fuente",
+            help="Con el modelo de la app, el informe usa el histórico de la pestaña 1 y el WACC, g, impuestos y puente "
+                 "de la barra lateral, así sus cifras coinciden con las demás pestañas. La instantánea usa "
+                 "datos_taller_isa_2026.json.",
         )
+        if tf_fuente == fuente_app:
+            st.caption(
+                f"Empresa: **{ctx.get('empresa', '—')}**. Junto al PDF se descarga el JSON con los datos exactos usados; "
+                "con él, `python scripts/generar_informe_taller_isa.py --data datos.json` reproduce el mismo informe. "
+                "Las narrativas de escenarios y políticas se diseñaron para ISA: revísalas si cambias de empresa."
+            )
+        else:
+            st.caption("Usa la instantánea fija del taller (ISA, corte documentado en el archivo).")
         tf_c1, tf_c2 = st.columns([3, 1])
         with tf_c1:
             tf_equipo = st.text_area("Integrantes (uno por línea)", value="\n".join(DEFAULT_TEAM), height=96,
@@ -3557,16 +3599,28 @@ def _ui_informe_taller_isa():
             else:
                 try:
                     with st.spinner("Ejecutando el modelo y armando el PDF…"):
-                        st.session_state["taller_isa_pdf"] = _informe_taller_isa_bytes(
-                            tf_miembros, tf_fecha.strip(), int(tf_mc))
+                        datos_json = None
+                        if tf_fuente == fuente_app:
+                            datos_json = json.dumps(_datos_taller_desde_app(ctx), ensure_ascii=False, sort_keys=True,
+                                                    default=str)
+                        st.session_state["taller_isa_out"] = _informe_taller_isa(
+                            tf_miembros, tf_fecha.strip(), int(tf_mc), datos_json)
                 except Exception as tf_error:  # el informe no debe tumbar la pestaña
-                    st.session_state.pop("taller_isa_pdf", None)
+                    st.session_state.pop("taller_isa_out", None)
                     st.error(f"No se pudo generar el informe: {tf_error}")
-        if st.session_state.get("taller_isa_pdf"):
-            st.download_button(
-                "⬇️ Descargar Informe_Taller_ISA_2026.pdf", data=st.session_state["taller_isa_pdf"],
-                file_name="Informe_Taller_ISA_2026.pdf", mime="application/pdf", key="taller_isa_descargar",
-            )
+        tf_out = st.session_state.get("taller_isa_out")
+        if tf_out:
+            st.success(f"Informe listo · fuente: {tf_out['fuente']} · huella de datos {tf_out['huella']} · "
+                       f"decisión del modelo: {tf_out['decision']}.")
+            d1, d2 = st.columns(2)
+            with d1:
+                st.download_button("⬇️ Descargar informe (PDF)", data=tf_out["pdf"],
+                                   file_name=f"Informe_Taller_2026_{tf_out['huella']}.pdf", mime="application/pdf",
+                                   key="taller_isa_descargar")
+            with d2:
+                st.download_button("⬇️ Descargar datos usados (JSON)", data=tf_out["json"],
+                                   file_name=f"datos_taller_{tf_out['huella']}.json", mime="application/json",
+                                   key="taller_isa_descargar_json")
 
 def main():
     # Registros de la capa lógica (empresas descargadas, resultados de pestañas,
@@ -5997,7 +6051,12 @@ def main():
                 "- La optimización de CAPEX nunca debe recortar mantenimiento, seguridad ni inversión obligatoria.\n"
                 "- La dispersión anual de FCFF es descriptiva; no equivale a VaR, CVaR ni a una distribución probabilística."
             )
-        _ui_informe_taller_isa()
+        _ui_informe_taller_isa({
+            "empresa": empresa, "archivo": archivo, "usar_publicos": usar_publicos, "tax": tax, "g": g,
+            "de_ratio": de_ratio, "kd": kd, "beta_u": beta_u, "rf": rf, "erp": erp, "crp": crp,
+            "deuda_neta": deuda_neta, "caja": caja, "nci": nci, "otros_claims": otros_claims,
+            "asociados": asociados, "acciones": acciones, "mid_year": mid_year, "moneda": moneda,
+        })
         fs_forecast = st.session_state.get("resultados", {}).get("tab1")
         # Prioriza la proyección numérica original de la pestaña 1 (sin redondeo de presentación).
         # El índice 2 se conserva como fallback para sesiones antiguas antes de esta versión.

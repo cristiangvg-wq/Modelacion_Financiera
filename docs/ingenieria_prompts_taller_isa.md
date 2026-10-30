@@ -34,7 +34,7 @@ Los campos entre llaves se reemplazan antes de cada uso. El bloque *Tarea* selec
 
 **Salida clave:** rediseño aplicado al código: (1) CAPEX = mantenimiento (≈ D&A) + intensidad × ΔIngresos, con intensidad calibrada con 2024–2025 (0,68) porque 2023 no es comparable; (2) WACC por CAPM con el método de la app (TES − spread de default + β apalancada × ERP de Damodaran para Colombia) = 13,8 %; (3) valor terminal de Gordon, puente EV → patrimonio, VPN del inversionista y TIR implícita al precio de mercado; (4) cuatro escenarios con seis drivers; (5) tres políticas con regla SI–ENTONCES y costos; (6) umbrales de decisión parametrizados; (7) tornado, matriz WACC × g y Monte Carlo; (8) instantánea de datos propia del taller para no depender del catálogo de la app.
 
-**Uso en el modelo:** todo lo anterior quedó en `scripts/taller_isa.py`, con 20 pruebas en `tests/test_taller_isa.py`. Corrección hecha al revisar la salida: la primera versión de la recomendación de P3 medía solo el apalancamiento *máximo*, que en Estrés ocurre en 2026 (antes de que la regla pueda actuar); se cambió a *años sobre el covenant* y *deuda neta 2030*.
+**Uso en el modelo:** todo lo anterior quedó en `scripts/taller_isa.py`, con 27 pruebas en `tests/test_taller_isa.py`. Corrección hecha al revisar la salida: la primera versión de la recomendación de P3 medía solo el apalancamiento *máximo*, que en Estrés ocurre en 2026 (antes de que la regla pueda actuar); se cambió a *años sobre el covenant* y *deuda neta 2030*.
 
 ### Interacción 3 — Escenarios coherentes (plantilla maestra v2, módulo b)
 **Prompt (plantilla v2 con parámetros de ISA):** "{módulo b}: construye escenarios Estrés, Pesimista, Base y Optimista para ISA 2026–2030 moviendo al menos cinco drivers a la vez. Explica el efecto enlazado de cada choque y verifica que el valor por acción sea monotónico entre escenarios y que WACC − g ≥ 2 pp."
@@ -60,4 +60,4 @@ Los campos entre llaves se reemplazan antes de cada uso. El bloque *Tarea* selec
 | T4 Simulación de políticas | diccionario `POLICIES`, `policy_triggered`, `policy_impact`, `policy_recommendation` |
 | T5 Monte Carlo | `monte_carlo` (semilla fija, 5.000 simulaciones) |
 | T6 Ingeniería de prompts | este anexo (plantilla v2 + versionado + 4 interacciones) |
-| Validación | `tests/test_taller_isa.py` (20 pruebas) |
+| Validación | `tests/test_taller_isa.py` (27 pruebas) |

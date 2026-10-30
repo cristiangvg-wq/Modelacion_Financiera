@@ -31,7 +31,7 @@ from reportlab.platypus import (  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.taller_isa import (  # noqa: E402
-    DECISION_THRESHOLDS, POLICIES, SCENARIO_ORDER, SCENARIOS, run_model,
+    DECISION_THRESHOLDS, FORECAST_YEARS, POLICIES, SCENARIO_ORDER, SCENARIOS, run_model,
 )
 
 FONT_DIR = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
@@ -83,6 +83,75 @@ def loc(text: str) -> str:
     text = re.sub(r"(\d)\.(\d)", r"\1,\2", text)
     text = text.replace("§", ".")
     return re.sub(r"(\d)%", r"\1 %", text)
+
+
+def capm_text(isa: dict, c: dict) -> str:
+    cap = isa["capital"]
+    if "rf" in cap:
+        origen = f"rf {pct(c['rf'], 2)}, ERP {pct(cap['erp'], 2)} y CRP {pct(cap.get('crp') or 0, 2)} tomados de la app; Kd {pct(c['kd'], 2)}"
+        prima = cap["erp"]
+    else:
+        origen = (f"rf = TES 10 años {pct(cap['tes_10a'], 2)} − spread de default {pct(cap['spread_default_co'], 2)} = {pct(c['rf'], 2)}; "
+                  f"ERP (Damodaran) {pct(cap['erp_total_co'], 2)}; Kd = TES + {pct(cap['kd_spread'], 1)} = {pct(c['kd'], 2)}")
+        prima = cap["erp_total_co"]
+    conv = "mitad de año" if cap.get("mid_year") else "fin de año"
+    return (f"<b>Costo de capital.</b> {origen}. β apalancada = {cap['beta_u']:.2f} × [1 + (1 − {pct(c['tax'], 0)}) × D/E "
+            f"{cap['de_ratio']:.2f}] = {c['beta_l']:.2f} → Ke = {pct(c['ke'], 2)} (ERP {pct(prima, 2)}); Kd después de impuestos "
+            f"{pct(c['kd_despues_imp'], 2)}; pesos E/V {pct(c['we'])}, D/V {pct(c['wd'])} → <b>WACC {pct(c['wacc'], 2)}</b> nominal en "
+            f"{isa.get('moneda', 'COP')}. Descuento con convención de {conv}.")
+
+
+def narrativa(r: dict) -> dict:
+    """Textos de conclusión derivados de los resultados (nada fijo: cambian si cambian los datos)."""
+    isa, dec, recs = r["isa"], r["decision"], r["recommendations"]
+    cur = isa.get("moneda", "COP")
+    evs = r["evals"]
+    justifican = [s for s in SCENARIO_ORDER if evs[s]["valuation"]["valor_por_accion"] >= dec["precio"]]
+    tir, wacc = dec["tir_implicita"], dec["wacc"]
+    tir_ok = not math.isnan(tir)
+    rel = "superior" if tir_ok and tir > wacc else "inferior"
+    t3 = [x["driver"].split(" (")[0].lower() for x in r["tornado"][:3]]
+    rest = [x["driver"].split(" (")[0] for x in r["tornado"][3:]]
+    if justifican:
+        just = f"El precio queda justificado en: {', '.join(justifican)}."
+    else:
+        just = "Ningún escenario justifica el precio de mercado."
+    if tir_ok:
+        mercado = (f"El mercado descuenta los flujos proyectados con una tasa ≈ {pct(tir, 1)}, {rel} al WACC de {pct(wacc, 1)}: "
+                   + ("exige menos riesgo que el estimado por CAPM o espera más crecimiento que el Base."
+                      if tir < wacc else "el precio deja una rentabilidad esperada por encima del costo de capital."))
+    else:
+        mercado = "La TIR implícita no está definida con estos flujos."
+    pasos, i = [], 1
+    d = dec["decision"].lower()
+    if d.startswith("no comprar"):
+        pasos.append(f"({i}) No comprar al precio actual; reconsiderar por debajo de {n0(dec['precio_max_compra'])} {cur}"
+                     + (f" o si el WACC validado baja a ≈ {pct(tir, 1)}." if tir_ok else "."))
+    elif d.startswith("comprar"):
+        pasos.append(f"({i}) Comprar mientras el precio no supere {n0(dec['precio_max_compra'])} {cur} (margen de seguridad).")
+    else:
+        pasos.append(f"({i}) Mantener; comprar solo por debajo de {n0(dec['precio_max_compra'])} {cur} y revisar si cambia el WACC.")
+    for p, rec in recs.items():
+        i += 1
+        pasos.append(f"({i}) {p}: {rec['decision'].lower()}.")
+    p1 = next((rec for p, rec in recs.items() if POLICIES[p]["tipo"] == "inversion"), None)
+    lectura_p1 = ""
+    if p1 and p1["decision"].startswith("Descartar"):
+        lectura_p1 = ("Diferir CAPEX de expansión libera caja al inicio, pero si los ingresos nacen de la base de activos el "
+                      "retraso reduce el crecimiento y el valor terminal; su costo implícito supera el WACC, así que P1 se descarta "
+                      "aunque su regla se active. La regla debería reformularse (diferir solo proyectos con TIR propia &lt; WACC). ")
+    elif p1:
+        lectura_p1 = f"Diferir CAPEX de expansión resulta en «{p1['decision'].lower()}» con estos datos. "
+    return {
+        "justifican": just, "mercado": mercado, "recomendacion": " ".join(pasos),
+        "tornado": (f"El tornado mueve un driver a la vez sobre el Base. Los tres de mayor efecto son {', '.join(t3)}; "
+                    f"pesan menos {', '.join(rest).lower()}. La decisión depende sobre todo de esos tres drivers."),
+        "lectura_politicas": lectura_p1 + "Las políticas de márgenes y de dividendos se interpretan con su ΔVPN y su efecto en el "
+                             "covenant en las tablas anteriores; la de dividendos no cambia el EV, solo redistribuye caja.",
+        "arbol": (f"Árbol de decisión simplificado: ¿TIR implícita &gt; WACC? → {'Sí' if tir_ok and tir > wacc else 'No'} → "
+                  f"¿valor Optimista &gt; precio? → {'Sí' if 'Optimista' in justifican else 'No'} → {dec['decision'].lower()}; "
+                  "revisar cuando cambien las tasas o el plan de inversión."),
+    }
 
 
 def styles():
@@ -168,20 +237,21 @@ def _fig(path, w=7.2, h=3.0):
 
 def charts(r: dict, tmp: Path) -> dict:
     out = {}
+    cur = r["isa"].get("moneda", "COP")
     # FCFF por escenario
     f = _fig(None)
     ax = f.add_subplot(1, 2, 1)
     for s in SCENARIO_ORDER:
         rows = [x for x in r["evals"][s]["rows"] if not x["terminal"]]
         ax.plot([x["año"] for x in rows], [x["fcff"] for x in rows], marker="o", label=s, color=SC_COLORS[s])
-    ax.set_title("FCFF proyectado (miles de millones COP)")
+    ax.set_title(f"FCFF proyectado (miles de millones {cur})")
     ax.legend(frameon=False, fontsize=7)
     ax2 = f.add_subplot(1, 2, 2)
     vals = [r["evals"][s]["valuation"]["valor_por_accion"] for s in SCENARIO_ORDER]
     ax2.bar(SCENARIO_ORDER, vals, color=[SC_COLORS[s] for s in SCENARIO_ORDER])
     ax2.axhline(r["decision"]["precio"], color="black", ls="--", lw=1)
     ax2.text(-0.4, r["decision"]["precio"] * 1.03, f"Precio {n0(r['decision']['precio'])}", fontsize=7)
-    ax2.set_title("Valor por acción (COP)")
+    ax2.set_title(f"Valor por acción ({cur})")
     f.tight_layout()
     out["escenarios"] = tmp / "escenarios.png"
     f.savefig(out["escenarios"], dpi=180)
@@ -197,7 +267,7 @@ def charts(r: dict, tmp: Path) -> dict:
         ax.barh(i, x["valor_bajo"] - base, left=base, color="#8c2d2d")
     ax.set_yticks(range(len(t)), [x["driver"] for x in t])
     ax.axvline(base, color="black", lw=0.8)
-    ax.set_title(f"Tornado: valor por acción (Base = {n0(base)} COP)")
+    ax.set_title(f"Tornado: valor por acción (Base = {n0(base)} {cur})")
     f.tight_layout()
     out["tornado"] = tmp / "tornado.png"
     f.savefig(out["tornado"], dpi=180)
@@ -235,7 +305,7 @@ def charts(r: dict, tmp: Path) -> dict:
     ax = f.add_subplot(1, 2, 1)
     ax.hist([x["valor_por_accion"] for x in mc["simulaciones"]], bins=40, color="#1d4e89", alpha=0.85)
     ax.axvline(r["decision"]["precio"], color="black", ls="--", lw=1)
-    ax.set_title("Monte Carlo: valor por acción (COP)")
+    ax.set_title(f"Monte Carlo: valor por acción ({cur})")
     ax2 = f.add_subplot(1, 2, 2)
     ax2.hist([x["delta_vpn_p2"] for x in mc["simulaciones"]], bins=40, color="#2e7d4f", alpha=0.8, label="P2")
     ax2.hist([x["delta_vpn_p1"] for x in mc["simulaciones"]], bins=40, color="#d08a2e", alpha=0.8, label="P1")
@@ -261,6 +331,11 @@ def img(path, width=17.5 * cm):
 def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> Path:
     st = styles()
     isa, d, c, dec, mc = r["isa"], r["drivers"], r["capital"], r["decision"], r["monte_carlo"]
+    nv = narrativa(r)
+    cur = isa.get("moneda", "COP")
+    ticker = isa.get("ticker_bvc") or isa["empresa"].split("—")[0].strip()
+    es_isa = "ISA" in isa["empresa"].upper().split("—")[0]
+    huella = r.get("fingerprint") or ""
     ev = r["evals"]
     tmp = Path(tempfile.mkdtemp())
     ch = charts(r, tmp)
@@ -269,46 +344,51 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
     # Portada
     S += [Spacer(1, 3 * cm), Paragraph("Taller evaluativo 2026", st["center"]),
           Paragraph("Modelación financiera aplicada:<br/>pronóstico, escenarios y simulación de políticas", st["title"]),
-          Spacer(1, 1.2 * cm), Paragraph(f"<b>Empresa:</b> {isa['empresa']} (BVC: {isa.get('ticker_bvc', 'ISA')})", st["center"]),
+          Spacer(1, 1.2 * cm), Paragraph(f"<b>Empresa:</b> {isa['empresa']} ({ticker})", st["center"]),
           Paragraph("<b>Camino elegido:</b> Evaluación empresarial", st["center"]),
           Paragraph(f"<b>Curso:</b> {curso}", st["center"]), Spacer(1, 0.8 * cm),
           Paragraph("<b>Equipo</b>", st["center"])]
     S += [Paragraph(m, st["center"]) for m in equipo]
     S += [Spacer(1, 0.8 * cm), Paragraph(f"<b>Fecha de entrega:</b> {fecha}", st["center"]),
-          Paragraph(f"Datos con corte {isa.get('corte_catalogo')} · precio de referencia {isa['mercado'].get('fecha_precio_ref')}", st["center"]),
+          Paragraph(f"Datos con corte {isa.get('corte_catalogo')} · precio de referencia {isa['mercado'].get('fecha_precio_ref') or 'sin fecha'}", st["center"]),
+          Paragraph(f"<b>Fuente de datos:</b> {isa.get('fuente_datos', 'Instantánea del taller')} · huella {huella}", st["center"]),
           Spacer(1, 2 * cm),
           Paragraph("Código reproducible: <font face='DVMono'>python scripts/taller_isa.py</font> · pruebas: "
                     "<font face='DVMono'>python -m pytest tests/test_taller_isa.py</font> · dashboard: "
                     "<font face='DVMono'>streamlit run scripts/dashboard_taller_isa.py</font>", st["small"]),
-          Paragraph("Montos en miles de millones de COP salvo indicación. Ejercicio académico; no constituye recomendación de inversión profesional.", st["small"]),
+          Paragraph(f"Montos en miles de millones de {cur} salvo indicación. Los datos de entrada exactos de este informe se guardan en datos_entrada.json (misma huella). Ejercicio académico; no constituye recomendación de inversión profesional.", st["small"]),
           PageBreak()]
 
     # 1. Resumen ejecutivo
     recs = r["recommendations"]
+    h0, h1 = isa["history"][0]["Año"], isa["history"][-1]["Año"]
     S += [Paragraph("1. Resumen ejecutivo", st["h1"]),
           Paragraph(
-              f"Se proyectó el FCFF de ISA para 2026–2030 con un modelo de drivers calibrado con los estados financieros "
-              f"2023–2025, un WACC por CAPM de {pct(c['wacc'])} y crecimiento terminal de {pct(isa['capital']['g_terminal'])}. "
+              f"Se proyectó el FCFF de {ticker} para {FORECAST_YEARS[0]}–{FORECAST_YEARS[-1]} con un modelo de drivers calibrado con los estados financieros "
+              f"{h0}–{h1}, un WACC por CAPM de {pct(c['wacc'])} y crecimiento terminal de {pct(isa['capital']['g_terminal'])}. "
               f"En el escenario Base el valor del patrimonio es {n0(ev['Base']['valuation']['patrimonio'])} "
-              f"({n0(dec['valor_base'])} COP por acción) frente a un precio de {n0(dec['precio'])} COP; la TIR implícita al precio "
-              f"de mercado es {pct(dec['tir_implicita'])}, inferior al WACC. <b>Decisión: {dec['decision'].lower()}</b>; el precio "
-              f"máximo de compra que respeta el margen de seguridad es {n0(dec['precio_max_compra'])} COP.", st["body"]),
+              f"({n0(dec['valor_base'])} {cur} por acción) frente a un precio de {n0(dec['precio'])} {cur}; la TIR implícita al precio "
+              f"de mercado es {pct(dec['tir_implicita'])} frente a un WACC de {pct(c['wacc'])}. <b>Decisión: {dec['decision'].lower()}</b>; el precio "
+              f"máximo de compra que respeta el margen de seguridad es {n0(dec['precio_max_compra'])} {cur}.", st["body"]),
           table([["Política", "Decisión", "Fundamento"]] +
                 [[p, rec["decision"], loc(rec["razon"])] for p, rec in recs.items()], st, [4.2 * cm, 3.3 * cm, 10 * cm]),
           Spacer(1, 4),
           Paragraph(
-              f"El driver dominante es el WACC (±1 pp mueve el valor por acción entre {n0(r['tornado'][0]['valor_bajo'])} y "
-              f"{n0(r['tornado'][0]['valor_alto'])} COP). En {n0(mc['n'])} simulaciones Monte Carlo la probabilidad de que el valor "
+              f"El driver dominante es {r['tornado'][0]['driver'].lower()}: mueve el valor por acción entre {n0(r['tornado'][0]['valor_bajo'])} y "
+              f"{n0(r['tornado'][0]['valor_alto'])} {cur}. En {n0(mc['n'])} simulaciones Monte Carlo la probabilidad de que el valor "
               f"supere el precio es {pct(mc['prob_valor_mayor_precio'])} (mediana {n0(mc['p50'])}; P5–P95: {n0(mc['p5'])}–{n0(mc['p95'])}).",
               st["body"])]
 
     # 2. Datos y drivers
     h = isa["history"]
     S += [Paragraph("2. Datos y drivers de la empresa", st["h1"]),
-          Paragraph("ISA transmite energía a alta tensión en Colombia y Latinoamérica bajo esquemas regulados y concesiones; "
+          Paragraph((isa.get("descripcion_negocio") or (
+                    "ISA transmite energía a alta tensión en Colombia y Latinoamérica bajo esquemas regulados y concesiones; "
                     "sus ingresos dependen de la base de activos remunerada (nuevas convocatorias y expansión), de la indexación "
-                    "tarifaria y del costo de capital. Por eso los drivers elegidos son crecimiento de ingresos, margen EBIT, "
+                    "tarifaria y del costo de capital." if es_isa else f"{isa['empresa']}.")) +
+                    " Los drivers del modelo son crecimiento de ingresos, margen EBIT, "
                     "reinversión (CAPEX de mantenimiento y de expansión), capital de trabajo y WACC.", st["body"]),
+          Paragraph(f"<b>Fuente de datos:</b> {isa.get('fuente_datos')}. {md_inline(isa.get('descripcion', ''))}", st["small"]),
           table([["Año", "Ingresos", "EBITDA", "EBIT", "D&A", "CAPEX", "NWC", "Margen EBIT", "CAPEX/ingresos"]] +
                 [[x["Año"], n0(x["Ingresos"]), n0(x["EBITDA"]), n0(x["EBIT"]), n0(x["Depreciacion"]), n0(x["CAPEX"]),
                   n0(x["NWC"]), pct(x["EBIT"] / x["Ingresos"]), pct(x["CAPEX"] / x["Ingresos"])] for x in h], st),
@@ -316,13 +396,13 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
           Spacer(1, 4),
           table([["Driver", "Valor base", "Cálculo / fuente", "Tipo"],
                  ["Crecimiento de ingresos", pct(d["growth"], 2), d["growth_formula"], "Observado (calculado)"],
-                 ["Margen EBIT", pct(d["ebit_margin"], 2), f"EBIT/ingresos 2025 (promedio 2023–2025: {pct(d['ebit_margin_avg'])}); se usa 2025 por ser el perímetro conciliado", "Observado"],
-                 ["CAPEX de mantenimiento / ingresos", pct(d["maint_capex_ratio"], 2), "≈ D&A/ingresos 2025 (reposición de la base de activos)", "Estimado"],
-                 ["Intensidad CAPEX de expansión", f"{d['capex_intensity']:.2f}", "(CAPEX − D&A)/ΔIngresos, promedio 2024–2025; 2023 excluido por perímetro no comparable", "Estimado"],
-                 ["NWC / ingresos", pct(d["nwc_ratio"], 2), "NWC/ingresos 2025 (NWC preliminar del balance)", "Estimado"],
-                 ["Tasa de impuestos", pct(c["tax"]), "Tasa efectiva contable 2025 ≈ 22,13 %; provisional (estrés 35 % en tornado)", "Estimado"],
+                 ["Margen EBIT", pct(d["ebit_margin"], 2), f"EBIT/ingresos {h1} (promedio {h0}–{h1}: {pct(d['ebit_margin_avg'])}); se usa el último año", "Observado"],
+                 ["CAPEX de mantenimiento / ingresos", pct(d["maint_capex_ratio"], 2), f"≈ D&A/ingresos {h1} (reposición de la base de activos)", "Estimado"],
+                 ["Intensidad CAPEX de expansión", f"{d['capex_intensity']:.2f}", "(CAPEX − D&A)/ΔIngresos, promedio " + ", ".join(str(y) for y in (isa.get("anios_intensidad_capex") or [x["Año"] for x in isa["history"][-2:]])), "Estimado"],
+                 ["NWC / ingresos", pct(d["nwc_ratio"], 2), f"NWC/ingresos {h1}", "Estimado"],
+                 ["Tasa de impuestos", pct(c["tax"]), md_inline((isa["capital"].get("fuente_tax") or "")[:160]) + " (estrés 35 % en tornado)", "Estimado"],
                  ["WACC", pct(c["wacc"], 2), "CAPM, ver sección 3", "Estimado"],
-                 ["g terminal", pct(isa["capital"]["g_terminal"]), "Catálogo; < inflación LP de Colombia (conservador)", "Hipótesis"]],
+                 ["g terminal", pct(isa["capital"]["g_terminal"]), md_inline((isa["capital"].get("fuente_g_terminal") or "")[:160]), "Hipótesis"]],
                 st, [4 * cm, 2.2 * cm, 8.8 * cm, 2.6 * cm])]
 
     # 3. Pronóstico base y método
@@ -342,18 +422,13 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
                 [[("2031 (VT)" if x["terminal"] else x["año"]), n0(x["ingresos"]), pct(x["margen_ebit"]), n0(x["nopat"]),
                   n0(x["depreciacion"]), n0(x["capex"]), n0(x["delta_nwc"]), n0(x["fcff"])] for x in base_rows], st),
           Spacer(1, 4),
-          Paragraph(f"<b>Costo de capital.</b> rf = TES 10 años {pct(isa['capital']['tes_10a'], 2)} − spread de default de Colombia "
-                    f"{pct(isa['capital']['spread_default_co'], 2)} = {pct(c['rf'], 2)}; β apalancada = {isa['capital']['beta_u']:.2f} × "
-                    f"[1 + (1 − {pct(c['tax'], 0)}) × D/E {isa['capital']['de_ratio']:.2f}] = {c['beta_l']:.2f}; ERP Colombia (Damodaran) "
-                    f"{pct(isa['capital']['erp_total_co'], 2)} → Ke = {pct(c['ke'], 2)}; Kd = TES + {pct(isa['capital']['kd_spread'], 1)} = "
-                    f"{pct(c['kd'], 2)} (después de impuestos {pct(c['kd_despues_imp'], 2)}); pesos E/V {pct(c['we'])}, D/V {pct(c['wd'])} "
-                    f"→ <b>WACC {pct(c['wacc'], 2)}</b> nominal en COP.", st["body"]),
+          Paragraph(capm_text(isa, c), st["body"]),
           table([["Métrica (escenario Base)", "Valor"],
                  ["VP FCFF 2026–2030", n0(vb["vp_fcff_explicito"])],
                  ["VP valor terminal (peso en EV)", f"{n0(vb['vp_valor_terminal'])} ({pct(vb['peso_valor_terminal'])})"],
                  ["Valor empresarial (EV)", n0(vb["ev"])],
                  ["− Deuda neta − minoritarios + asociadas", f"−{n0(isa['puente']['deuda_neta'])} − {n0(isa['puente']['nci'])} + {n0(isa['puente']['asociados'])}"],
-                 ["Valor del patrimonio / por acción", f"{n0(vb['patrimonio'])} / {n0(vb['valor_por_accion'])} COP"],
+                 ["Valor del patrimonio / por acción", f"{n0(vb['patrimonio'])} / {n0(vb['valor_por_accion'])} {cur}"],
                  ["Capitalización de mercado", n0(vb["capitalizacion_mercado"])],
                  ["<b>VPN del inversionista</b> (patrimonio − capitalización)", f"<b>{n0(vb['vpn_inversionista'])}</b>"],
                  ["<b>TIR implícita</b> (iguala EV del DCF al EV de mercado)", f"<b>{pct(ev['Base']['tir_implicita'], 2)}</b> vs WACC {pct(c['wacc'], 2)}"]],
@@ -381,20 +456,17 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
           table([["Métrica"] + SCENARIO_ORDER,
                  ["FCFF acumulado 2026–2030"] + [n0(sm[s]["fcff_acumulado_2026_2030"]) for s in SCENARIO_ORDER],
                  ["EV"] + [n0(sm[s]["ev"]) for s in SCENARIO_ORDER],
-                 ["Valor por acción (COP)"] + [n0(sm[s]["valor_por_accion"]) for s in SCENARIO_ORDER],
+                 [f"Valor por acción ({cur})"] + [n0(sm[s]["valor_por_accion"]) for s in SCENARIO_ORDER],
                  ["VPN del inversionista"] + [n0(sm[s]["vpn_inversionista"]) for s in SCENARIO_ORDER],
                  ["TIR implícita"] + [pct(sm[s]["tir_implicita"], 2) for s in SCENARIO_ORDER],
                  ["Máx. deuda neta/EBITDA"] + [f"{sm[s]['max_deuda_neta_ebitda']:.2f}x" for s in SCENARIO_ORDER]], st,
                 [3.6 * cm] + [3.5 * cm] * 4),
           img(ch["escenarios"]),
-          Paragraph("<b>Sensibilidad.</b> El tornado mueve un driver a la vez sobre el Base. El WACC explica la mayor dispersión, "
-                    "seguido del crecimiento terminal y del crecimiento de ingresos; los drivers de reinversión (CAPEX, NWC) importan menos. "
-                    "Implicación: la decisión depende más del costo de capital que del plan operativo, y el riesgo de tasas es el que "
-                    "debe vigilarse.", st["body"]),
+          Paragraph("<b>Sensibilidad.</b> " + nv["tornado"], st["body"]),
           img(ch["tornado"], 15.5 * cm)]
     mtx = r["matrix"]
     gs = [k for k in mtx["filas"][0] if k.startswith("g=")]
-    S += [KeepTogether([Paragraph("Matriz 2D: valor por acción (COP) según WACC y g terminal", st["h2"]),
+    S += [KeepTogether([Paragraph(f"Matriz 2D: valor por acción ({cur}) según WACC y g terminal", st["h2"]),
                         table([["WACC \\ g"] + gs] + [[pct(f["wacc"], 2)] + [n0(f[g]) for g in gs] for f in mtx["filas"]],
                               st, [3 * cm] + [3 * cm] * len(gs))])]
 
@@ -423,12 +495,7 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
         prob = f" P(ΔVPN &gt; 0) en Monte Carlo: {pct(rec['prob_mc_dvpn_pos'])}." if rec["prob_mc_dvpn_pos"] is not None else ""
         S += [Paragraph(f"<b>Recomendación: {rec['decision']}.</b> {loc(rec['razon'])}{prob}", st["body"])]
     S += [img(ch["politicas"]),
-          Paragraph("<b>Lectura.</b> Diferir CAPEX de expansión libera caja en 2026–2027, pero en un negocio regulado los ingresos "
-                    "nacen de la base de activos: el retraso reduce crecimiento y el valor terminal, y el costo implícito de esa "
-                    "\"financiación\" supera al WACC. Por eso P1 se descarta aun cuando su regla se activa en el Pesimista: la regla "
-                    "debe reformularse (por ejemplo, diferir solo proyectos con TIR propia &lt; WACC). La eficiencia operativa crea valor "
-                    "en todos los escenarios porque su costo es pequeño frente a un margen permanente. La política de dividendos no "
-                    "crea valor pero reduce el tiempo por encima del covenant en el escenario de Estrés.", st["body"])]
+          Paragraph("<b>Lectura.</b> " + nv["lectura_politicas"], st["body"])]
 
     # 6. Decisión
     th = DECISION_THRESHOLDS
@@ -441,28 +508,20 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
                  ["Regla de política", "ΔVPN &gt; 0", "Adoptar si ΔVPN &gt; 0 en Base y Pesimista; condicionar si solo en uno; descartar si en ninguno"]],
                 st, [5 * cm, 2.5 * cm, 10 * cm]),
           Spacer(1, 4),
-          Paragraph(f"<b>Decisión sobre la acción: {dec['decision']}.</b> Valor Base {n0(dec['valor_base'])} COP y Pesimista "
-                    f"{n0(dec['valor_pesimista'])} COP frente a {n0(dec['precio'])} COP (valor/precio = {dec['valor_sobre_precio']:.2f}). "
-                    f"TIR implícita {pct(dec['tir_implicita'], 2)} &lt; WACC {pct(dec['wacc'], 2)}. Solo el escenario Optimista justifica "
-                    f"el precio; dicho de otro modo, el mercado descuenta a ISA con una tasa ≈ {pct(dec['tir_implicita'], 1)}, es decir, "
-                    f"exige un riesgo menor que el estimado por CAPM o espera crecimiento superior al Base.", st["body"]),
-          Paragraph("<b>Recomendación condicionada.</b> (1) No comprar al precio actual; reconsiderar por debajo de "
-                    f"{n0(dec['precio_max_compra'])} COP o si el WACC validado baja a ≈ {pct(dec['tir_implicita'], 1)}. (2) Adoptar P2 "
-                    "(eficiencia) como política principal. (3) Descartar P1 en su forma actual y reemplazarla por una priorización de "
-                    "proyectos con TIR propia &gt; WACC. (4) Mantener P3 como regla contingente que se activa automáticamente si la "
-                    "deuda neta/EBITDA supera 4,0x.", st["body"]),
-          Paragraph("Árbol de decisión simplificado: ¿TIR implícita &gt; WACC? → No → ¿valor Optimista &gt; precio? → Sí → "
-                    "mantener en observación y revisar cuando cambie el WACC (tasas TES) o se adjudiquen nuevas convocatorias; No → vender/no comprar.",
-                    st["quote"])]
+          Paragraph(f"<b>Decisión sobre la acción: {dec['decision']}.</b> Valor Base {n0(dec['valor_base'])} {cur} y Pesimista "
+                    f"{n0(dec['valor_pesimista'])} {cur} frente a {n0(dec['precio'])} {cur} (valor/precio = {str(round(dec['valor_sobre_precio'], 2)).replace('.', ',')}). "
+                    f"{nv['justifican']} {nv['mercado']}", st["body"]),
+          Paragraph("<b>Recomendación condicionada.</b> " + nv["recomendacion"], st["body"]),
+          Paragraph(nv["arbol"], st["quote"])]
 
     # 7. Monte Carlo
     S += [Paragraph("7. Monte Carlo (bonificación)", st["h1"]),
           Paragraph(f"{n0(mc['n'])} simulaciones (semilla {mc['semilla']}) sobre el escenario Base: crecimiento ~ N(base; 1,5 pp), "
                     "margen EBIT ~ N(base; 1,5 pp), intensidad CAPEX × triangular(0,85; 1,00; 1,35), NWC × triangular(0,85; 1,00; 1,20), "
-                    "ajuste de WACC ~ N(0; 0,75 pp), g ~ U(3,5 %; 6,0 %) con WACC − g ≥ 2 pp, y logro de la eficiencia ~ U(0 %; 150 %) "
+                    "ajuste de WACC ~ N(0; 0,75 pp), g = g base + U(−1,5 pp; +1,0 pp) con WACC − g ≥ 2 pp, y logro de la eficiencia ~ U(0 %; 150 %) "
                     "de la meta. Las distribuciones son hipótesis del equipo.", st["body"]),
           table([["Resultado", "Valor"],
-                 ["Valor por acción: P5 / mediana / P95", f"{n0(mc['p5'])} / {n0(mc['p50'])} / {n0(mc['p95'])} COP"],
+                 ["Valor por acción: P5 / mediana / P95", f"{n0(mc['p5'])} / {n0(mc['p50'])} / {n0(mc['p95'])} {cur}"],
                  ["P(valor &gt; precio)", pct(mc["prob_valor_mayor_precio"])],
                  ["P(ΔVPN &gt; 0) P1 / P2", f"{pct(mc['prob_dvpn_p1_pos'])} / {pct(mc['prob_dvpn_p2_pos'])}"],
                  ["P(deuda neta/EBITDA &gt; 4,0x en algún año)", pct(mc["prob_covenant_roto"])]], st, [9 * cm, 8.5 * cm]),
@@ -517,13 +576,13 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
         canvas.saveState()
         canvas.setFont("DV", 7)
         canvas.setFillColor(colors.grey)
-        canvas.drawString(2 * cm, 1.2 * cm, "Taller evaluativo 2026 · ISA · Evaluación empresarial")
+        canvas.drawString(2 * cm, 1.2 * cm, f"Taller evaluativo 2026 · {ticker} · Evaluación empresarial · huella {huella}")
         canvas.drawRightString(letter[0] - 2 * cm, 1.2 * cm, f"Página {doc.page}")
         canvas.restoreState()
 
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(str(out_pdf), pagesize=letter, leftMargin=2 * cm, rightMargin=2 * cm, topMargin=1.8 * cm,
-                            bottomMargin=1.8 * cm, title="Taller evaluativo 2026 — ISA", author="; ".join(equipo))
+                            bottomMargin=1.8 * cm, title=f"Taller evaluativo 2026 — {ticker}", author="; ".join(equipo))
     doc.build(S, onFirstPage=footer, onLaterPages=footer)
     return out_pdf
 
@@ -533,13 +592,28 @@ DEFAULT_DATE = "5 de noviembre de 2026"
 DEFAULT_COURSE = "Modelación financiera aplicada — Prof. Julio César Riascos"
 
 
-def generar_pdf_bytes(equipo: list[str] | None = None, fecha: str = DEFAULT_DATE, curso: str = DEFAULT_COURSE,
-                      mc_n: int = 5000) -> bytes:
-    """Ejecuta el modelo y devuelve el informe como bytes (para botones de descarga en la app)."""
+def generar_informe(equipo: list[str] | None = None, fecha: str = DEFAULT_DATE, curso: str = DEFAULT_COURSE,
+                    mc_n: int = 5000, data: dict | Path | None = None) -> dict:
+    """Ejecuta el modelo y devuelve el PDF, los datos de entrada (JSON) y su huella.
+
+    ``data`` = None usa la instantánea del taller; un diccionario (p. ej. de ``inputs_from_app``) usa esos datos.
+    Con el JSON devuelto, ``python scripts/generar_informe_taller_isa.py --data datos.json`` reproduce el mismo PDF.
+    """
+    import json as _json
+    from scripts.taller_isa import DEFAULT_DATA
     with tempfile.TemporaryDirectory() as tmp:
-        r = run_model(output_dir=Path(tmp) / "salidas", mc_n=mc_n)
+        r = run_model(DEFAULT_DATA if data is None else data, Path(tmp) / "salidas", mc_n=mc_n)
         pdf = build(r, equipo or DEFAULT_TEAM, fecha, curso, Path(tmp) / "Informe_Taller_ISA_2026.pdf")
-        return pdf.read_bytes()
+        return {"pdf": pdf.read_bytes(),
+                "json": _json.dumps(r["inputs"], ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+                "huella": r["fingerprint"], "fuente": r["isa"].get("fuente_datos"),
+                "decision": r["decision"]["decision"]}
+
+
+def generar_pdf_bytes(equipo: list[str] | None = None, fecha: str = DEFAULT_DATE, curso: str = DEFAULT_COURSE,
+                      mc_n: int = 5000, data: dict | Path | None = None) -> bytes:
+    """Atajo que devuelve solo el PDF."""
+    return generar_informe(equipo, fecha, curso, mc_n, data)["pdf"]
 
 
 def main():
@@ -550,8 +624,11 @@ def main():
     ap.add_argument("--curso", default=DEFAULT_COURSE)
     ap.add_argument("--mc", type=int, default=5000)
     ap.add_argument("--out", type=Path, default=OUT_PDF)
+    ap.add_argument("--data", type=Path, default=None,
+                    help="JSON de datos de entrada (p. ej. el descargado desde la pestaña 10); por defecto, la instantánea")
     a = ap.parse_args()
-    r = run_model(mc_n=a.mc)
+    from scripts.taller_isa import DEFAULT_DATA
+    r = run_model(a.data or DEFAULT_DATA, mc_n=a.mc)
     path = build(r, [m.strip() for m in a.equipo.split(";") if m.strip()], a.fecha, a.curso, a.out)
     print(f"Informe generado: {path}")
 

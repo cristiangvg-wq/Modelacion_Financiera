@@ -47,7 +47,7 @@ SCENARIOS = {
         "capex_intensity_mult": 1.25, # sobrecostos de obra: +25 % de CAPEX por peso de nuevo ingreso
         "nwc_ratio_mult": 1.15,       # mayor cartera con distribuidores
         "wacc_delta": 0.025,          # choque de tasas / riesgo país
-        "g_terminal": 0.035,
+        "g_terminal_delta": -0.015,
         "descripcion": "Recesión + choque de tasas: escenario de cola para probar viabilidad y covenants.",
     },
     "Pesimista": {
@@ -56,7 +56,7 @@ SCENARIOS = {
         "capex_intensity_mult": 1.15,
         "nwc_ratio_mult": 1.08,
         "wacc_delta": 0.010,
-        "g_terminal": 0.040,
+        "g_terminal_delta": -0.010,
         "descripcion": "Menor crecimiento, presión en márgenes, sobrecostos y tasas más altas.",
     },
     "Base": {
@@ -65,7 +65,7 @@ SCENARIOS = {
         "capex_intensity_mult": 1.0,
         "nwc_ratio_mult": 1.0,
         "wacc_delta": 0.0,
-        "g_terminal": None,  # None = g del catálogo (5 %)
+        "g_terminal_delta": 0.0,  # sobre la g base de los datos de entrada
         "descripcion": "Drivers calibrados con el histórico 2023–2025 y WACC por CAPM.",
     },
     "Optimista": {
@@ -74,7 +74,7 @@ SCENARIOS = {
         "capex_intensity_mult": 0.90,
         "nwc_ratio_mult": 0.95,
         "wacc_delta": -0.0075,
-        "g_terminal": 0.055,
+        "g_terminal_delta": 0.005,
         "descripcion": "Nuevas adjudicaciones, recuperación de margen y compresión de tasas.",
     },
 }
@@ -139,19 +139,62 @@ MC_DEFAULTS = {"n": 5000, "seed": 20261029}
 # ---------------------------------------------------------------------------
 # Datos
 # ---------------------------------------------------------------------------
-def load_isa(data_path: Path = DEFAULT_DATA) -> dict:
-    """Carga la instantánea del taller (o, si se pasa el catálogo, extrae ISA de él)."""
-    raw = json.loads(Path(data_path).read_text(encoding="utf-8"))
+HIST_FIELDS = ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC")
+
+
+def load_isa(data: Path | dict = DEFAULT_DATA) -> dict:
+    """Carga los datos de entrada: ruta a la instantánea, ruta al catálogo o un diccionario ya armado
+    (por ejemplo, el que construye ``inputs_from_app`` con los datos de la sesión de la app)."""
+    if isinstance(data, dict):
+        raw = copy.deepcopy(data)
+    else:
+        raw = json.loads(Path(data).read_text(encoding="utf-8"))
     if "empresas" in raw:  # catálogo completo de la app
         raw = snapshot_from_catalog(raw)
+    raw.pop("history", None)
+    validate_inputs(raw)
     h = raw["historico"]
     rows = []
     for i, year in enumerate(h["Año"]):
-        row = {k: float(h[k][i]) for k in ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC")}
+        row = {k: float(h[k][i]) for k in HIST_FIELDS}
         row["Año"] = int(year)
         rows.append(row)
     rows.sort(key=lambda r: r["Año"])
+    raw.setdefault("fuente_datos", "Instantánea del taller")
     return {**raw, "history": rows}
+
+
+def validate_inputs(raw: dict) -> None:
+    """Rechaza entradas que harían el modelo engañoso (en vez de rellenar con ceros)."""
+    h = raw.get("historico") or {}
+    missing = [k for k in ("Año",) + HIST_FIELDS if k not in h]
+    if missing:
+        raise ValueError("El histórico no trae las columnas: " + ", ".join(missing))
+    n = len(h["Año"])
+    if n < 3:
+        raise ValueError(f"Se necesitan al menos 3 años de histórico; hay {n}.")
+    for k in HIST_FIELDS:
+        vals = h[k]
+        if len(vals) != n or any(v is None or not math.isfinite(float(v)) for v in vals):
+            raise ValueError(f"La serie '{k}' tiene valores ausentes o no numéricos.")
+    if any(float(v) <= 0 for v in h["Ingresos"]):
+        raise ValueError("Los ingresos históricos deben ser positivos.")
+    b = raw.get("puente") or {}
+    for k in ("deuda_neta", "nci", "asociados", "acciones"):
+        if b.get(k) is None:
+            raise ValueError(f"Falta el dato del puente EV→patrimonio: {k}.")
+    if not b.get("acciones") or float(b["acciones"]) <= 0:
+        raise ValueError("El número de acciones debe ser positivo.")
+    px = (raw.get("mercado") or {}).get("precio_ref")
+    if not px or float(px) <= 0:
+        raise ValueError("Falta el precio de mercado de referencia (necesario para VPN y TIR implícita).")
+    c = raw.get("capital") or {}
+    for k in ("beta_u", "de_ratio", "tax", "g_terminal"):
+        if c.get(k) is None:
+            raise ValueError(f"Falta el parámetro de costo de capital: {k}.")
+    if not (("rf" in c and "erp" in c and "kd" in c) or ("tes_10a" in c and "spread_default_co" in c
+                                                          and "erp_total_co" in c and "kd_spread" in c)):
+        raise ValueError("Faltan rf/ERP/Kd (o TES, spread, ERP y spread de crédito) para el WACC.")
 
 
 def snapshot_from_catalog(catalog: dict) -> dict:
@@ -195,10 +238,13 @@ def historical_drivers(isa: dict) -> dict:
     margins = [r["EBIT"] / r["Ingresos"] for r in h]
     # Intensidad de CAPEX de expansión: (CAPEX − D&A) / ΔIngresos. Solo 2024–2025: 2023 no es
     # comparable en CAPEX (perímetro distinto, ver calidad_historico_por_anio).
+    years_ok = isa.get("anios_intensidad_capex") or [r["Año"] for r in h[-2:]]
     intensities = []
     for a, b in zip(h[:-1], h[1:]):
-        if b["Año"] >= 2024 and b["Ingresos"] > a["Ingresos"]:
+        if b["Año"] in years_ok and b["Ingresos"] > a["Ingresos"]:
             intensities.append((b["CAPEX"] - b["Depreciacion"]) / (b["Ingresos"] - a["Ingresos"]))
+    if not intensities:  # sin crecimiento reciente: reinversión neta sobre el último año, sin dividir por ~0
+        intensities = [max(last["CAPEX"] - last["Depreciacion"], 0.0) / (last["Ingresos"] * 0.05)]
     return {
         "growth": cagr,
         "growth_formula": f"CAGR {first['Año']}–{last['Año']} = ({last['Ingresos']:.0f}/{first['Ingresos']:.0f})^(1/{n}) − 1",
@@ -223,10 +269,14 @@ def cost_of_capital(isa: dict, wacc_delta: float = 0.0, tax: float | None = None
     """WACC nominal COP por CAPM (método de la app: rf = TES − spread de default; ERP = madura + país)."""
     c = isa["capital"]
     t = c["tax"] if tax is None else tax
-    rf = c["tes_10a"] - c["spread_default_co"]
+    if "rf" in c:  # parámetros tomados tal cual de la app (barra lateral)
+        rf, erp, crp, kd = float(c["rf"]), float(c["erp"]), float(c.get("crp") or 0.0), float(c["kd"])
+    else:          # instantánea: método de la app a partir del TES y las primas de Damodaran
+        rf = c["tes_10a"] - c["spread_default_co"]
+        erp, crp = c["erp_total_co"], 0.0
+        kd = c["tes_10a"] + c["kd_spread"]
     beta_l = c["beta_u"] * (1 + (1 - t) * c["de_ratio"])
-    ke = rf + beta_l * c["erp_total_co"]
-    kd = c["tes_10a"] + c["kd_spread"]
+    ke = rf + beta_l * erp + crp
     wd = c["de_ratio"] / (1 + c["de_ratio"])
     we = 1 - wd
     wacc = we * ke + wd * kd * (1 - t)
@@ -249,7 +299,7 @@ def scenario_params(isa: dict, scenario: str | dict, overrides: dict | None = No
         "da_ratio": d["da_ratio"],
         "maint_capex_ratio": d["maint_capex_ratio"],
         "wacc_delta": s["wacc_delta"],
-        "g_terminal": isa["capital"]["g_terminal"] if s.get("g_terminal") is None else s["g_terminal"],
+        "g_terminal": isa["capital"]["g_terminal"] + s.get("g_terminal_delta", 0.0),
         "tax": isa["capital"]["tax"],
     }
     if overrides:
@@ -320,9 +370,10 @@ def value(isa: dict, rows: list[dict], wacc: float, g: float) -> dict:
         raise ValueError(f"WACC ({wacc:.2%}) debe superar g ({g:.2%}).")
     explicit = [r for r in rows if not r["terminal"]]
     term = rows[-1]
-    pv_explicit = sum(r["fcff"] / (1 + wacc) ** (i + 1) for i, r in enumerate(explicit))
+    shift = 0.5 if isa["capital"].get("mid_year") else 0.0  # misma convención que valoracion_dcf de la app
+    pv_explicit = sum(r["fcff"] / (1 + wacc) ** (i + 1 - shift) for i, r in enumerate(explicit))
     tv = term["fcff"] / (wacc - g)
-    pv_tv = tv / (1 + wacc) ** len(explicit)
+    pv_tv = tv / (1 + wacc) ** (len(explicit) - shift)
     ev = pv_explicit + pv_tv
     b = isa["puente"]
     equity = ev - b["deuda_neta"] - b["nci"] - b.get("otros_claims", 0) + b.get("asociados", 0)
@@ -589,7 +640,7 @@ def monte_carlo(isa: dict, n: int = MC_DEFAULTS["n"], seed: int = MC_DEFAULTS["s
     p2 = POLICIES["P2 Programa de eficiencia operativa"]
     results = []
     for _ in range(n):
-        g_term = rng.uniform(0.035, 0.06)
+        g_term = base["g_terminal"] + rng.uniform(-0.015, 0.010)
         ov = {
             "growth": rng.gauss(base["growth"], 0.015),
             "ebit_margin": rng.gauss(base["ebit_margin"], 0.015),
@@ -672,7 +723,15 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
             w.writerow({k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v) for k, v in r.items()})
 
 
-def run_model(data_path: Path = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT, mc_n: int = MC_DEFAULTS["n"]) -> dict:
+def inputs_fingerprint(isa: dict) -> str:
+    """Huella SHA-256 (12 caracteres) de los datos de entrada, para enlazar un informe con su JSON."""
+    import hashlib
+    clean = {k: v for k, v in isa.items() if k != "history"}
+    blob = json.dumps(clean, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()[:12]
+
+
+def run_model(data_path: Path | dict = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT, mc_n: int = MC_DEFAULTS["n"]) -> dict:
     isa = load_isa(data_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -716,6 +775,9 @@ def run_model(data_path: Path = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT, mc
             for x in e["leverage"]:
                 leverage_rows.append({"escenario": s, "politica": pol or "Sin política", **x})
 
+    inputs_clean = {k: v for k, v in isa.items() if k != "history"}
+    (output_dir / "datos_entrada.json").write_text(json.dumps(inputs_clean, ensure_ascii=False, indent=2, default=str),
+                                                    encoding="utf-8")
     _write_csv(output_dir / "detalle_escenarios_politicas.csv", detail)
     _write_csv(output_dir / "resumen_escenarios.csv", summary)
     _write_csv(output_dir / "impacto_politicas.csv", impacts)
@@ -726,6 +788,7 @@ def run_model(data_path: Path = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT, mc
 
     metadata = {
         "empresa": isa["empresa"], "camino": "Evaluación empresarial",
+        "fuente_datos": isa.get("fuente_datos"), "huella_datos": inputs_fingerprint(isa),
         "corte_datos": isa.get("corte_catalogo"), "moneda": isa["moneda"], "unidad": isa["unidad"],
         "historia": [r["Año"] for r in isa["history"]], "horizonte": [FORECAST_YEARS[0], FORECAST_YEARS[-1]],
         "drivers_historicos": {k: v for k, v in drivers.items() if not isinstance(v, (list, dict))},
@@ -756,10 +819,71 @@ def run_model(data_path: Path = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT, mc
     (output_dir / "metadatos_modelo.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2, default=lambda x: None if isinstance(x, float) and math.isnan(x) else x),
         encoding="utf-8")
-    return {"isa": isa, "drivers": drivers, "capital": capital, "evals": evals, "summary": summary,
+    return {"isa": isa, "inputs": inputs_clean, "fingerprint": metadata["huella_datos"], "drivers": drivers, "capital": capital, "evals": evals, "summary": summary,
             "detail": detail, "impacts": impacts, "recommendations": recs, "tornado": torn,
             "matrix": matrix, "monte_carlo": mc, "decision": decision, "leverage": leverage_rows,
             "metadata": metadata}
+
+
+def inputs_from_app(empresa: str, df_hist, *, tax: float, g: float, de_ratio: float, kd: float, beta_u: float,
+                    rf: float, erp: float, crp: float, deuda_neta: float, caja: float, nci: float,
+                    otros_claims: float, asociados: float, acciones: float, precio: float,
+                    mid_year: bool = True, deuda_es_bruta: bool = False, moneda: str = "COP",
+                    fuente_precio: str | None = None, fecha_precio: str | None = None,
+                    fuente_historico: str | None = None, ticker: str | None = None,
+                    descripcion: str | None = None) -> dict:
+    """Arma los datos de entrada del taller con lo que la app tiene en la sesión.
+
+    Usa solo argumentos explícitos (histórico de ``cargar_y_limpiar_excel`` y valores de la barra lateral);
+    no lee la estructura interna de los resultados de otras pestañas, para que un cambio allá no rompa el taller.
+    """
+    import pandas as pd  # import local: el script sigue funcionando sin pandas cuando no se usa la app
+    df = df_hist.copy()
+    if df.index.name == "Año" and "Año" not in df.columns:
+        df = df.reset_index()
+    missing = [c for c in ("Año",) + HIST_FIELDS if c not in df.columns]
+    if missing:
+        raise ValueError("El histórico de la app no trae: " + ", ".join(missing))
+    df = df.sort_values("Año")
+    hist = {"Año": [int(a) for a in df["Año"]]}
+    for k in HIST_FIELDS:
+        hist[k] = [float(x) for x in pd.to_numeric(df[k], errors="coerce")]
+    dn = float(deuda_neta) - float(caja) if deuda_es_bruta else float(deuda_neta)
+    nota_dn = (" Deuda ingresada como bruta en la app; deuda neta = deuda − caja." if deuda_es_bruta else "")
+    data = {
+        "descripcion": "Datos tomados de la sesión de la app (pestañas 1–9 y barra lateral) al generar el informe.",
+        "fuente_datos": "Modelo de la app (sesión)",
+        "empresa": empresa,
+        "ticker_bvc": ticker or empresa.split("—")[0].strip(),
+        "moneda": moneda, "unidad": "miles de millones",
+        "corte_catalogo": datetime_now_iso(),
+        "historico": hist,
+        "fuente_historico": fuente_historico or "cargar_y_limpiar_excel de la app (misma fuente que la pestaña 1).",
+        "verificacion": "Según la fuente cargada en la app; revisar la pestaña 3 (Auditoría).",
+        "puente": {"deuda_neta": dn, "caja": float(caja), "nci": float(nci), "otros_claims": float(otros_claims),
+                   "asociados": float(asociados), "acciones": float(acciones),
+                   "fuente": "Barra lateral de la app (puente EV→Equity)." + nota_dn},
+        "mercado": {"precio_ref": float(precio) if precio else None, "fecha_precio_ref": fecha_precio,
+                    "fuente_precio_ref": fuente_precio or "Precio de mercado alineado en la app."},
+        "capital": {
+            "beta_u": float(beta_u), "de_ratio": float(de_ratio), "tax": float(tax), "g_terminal": float(g),
+            "rf": float(rf), "erp": float(erp), "crp": float(crp or 0.0), "kd": float(kd), "mid_year": bool(mid_year),
+            "tax_estado": "según barra lateral",
+            "fuente_beta_u": "Barra lateral de la app.", "fuente_de_ratio": "Barra lateral de la app.",
+            "fuente_tax": "Barra lateral de la app.", "fuente_g_terminal": "Barra lateral de la app.",
+            "fuente_primas": f"Barra lateral de la app: rf {float(rf):.2%}, ERP {float(erp):.2%}, CRP {float(crp or 0):.2%}, Kd {float(kd):.2%}.",
+            "fuente_tes_10a": "No aplica: rf tomado directamente de la app.",
+        },
+    }
+    if descripcion:
+        data["descripcion_negocio"] = descripcion
+    validate_inputs(data)
+    return data
+
+
+def datetime_now_iso() -> str:
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
 def refresh_snapshot() -> Path:
