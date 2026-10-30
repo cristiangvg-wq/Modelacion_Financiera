@@ -88,7 +88,7 @@ class TestTallerISA(unittest.TestCase):
     # --- Escenarios (Bloque B) ---
     def test_scenarios_move_at_least_five_drivers_and_are_ordered(self):
         self.assertTrue({"Pesimista", "Base", "Optimista"} <= set(SCENARIOS))
-        drivers = ("growth_delta", "ebit_margin_delta", "capex_intensity_mult", "nwc_ratio_mult", "wacc_delta", "g_terminal")
+        drivers = ("growth_delta", "ebit_margin_delta", "capex_intensity_mult", "nwc_ratio_mult", "wacc_delta", "g_terminal_delta")
         base = SCENARIOS["Base"]
         for name in ("Pesimista", "Optimista", "Estrés"):
             moved = sum(1 for k in drivers if SCENARIOS[name][k] != base[k])
@@ -180,7 +180,73 @@ class TestTallerISA(unittest.TestCase):
     def test_tab10_has_report_button(self):
         src = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
         self.assertIn("def _ui_informe_taller_isa", src)
-        self.assertIn("_ui_informe_taller_isa()", src.split("with tab10:", 1)[1])
+        self.assertIn("_ui_informe_taller_isa(", src.split("with tab10:", 1)[1])
+
+
+class TestTallerConectadoApp(unittest.TestCase):
+    """Modo conectado: el taller usa el histórico y los supuestos de la app."""
+
+    EMP = "ISA — Interconexión Eléctrica"
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import modelacion_logic as L
+        except Exception as exc:  # pragma: no cover
+            raise unittest.SkipTest(f"modelacion_logic no disponible: {exc}")
+        cls.L = L
+        if not L.params_empresa(cls.EMP):
+            raise unittest.SkipTest("ISA no está en el catálogo de la app")
+        cls.df, _ = L.cargar_y_limpiar_excel(None, cls.EMP, usar_datos_publicos=False)
+        cls.p = L.params_empresa(cls.EMP)
+        cls.co = L.CAPM_POR_MERCADO["CO"]
+
+    def _inputs(self, **over):
+        from scripts.taller_isa import inputs_from_app
+        p, co = self.p, self.co
+        args = dict(tax=p["tax"], g=p["g"], de_ratio=p["de_ratio"], kd=p["kd"], beta_u=p["beta_u"], rf=co["rf"],
+                    erp=co["erp"], crp=co["crp"], deuda_neta=p["deuda_neta"], caja=p["caja"], nci=p["nci"],
+                    otros_claims=p["otros_claims"], asociados=p["asociados"], acciones=p["acciones"], precio=27500.0)
+        args.update(over)
+        return inputs_from_app(self.EMP, self.df, **args)
+
+    def test_history_matches_tab1_source(self):
+        snap = load_isa(DEFAULT_DATA)
+        self.assertEqual(self._inputs()["historico"], snap["historico"])
+
+    def test_wacc_equals_app_formula(self):
+        isa = load_isa(self._inputs())
+        L, p, co = self.L, self.p, self.co
+        ke = co["rf"] + L.beta_apalancado(p["beta_u"], p["de_ratio"], p["tax"]) * co["erp"] + co["crp"]
+        wacc_app = L.calcular_wacc(p["de_ratio"], p["kd"], ke, p["tax"])[0]
+        self.assertAlmostEqual(cost_of_capital(isa)["wacc"], wacc_app, places=10)
+
+    def test_mid_year_follows_app(self):
+        a = evaluate(load_isa(self._inputs(mid_year=True)), "Base")["valuation"]["ev"]
+        b = evaluate(load_isa(self._inputs(mid_year=False)), "Base")["valuation"]["ev"]
+        self.assertGreater(a, b)
+
+    def test_gross_debt_is_netted(self):
+        d = self._inputs(deuda_neta=34155.0, caja=3725.0, deuda_es_bruta=True)
+        self.assertAlmostEqual(d["puente"]["deuda_neta"], 30430.0)
+
+    def test_missing_price_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self._inputs(precio=None)
+
+    def test_json_reproduces_same_report_inputs(self):
+        from scripts.generar_informe_taller_isa import generar_informe
+        from scripts.taller_isa import inputs_fingerprint
+        out = generar_informe(["X"], "f", mc_n=30, data=self._inputs())
+        reloaded = load_isa(json.loads(out["json"].decode("utf-8")))
+        self.assertEqual(inputs_fingerprint(reloaded), out["huella"])
+        self.assertEqual(out["fuente"], "Modelo de la app (sesión)")
+
+    def test_tab10_passes_sidebar_context(self):
+        src = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+        call = src.split("with tab10:", 1)[1].split("_ui_informe_taller_isa(", 1)[1][:600]
+        for key in ("empresa", "archivo", "tax", "deuda_neta", "acciones", "mid_year"):
+            self.assertIn(f'"{key}"', call)
 
 
 if __name__ == "__main__":

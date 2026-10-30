@@ -80,5 +80,9 @@
     "fuente_primas": "Damodaran ctrypremJuly26.xlsx (2026-07-01): Colombia Baa3; ERP madura 4.20% + riesgo país 2.72%; spread de default 1.75%.",
     "kd_spread": 0.01,
     "fuente_kd_spread": "Spread de crédito para emisor colombiano usado por la app (CAPM_POR_MERCADO['CO']['kd_spread']); coherente con calificación AAA (col)."
-  }
+  },
+  "anios_intensidad_capex": [
+    2024,
+    2025
+  ]
 }

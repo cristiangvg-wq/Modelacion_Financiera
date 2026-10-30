@@ -15,7 +15,7 @@
 | C. Políticas (20 %) | `POLICIES`, `policy_triggered`, `policy_impact`, `policy_recommendation` | 3 políticas con regla SI–ENTONCES, ΔVPN, TIR incremental, efecto en covenant; adoptar / condicionar / descartar |
 | D. Decisión (15 %) | `DECISION_THRESHOLDS`, `investment_decision` | Umbrales explícitos, decisión sobre la acción y recomendación condicionada |
 | E. Prompts (15 %) | [`ingenieria_prompts_taller_isa.md`](ingenieria_prompts_taller_isa.md) | Prompt maestro v2 parametrizable, versionado y 4 interacciones |
-| Código e informe (10 %) | `scripts/taller_isa.py`, `tests/test_taller_isa.py`, `scripts/generar_informe_taller_isa.py` | Ejecución reproducible, 20 pruebas, informe PDF regenerable |
+| Código e informe (10 %) | `scripts/taller_isa.py`, `tests/test_taller_isa.py`, `scripts/generar_informe_taller_isa.py` | Ejecución reproducible, 27 pruebas, informe PDF regenerable |
 | Bono +5 | `monte_carlo`, `scripts/dashboard_taller_isa.py` | Monte Carlo (5.000 simulaciones, semilla fija) y dashboard Streamlit |
 
 ## 2. Datos
@@ -48,7 +48,7 @@ Los valores exactos están en los diccionarios del código (editables). Resumen:
 ## 5. Reproducción
 ```bash
 python scripts/taller_isa.py                       # CSV/JSON en salidas_taller_isa/
-python -m pytest -q tests/test_taller_isa.py       # 20 pruebas
+python -m pytest -q tests/test_taller_isa.py       # 27 pruebas
 python scripts/generar_informe_taller_isa.py --equipo "Nombre 1; Nombre 2; Nombre 3" --fecha "AAAA-MM-DD"
 streamlit run scripts/dashboard_taller_isa.py      # dashboard (bonificación)
 ```
