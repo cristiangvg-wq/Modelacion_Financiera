@@ -242,6 +242,25 @@ class TestTallerConectadoApp(unittest.TestCase):
         self.assertEqual(inputs_fingerprint(reloaded), out["huella"])
         self.assertEqual(out["fuente"], "Modelo de la app (sesión)")
 
+    def test_app_reloads_stale_taller_modules(self):
+        """Streamlit Cloud reejecuta la app sin reiniciar: un módulo viejo en memoria debe recargarse."""
+        import importlib
+        import os
+        import scripts.generar_informe_taller_isa as G
+        import scripts.taller_isa as T
+        src = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+        i = src.index("def _modulos_taller")
+        j = src.index("@st.cache_data(show_spinner=False)\ndef _informe_taller_isa(")
+        ns = {"importlib": importlib, "os": os}
+        exec(src[i:j], ns)
+        del T.inputs_from_app
+        del G.generar_informe
+        t, g = ns["_modulos_taller"]()
+        self.assertTrue(hasattr(t, "inputs_from_app"))
+        self.assertTrue(hasattr(g, "generar_informe"))
+        self.assertIs(g.run_model, t.run_model)
+        self.assertNotIn("from scripts.", src[i:src.index("\ndef main(")])
+
     def test_tab10_passes_sidebar_context(self):
         src = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
         call = src.split("with tab10:", 1)[1].split("_ui_informe_taller_isa(", 1)[1][:600]

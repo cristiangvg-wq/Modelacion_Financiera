@@ -3526,12 +3526,45 @@ def _solicitar_cambio_empresa(display_name, params_tuple=None, cargar_params=Tru
 
 
 
+def _modulos_taller():
+    """Importa los módulos del taller y los recarga si el archivo en disco es más nuevo que el cargado.
+
+    Streamlit Cloud reejecuta este script tras un despliegue sin reiniciar el proceso, así que
+    `scripts.taller_isa` quedaría en memoria con su versión anterior (ImportError de funciones nuevas).
+    Se recarga primero el modelo y luego el generador, porque este importa del modelo.
+    """
+    recargado = False
+    mods = []
+    for name in ("scripts.taller_isa", "scripts.generar_informe_taller_isa"):
+        mod = importlib.import_module(name)
+        try:
+            mtime = os.path.getmtime(mod.__file__)
+        except (OSError, TypeError):
+            mtime = None
+        previo = getattr(mod, "_mtime_cargado", None)
+        if recargado or _modulo_desactualizado(mod) or (previo is not None and previo != mtime):
+            mod = importlib.reload(mod)
+            recargado = True
+        mod._mtime_cargado = mtime
+        mods.append(mod)
+    return mods[0], mods[1]
+
+
+def _modulo_desactualizado(mod) -> bool:
+    """True si al módulo en memoria le falta la API que esta versión de la app usa."""
+    requerida = {
+        "scripts.taller_isa": ("inputs_from_app", "inputs_fingerprint", "validate_inputs"),
+        "scripts.generar_informe_taller_isa": ("generar_informe", "DEFAULT_TEAM", "DEFAULT_DATE"),
+    }.get(mod.__name__, ())
+    return not all(hasattr(mod, n) for n in requerida)
+
+
 @st.cache_data(show_spinner=False)
 def _informe_taller_isa(equipo: tuple, fecha: str, mc_n: int, datos_json: str | None) -> dict:
     """Genera PDF + JSON de entrada del Taller 2026 (caché por parámetros y por el contenido de los datos)."""
-    from scripts.generar_informe_taller_isa import generar_informe
+    _, gen = _modulos_taller()
     datos = json.loads(datos_json) if datos_json else None
-    return generar_informe(list(equipo), fecha, mc_n=mc_n, data=datos)
+    return gen.generar_informe(list(equipo), fecha, mc_n=mc_n, data=datos)
 
 
 def _datos_taller_desde_app(ctx: dict) -> dict:
@@ -3540,7 +3573,8 @@ def _datos_taller_desde_app(ctx: dict) -> dict:
     Usa la misma carga de histórico que la pestaña 1 (cargar_y_limpiar_excel) y los valores de la barra
     lateral; no lee las tuplas internas de resultados de otras pestañas.
     """
-    from scripts.taller_isa import inputs_from_app
+    taller, _ = _modulos_taller()
+    inputs_from_app = taller.inputs_from_app
     empresa = ctx["empresa"]
     df_hist, _msg = L.cargar_y_limpiar_excel(ctx.get("archivo"), empresa, usar_datos_publicos=bool(ctx.get("usar_publicos")))
     params = st.session_state.get("params") or {}
@@ -3564,7 +3598,8 @@ def _datos_taller_desde_app(ctx: dict) -> dict:
 
 def _ui_informe_taller_isa(ctx: dict | None = None):
     """Pestaña 10: genera el informe del Taller evaluativo 2026 con los datos de la app o con la instantánea."""
-    from scripts.generar_informe_taller_isa import DEFAULT_DATE, DEFAULT_TEAM
+    _, gen = _modulos_taller()
+    DEFAULT_DATE, DEFAULT_TEAM = gen.DEFAULT_DATE, gen.DEFAULT_TEAM
     ctx = ctx or {}
     fuente_app = "Modelo de la app (empresa y supuestos actuales)"
     fuente_snap = "Instantánea del taller (ISA, reproducible)"
