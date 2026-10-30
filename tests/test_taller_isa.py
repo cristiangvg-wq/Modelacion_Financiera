@@ -171,6 +171,17 @@ class TestTallerISA(unittest.TestCase):
                          "Ingeniería de prompts", "Recomendación"):
                 self.assertIn(must, text)
 
+    def test_pdf_bytes_helper_for_tab10_button(self):
+        from scripts.generar_informe_taller_isa import generar_pdf_bytes
+        data = generar_pdf_bytes(["Integrante"], "5 de noviembre de 2026", mc_n=50)
+        self.assertTrue(data.startswith(b"%PDF"))
+        self.assertGreater(len(data), 50_000)
+
+    def test_tab10_has_report_button(self):
+        src = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+        self.assertIn("def _ui_informe_taller_isa", src)
+        self.assertIn("_ui_informe_taller_isa()", src.split("with tab10:", 1)[1])
+
 
 if __name__ == "__main__":
     unittest.main()
