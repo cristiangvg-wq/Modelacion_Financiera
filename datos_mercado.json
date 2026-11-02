@@ -1,16 +1,16 @@
 {
  "fuente": "Tesoro de EE. UU. (home.treasury.gov) y OCDE (sdmx.oecd.org)",
- "descargado": "2026-10-28",
+ "descargado": "2026-11-02",
  "tasas": {
   "us_rf": {
-   "valor": 0.0499,
-   "fecha": "2026-10-27",
-   "fuente": "Tesoro de EE. UU. a 10 años (Treasury, 2026-10-27)"
+   "valor": 0.0494,
+   "fecha": "2026-10-30",
+   "fuente": "Tesoro de EE. UU. a 10 años (Treasury, 2026-10-30)"
   },
   "us_inflacion_lp": {
-   "valor": 0.0235,
-   "fecha": "2026-10-27",
-   "fuente": "Inflación implícita 10a = nominal 4.99% − real 2.64% (Treasury, 2026-10-27)"
+   "valor": 0.0234,
+   "fecha": "2026-10-30",
+   "fuente": "Inflación implícita 10a = nominal 4.94% − real 2.60% (Treasury, 2026-10-30)"
   },
   "co_rf_bruto": {
    "valor": 0.1273,
