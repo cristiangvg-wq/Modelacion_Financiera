@@ -325,6 +325,16 @@ def calcular_anclas(nombre_empresa, m, contexto_mercado=None):
                 descartadas.append(dict(a, motivo=f"atípica frente a la mediana de las anclas del modelo ({med:,.2f})"))
             else:
                 validas.append(a)
+        # Los escenarios pesimista (A2) y optimista (A3) se tratan como PAR: con deuda, el patrimonio del
+        # pesimista cae más de lo que sube el del optimista, así que la regla anterior descartaba solo el
+        # pesimista y dejaba el optimista en el rango (ISA: 3.418 fuera, 35.924 dentro; hallazgo A-04).
+        # Si uno queda fuera, el otro también: la banda de escenarios se informa sin sesgar el rango.
+        ids_desc = {d["id"] for d in descartadas}
+        if ids_desc & {"A2", "A3"}:
+            for a in [x for x in validas if x["id"] in ("A2", "A3")]:
+                validas.remove(a)
+                descartadas.append(dict(a, motivo="escenario de sensibilidad: su par quedó fuera del rango, así que "
+                                                  "la banda pesimista–optimista se informa aparte y no define el rango"))
         anclas = validas
     vals = [a["vps_precio"] for a in anclas if _num(a.get("vps_precio"))]
     rango = (min(vals), max(vals)) if vals else None

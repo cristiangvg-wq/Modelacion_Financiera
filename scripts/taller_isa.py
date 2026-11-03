@@ -137,6 +137,61 @@ MC_DEFAULTS = {"n": 5000, "seed": 20261029}
 
 
 # ---------------------------------------------------------------------------
+# Configuración editable por corrida (dashboard de la pestaña 10 y PDF)
+# ``isa["config"]`` puede traer {"escenarios": {...}, "politicas": {...}, "umbrales": {...}} con valores que
+# reemplazan a los de los diccionarios de arriba SOLO en esa corrida (sin tocar los valores por defecto
+# ni compartir estado entre usuarios). Lo que no se especifica conserva el valor por defecto.
+# ---------------------------------------------------------------------------
+def escenarios_de(isa: dict) -> dict:
+    over = ((isa or {}).get("config") or {}).get("escenarios") or {}
+    return {k: {**v, **(over.get(k) or {})} for k, v in SCENARIOS.items()}
+
+
+def _es(x: float, dec: int = 1) -> str:
+    """Número con coma decimal (formato del informe)."""
+    return f"{x:.{dec}f}".replace(".", ",")
+
+
+def texto_regla(cfg: dict) -> str:
+    """Redacta la regla SI–ENTONCES con los parámetros vigentes (para que el texto nunca contradiga el cálculo)."""
+    t = cfg.get("tipo")
+    if t == "inversion":
+        anios = lambda xs: "–".join(str(x) for x in (xs[0], xs[-1])) if len(xs) > 1 else str(xs[0])
+        return (f"SI el crecimiento de ingresos del escenario es < {_es(cfg['trigger_growth_below'] * 100)} % O la deuda "
+                f"neta/EBITDA máxima proyectada supera {_es(cfg['trigger_leverage_above'])}x, ENTONCES diferir "
+                f"{_es(cfg['defer_share'] * 100, 0)} % del CAPEX de expansión de {anios(cfg['defer_from'])} a "
+                f"{anios(cfg['defer_to'])} (sin tocar mantenimiento), asumiendo {_es(cfg['growth_penalty'] * 100)} pp menos de "
+                f"crecimiento en {anios(cfg['growth_penalty_years'])} por entrada tardía de proyectos.")
+    if t == "margenes":
+        y27 = (cfg.get("margin_uplift_by_year") or {}).get(2027, cfg["margin_uplift_steady"])
+        return (f"SI el margen EBIT proyectado del escenario es inferior al margen promedio histórico, ENTONCES ejecutar un "
+                f"programa de eficiencia con costo inicial de {_es(cfg['upfront_cost_pct_revenue'] * 100)} % de los ingresos "
+                f"de 2026 y costo recurrente de {_es(cfg['recurring_cost_pct_revenue'] * 100)} % de ingresos, que mejora el "
+                f"margen EBIT {_es(y27 * 100)} pp en 2027 y {_es(cfg['margin_uplift_steady'] * 100)} pp desde 2028.")
+    if t == "financiera":
+        return (f"SI la deuda neta/EBITDA supera {_es(cfg['trigger_on'])}x en un año, ENTONCES el payout baja de "
+                f"{_es(cfg['payout_normal'] * 100, 0)} % a {_es(cfg['payout_restricted'] * 100, 0)} % de la utilidad neta "
+                f"del año siguiente y se mantiene así hasta que la razón vuelva a ser < {_es(cfg['trigger_off'])}x.")
+    return cfg.get("regla", "")
+
+
+def politicas_de(isa: dict) -> dict:
+    over = ((isa or {}).get("config") or {}).get("politicas") or {}
+    out = {}
+    for k, v in POLICIES.items():
+        cfg = {**v, **(over.get(k) or {})}
+        if over.get(k):
+            cfg["regla"] = texto_regla(cfg)  # la regla escrita refleja los parámetros editados
+        out[k] = cfg
+    return out
+
+
+def umbrales_de(isa: dict) -> dict:
+    over = ((isa or {}).get("config") or {}).get("umbrales") or {}
+    return {**DECISION_THRESHOLDS, **{k: float(v) for k, v in over.items() if k in DECISION_THRESHOLDS}}
+
+
+# ---------------------------------------------------------------------------
 # Datos
 # ---------------------------------------------------------------------------
 HIST_FIELDS = ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC")
@@ -290,7 +345,7 @@ def cost_of_capital(isa: dict, wacc_delta: float = 0.0, tax: float | None = None
 def scenario_params(isa: dict, scenario: str | dict, overrides: dict | None = None) -> dict:
     """Combina drivers históricos + shocks del escenario + overrides (tornado / Monte Carlo)."""
     d = historical_drivers(isa)
-    s = SCENARIOS[scenario] if isinstance(scenario, str) else scenario
+    s = escenarios_de(isa)[scenario] if isinstance(scenario, str) else scenario
     p = {
         "growth": d["growth"] + s["growth_delta"],
         "ebit_margin": d["ebit_margin"] + s["ebit_margin_delta"],
@@ -311,7 +366,7 @@ def scenario_params(isa: dict, scenario: str | dict, overrides: dict | None = No
 def project(isa: dict, params: dict, policy: str | None = None, policy_params: dict | None = None) -> list[dict]:
     """Proyecta 2026–2030 + año terminal (2031) con la política de inversión/márgenes aplicada."""
     d = historical_drivers(isa)
-    pol = (POLICIES[policy] if policy else {}) | (policy_params or {})
+    pol = (politicas_de(isa)[policy] if policy else {}) | (policy_params or {})
     revenue_prev = d["revenue_base"]
     nwc_prev = d["nwc_base"]
     years = FORECAST_YEARS + [FORECAST_YEARS[-1] + 1]
@@ -364,20 +419,44 @@ def project(isa: dict, params: dict, policy: str | None = None, policy_params: d
     return rows
 
 
+def valuation_timing(isa: dict) -> tuple[float, float]:
+    """(fracción del primer año ya reflejada en el puente, fecha de valoración en años desde el cierre).
+
+    Misma convención que ``valoracion_dcf`` de la app (hallazgo C-03): los flujos parten del cierre
+    fiscal, el puente es de una fecha posterior y el valor se expresa a la fecha del precio.
+    Sin bloque ``fechas`` → (0, 0): valor al cierre fiscal, como antes.
+    """
+    f = isa.get("fechas") or {}
+    s0 = float(f.get("frac_transcurrida") or 0.0)
+    tv = float(f.get("t_valoracion") or 0.0)
+    if not (0.0 <= s0 < 1.0 and s0 <= tv < 1.0):
+        raise ValueError("Fechas de valoración inválidas: se requiere 0 ≤ fracción transcurrida ≤ t valoración < 1.")
+    return s0, tv
+
+
 def value(isa: dict, rows: list[dict], wacc: float, g: float) -> dict:
     """DCF: VP de FCFF explícitos + VP del valor terminal (Gordon sobre FCFF del año terminal)."""
     if wacc <= g:
         raise ValueError(f"WACC ({wacc:.2%}) debe superar g ({g:.2%}).")
     explicit = [r for r in rows if not r["terminal"]]
     term = rows[-1]
-    shift = 0.5 if isa["capital"].get("mid_year") else 0.0  # misma convención que valoracion_dcf de la app
-    pv_explicit = sum(r["fcff"] / (1 + wacc) ** (i + 1 - shift) for i, r in enumerate(explicit))
+    mid = bool(isa["capital"].get("mid_year"))  # misma convención que valoracion_dcf de la app
+    s0, t_val = valuation_timing(isa)
+    pv_explicit = 0.0
+    for i, r in enumerate(explicit):
+        frac = (1.0 - s0) if i == 0 else 1.0
+        if mid:
+            t = (s0 + (1.0 - s0) / 2.0) if i == 0 else i + 0.5
+        else:
+            t = i + 1.0
+        pv_explicit += r["fcff"] * frac / (1 + wacc) ** (t - t_val)
     tv = term["fcff"] / (wacc - g)
-    pv_tv = tv / (1 + wacc) ** (len(explicit) - shift)
+    pv_tv = tv / (1 + wacc) ** (len(explicit) - (0.5 if mid else 0.0) - t_val)
     ev = pv_explicit + pv_tv
     b = isa["puente"]
     equity = ev - b["deuda_neta"] - b["nci"] - b.get("otros_claims", 0) + b.get("asociados", 0)
-    per_share = equity / b["acciones"] * 1000  # miles de millones / millones de acciones → COP
+    # Responsabilidad limitada: con patrimonio negativo la acción vale 0 (el patrimonio negativo se conserva).
+    per_share = max(equity, 0.0) / b["acciones"] * 1000  # miles de millones / millones de acciones → COP
     mcap = isa["mercado"]["precio_ref"] * b["acciones"] / 1000
     return {
         "vp_fcff_explicito": pv_explicit, "valor_terminal": tv, "vp_valor_terminal": pv_tv,
@@ -431,19 +510,22 @@ def leverage_path(isa: dict, rows: list[dict], params: dict, dividend_policy: bo
     Simplificación documentada: no modela distribuciones a minoritarios ni flujos de asociadas.
     """
     cap = cost_of_capital(isa, 0.0, params["tax"])
-    p3 = POLICIES["P3 Dividendos condicionados al apalancamiento"]
+    p3 = politicas_de(isa)["P3 Dividendos condicionados al apalancamiento"]
     debt = isa["puente"]["deuda_neta"]
     restricted = False
     out = []
     prev_ratio = debt / historical_drivers(isa)["ebitda_base"]
     if dividend_policy and prev_ratio > p3["trigger_on"]:
         restricted = True
-    for r in (x for x in rows if not x["terminal"]):
-        interest = debt * cap["kd"]
-        net_income = (r["ebit"] - interest) * (1 - params["tax"])
+    s0, _ = valuation_timing(isa)
+    for i, r in enumerate(x for x in rows if not x["terminal"]):
+        # La deuda neta es la del puente (fecha del balance): del primer año solo resta el tramo posterior.
+        frac = (1.0 - s0) if i == 0 else 1.0
+        interest = debt * cap["kd"] * frac
+        net_income = (r["ebit"] * frac - interest) * (1 - params["tax"])
         payout = p3["payout_restricted"] if (dividend_policy and restricted) else p3["payout_normal"]
         dividends = max(net_income, 0.0) * payout
-        debt = debt - (r["fcff"] - interest * (1 - params["tax"]) - dividends)
+        debt = debt - (r["fcff"] * frac - interest * (1 - params["tax"]) - dividends)
         ratio = debt / r["ebitda"]
         out.append({"año": r["año"], "intereses": interest, "utilidad_neta": net_income,
                     "payout": payout, "dividendos": dividends, "deuda_neta": debt,
@@ -457,14 +539,14 @@ def leverage_path(isa: dict, rows: list[dict], params: dict, dividend_policy: bo
 
 
 def evaluate(isa: dict, scenario: str | dict, policy: str | None = None, overrides: dict | None = None,
-             policy_params: dict | None = None) -> dict:
+             policy_params: dict | None = None, con_tir: bool = True) -> dict:
     params = scenario_params(isa, scenario, overrides)
     rows = project(isa, params, policy, policy_params)
     val = value(isa, rows, params["wacc"], params["g_terminal"])
     lev = leverage_path(isa, rows, params,
                         dividend_policy=policy == "P3 Dividendos condicionados al apalancamiento")
     return {"params": params, "rows": rows, "valuation": val, "leverage": lev,
-            "tir_implicita": implied_irr(isa, rows, params["g_terminal"]),
+            "tir_implicita": implied_irr(isa, rows, params["g_terminal"]) if con_tir else float("nan"),
             "max_deuda_ebitda": max(x["deuda_neta_ebitda"] for x in lev)}
 
 
@@ -473,7 +555,7 @@ def evaluate(isa: dict, scenario: str | dict, policy: str | None = None, overrid
 # ---------------------------------------------------------------------------
 def policy_triggered(isa: dict, scenario: str, policy: str, base_eval: dict | None = None) -> bool:
     ev0 = base_eval or evaluate(isa, scenario)
-    pol = POLICIES[policy]
+    pol = politicas_de(isa)[policy]
     if pol["tipo"] == "inversion":
         return (ev0["params"]["growth"] < pol["trigger_growth_below"]
                 or ev0["max_deuda_ebitda"] > pol["trigger_leverage_above"])
@@ -496,7 +578,8 @@ def policy_impact(isa: dict, scenario: str, policy: str) -> dict:
     delta_vpn = with_p["valuation"]["ev"] - base["valuation"]["ev"]
     lev_b = base["leverage"]
     lev_p = with_p["leverage"]
-    years_over = lambda lev: sum(1 for x in lev if x["deuda_neta_ebitda"] > DECISION_THRESHOLDS["covenant_deuda_neta_ebitda"])
+    cov_lim = umbrales_de(isa)["covenant_deuda_neta_ebitda"]
+    years_over = lambda lev: sum(1 for x in lev if x["deuda_neta_ebitda"] > cov_lim)
     return {
         "escenario": scenario, "politica": policy,
         "regla_activa": policy_triggered(isa, scenario, policy, base),
@@ -532,10 +615,11 @@ def _irr_reading(flows: list[float], tir: float, wacc: float) -> str:
     return f"Flujo tipo inversión: TIR {tir:.1%} {'>' if ok else '<'} WACC {wacc:.1%} → {'conviene' if ok else 'no conviene'}."
 
 
-def policy_recommendation(impacts: list[dict], mc_prob: float | None, tipo: str) -> dict:
+def policy_recommendation(impacts: list[dict], mc_prob: float | None, tipo: str, umbrales: dict | None = None) -> dict:
     """Aplica los umbrales: adoptar / condicionar / descartar."""
+    th = umbrales or DECISION_THRESHOLDS
     by = {i["escenario"]: i for i in impacts}
-    cov = DECISION_THRESHOLDS["covenant_deuda_neta_ebitda"]
+    cov = th["covenant_deuda_neta_ebitda"]
     if tipo == "financiera":
         activa = [s for s in SCENARIO_ORDER if s in by and by[s]["regla_activa"]]
         if not activa:
@@ -552,7 +636,7 @@ def policy_recommendation(impacts: list[dict], mc_prob: float | None, tipo: str)
                           "proteger la calificación y el acceso a deuda en el escenario adverso.")}
     pos_base = by["Base"]["delta_vpn"] > 0
     pos_pes = by["Pesimista"]["delta_vpn"] > 0
-    mc_ok = mc_prob is None or mc_prob >= DECISION_THRESHOLDS["prob_min_mc_politica"]
+    mc_ok = mc_prob is None or mc_prob >= th["prob_min_mc_politica"]
     if pos_base and pos_pes and mc_ok:
         dec = "Adoptar"
         razon = "ΔVPN > 0 en Base y Pesimista y probabilidad Monte Carlo sobre el umbral."
@@ -596,6 +680,11 @@ def tornado(isa: dict, scenario: str = "Base") -> list[dict]:
     base_val = evaluate(isa, scenario)["valuation"]["valor_por_accion"]
     out = []
     for label, (key, lo, hi, mode) in TORNADO_DRIVERS.items():
+        if key == "tax":
+            label = f"Tasa de impuestos ({base_params['tax']:.0%} → 35 %)"
+            if abs(base_params["tax"] - 0.35) < 1e-9:
+                lo, hi, mode = -0.05, 0.05, "abs"
+                label = "Tasa de impuestos (±5 pp)"
         vals = []
         for shock in (lo, hi):
             if shock is None:
@@ -637,7 +726,7 @@ def monte_carlo(isa: dict, n: int = MC_DEFAULTS["n"], seed: int = MC_DEFAULTS["s
     """Muestrea drivers alrededor del Base (distribuciones hipotéticas documentadas)."""
     rng = random.Random(seed)
     base = scenario_params(isa, "Base")
-    p2 = POLICIES["P2 Programa de eficiencia operativa"]
+    p2 = politicas_de(isa)["P2 Programa de eficiencia operativa"]
     results = []
     for _ in range(n):
         g_term = base["g_terminal"] + rng.uniform(-0.015, 0.010)
@@ -652,13 +741,13 @@ def monte_carlo(isa: dict, n: int = MC_DEFAULTS["n"], seed: int = MC_DEFAULTS["s
         wacc = cost_of_capital(isa, ov["wacc_delta"], base["tax"])["wacc"]
         if wacc - g_term < 0.02:  # coherencia: spread mínimo WACC − g de 2 pp
             ov["g_terminal"] = wacc - 0.02
-        e0 = evaluate(isa, "Base", overrides=ov)
-        e1 = evaluate(isa, "Base", "P1 Diferir CAPEX de expansión", overrides=ov)
+        e0 = evaluate(isa, "Base", overrides=ov, con_tir=False)
+        e1 = evaluate(isa, "Base", "P1 Diferir CAPEX de expansión", overrides=ov, con_tir=False)
         # Incertidumbre de ejecución de la eficiencia: logro entre 0 % y 150 % de la meta.
         achieve = rng.uniform(0.0, 1.5)
         pp = {"margin_uplift_by_year": {k: v * achieve for k, v in p2["margin_uplift_by_year"].items()},
               "margin_uplift_steady": p2["margin_uplift_steady"] * achieve}
-        e2 = evaluate(isa, "Base", "P2 Programa de eficiencia operativa", overrides=ov, policy_params=pp)
+        e2 = evaluate(isa, "Base", "P2 Programa de eficiencia operativa", overrides=ov, policy_params=pp, con_tir=False)
         results.append({
             "valor_por_accion": e0["valuation"]["valor_por_accion"],
             "vpn_inversionista": e0["valuation"]["vpn_inversionista"],
@@ -677,7 +766,7 @@ def monte_carlo(isa: dict, n: int = MC_DEFAULTS["n"], seed: int = MC_DEFAULTS["s
         "prob_valor_mayor_precio": sum(v > price for v in vals) / n,
         "prob_dvpn_p1_pos": sum(r["delta_vpn_p1"] > 0 for r in results) / n,
         "prob_dvpn_p2_pos": sum(r["delta_vpn_p2"] > 0 for r in results) / n,
-        "prob_covenant_roto": sum(r["max_deuda_ebitda"] > DECISION_THRESHOLDS["covenant_deuda_neta_ebitda"] for r in results) / n,
+        "prob_covenant_roto": sum(r["max_deuda_ebitda"] > umbrales_de(isa)["covenant_deuda_neta_ebitda"] for r in results) / n,
     }
 
 
@@ -686,7 +775,7 @@ def monte_carlo(isa: dict, n: int = MC_DEFAULTS["n"], seed: int = MC_DEFAULTS["s
 # ---------------------------------------------------------------------------
 def investment_decision(isa: dict, evals: dict) -> dict:
     price = isa["mercado"]["precio_ref"]
-    th = DECISION_THRESHOLDS
+    th = umbrales_de(isa)
     base = evals["Base"]["valuation"]["valor_por_accion"]
     pes = evals["Pesimista"]["valuation"]["valor_por_accion"]
     ratio = base / price
@@ -731,17 +820,17 @@ def inputs_fingerprint(isa: dict) -> str:
     return hashlib.sha256(blob).hexdigest()[:12]
 
 
-def run_model(data_path: Path | dict = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT, mc_n: int = MC_DEFAULTS["n"]) -> dict:
+def calcular_modelo(data_path: Path | dict = DEFAULT_DATA, mc_n: int = MC_DEFAULTS["n"]) -> dict:
+    """Ejecuta todo el modelo del taller en memoria (sin escribir archivos): lo usa la pestaña 10."""
     isa = load_isa(data_path)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    pols = politicas_de(isa)
     drivers = historical_drivers(isa)
     capital = cost_of_capital(isa)
 
     evals = {s: evaluate(isa, s) for s in SCENARIO_ORDER}
     detail, summary = [], []
     for s in SCENARIO_ORDER:
-        for pol in [None] + list(POLICIES):
+        for pol in [None] + list(pols):
             e = evals[s] if pol is None else evaluate(isa, s, pol)
             for r in e["rows"]:
                 detail.append({"escenario": s, "politica": pol or "Sin política", **r})
@@ -759,11 +848,12 @@ def run_model(data_path: Path | dict = DEFAULT_DATA, output_dir: Path = DEFAULT_
         })
 
     mc = monte_carlo(isa, n=mc_n)
-    impacts = [policy_impact(isa, s, p) for p in POLICIES for s in SCENARIO_ORDER]
+    impacts = [policy_impact(isa, s, p) for p in pols for s in SCENARIO_ORDER]
     recs = {}
-    for p, cfg in POLICIES.items():
+    for p, cfg in pols.items():
         prob = {"inversion": mc["prob_dvpn_p1_pos"], "margenes": mc["prob_dvpn_p2_pos"]}.get(cfg["tipo"])
-        recs[p] = {**policy_recommendation([i for i in impacts if i["politica"] == p], prob, cfg["tipo"]),
+        recs[p] = {**policy_recommendation([i for i in impacts if i["politica"] == p], prob, cfg["tipo"],
+                                           umbrales_de(isa)),
                    "prob_mc_dvpn_pos": prob, "regla": cfg["regla"]}
     torn = tornado(isa)
     matrix = wacc_g_matrix(isa)
@@ -776,6 +866,55 @@ def run_model(data_path: Path | dict = DEFAULT_DATA, output_dir: Path = DEFAULT_
                 leverage_rows.append({"escenario": s, "politica": pol or "Sin política", **x})
 
     inputs_clean = {k: v for k, v in isa.items() if k != "history"}
+    metadata = {
+        "empresa": isa["empresa"], "camino": "Evaluación empresarial",
+        "fuente_datos": isa.get("fuente_datos"), "huella_datos": inputs_fingerprint(isa),
+        "corte_datos": isa.get("corte_catalogo"), "moneda": isa["moneda"], "unidad": isa["unidad"],
+        "fechas_valoracion": isa.get("fechas") or {},
+        "historia": [r["Año"] for r in isa["history"]], "horizonte": [FORECAST_YEARS[0], FORECAST_YEARS[-1]],
+        "drivers_historicos": {k: v for k, v in drivers.items() if not isinstance(v, (list, dict))},
+        "costo_capital": capital,
+        "escenarios": escenarios_de(isa), "politicas": pols, "umbrales_decision": umbrales_de(isa),
+        "recomendacion_politicas": recs, "decision_inversion": decision,
+        "monte_carlo": {k: v for k, v in mc.items() if k != "simulaciones"},
+        "tecnicas": ["T1 Pronóstico por drivers", "T2 Parametrización de escenarios",
+                     "T3 Sensibilidad (tornado y matriz WACC×g)", "T4 Simulación de políticas (regla si–entonces)",
+                     "T5 Monte Carlo", "T6 Ingeniería de prompts"],
+        "advertencias": ADVERTENCIAS_MODELO,
+        "fuentes": {
+            "historico": isa.get("fuente_historico"), "verificacion": isa.get("verificacion"),
+            "puente": isa["puente"].get("fuente"), "precio": isa["mercado"].get("fuente_precio_ref"),
+            "tes": isa["capital"].get("fuente_tes_10a"), "primas": isa["capital"].get("fuente_primas"),
+            "beta": isa["capital"].get("fuente_beta_u"), "de_ratio": isa["capital"].get("fuente_de_ratio"),
+            "tax": isa["capital"].get("fuente_tax"), "g": isa["capital"].get("fuente_g_terminal"),
+        },
+    }
+    return {"isa": isa, "inputs": inputs_clean, "fingerprint": metadata["huella_datos"], "drivers": drivers,
+            "capital": capital, "evals": evals, "summary": summary, "detail": detail, "impacts": impacts,
+            "recommendations": recs, "tornado": torn, "matrix": matrix, "monte_carlo": mc, "decision": decision,
+            "leverage": leverage_rows, "metadata": metadata}
+
+
+ADVERTENCIAS_MODELO = [
+    "Los shocks de escenarios, los parámetros de las políticas y los umbrales son hipótesis del equipo, no datos observados ni metas de la empresa.",
+    "El CAPEX histórico de ISA es PP&E + intangibles pagados en caja; las inversiones en concesiones registradas como activos financieros/contractuales (CINIIF 12) pueden no estar incluidas, lo que subestimaría la reinversión y sobrestimaría el FCFF.",
+    "2023 no es comparable en CAPEX y NWC; la intensidad de CAPEX se calibra solo con 2024–2025.",
+    "NWC 2024–2025 es preliminar (derivado del balance, no certificado).",
+    "La tasa de impuestos de 22 % es provisional; el tornado muestra el efecto de 35 %.",
+    "El puente EV→patrimonio usa NCI y asociadas a valor contable y no modela distribuciones a minoritarios en la trayectoria de deuda.",
+    "Fecha de valoración: flujos desde el cierre fiscal, puente a la fecha del balance y valor expresado a la fecha del precio (ver bloque «fechas»).",
+    "Resultado académico: no es una recomendación de inversión profesional.",
+]
+
+
+def run_model(data_path: Path | dict = DEFAULT_DATA, output_dir: Path = DEFAULT_OUT, mc_n: int = MC_DEFAULTS["n"]) -> dict:
+    """Ejecuta el modelo y exporta CSV/JSON en ``output_dir`` (uso por línea de comandos y PDF)."""
+    r = calcular_modelo(data_path, mc_n)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    detail, summary, impacts, leverage_rows = r["detail"], r["summary"], r["impacts"], r["leverage"]
+    torn, matrix, mc, metadata = r["tornado"], r["matrix"], r["monte_carlo"], r["metadata"]
+    inputs_clean = r["inputs"]
     (output_dir / "datos_entrada.json").write_text(json.dumps(inputs_clean, ensure_ascii=False, indent=2, default=str),
                                                     encoding="utf-8")
     _write_csv(output_dir / "detalle_escenarios_politicas.csv", detail)
@@ -786,43 +925,10 @@ def run_model(data_path: Path | dict = DEFAULT_DATA, output_dir: Path = DEFAULT_
     _write_csv(output_dir / "matriz_wacc_g.csv", matrix["filas"])
     _write_csv(output_dir / "monte_carlo.csv", mc["simulaciones"])
 
-    metadata = {
-        "empresa": isa["empresa"], "camino": "Evaluación empresarial",
-        "fuente_datos": isa.get("fuente_datos"), "huella_datos": inputs_fingerprint(isa),
-        "corte_datos": isa.get("corte_catalogo"), "moneda": isa["moneda"], "unidad": isa["unidad"],
-        "historia": [r["Año"] for r in isa["history"]], "horizonte": [FORECAST_YEARS[0], FORECAST_YEARS[-1]],
-        "drivers_historicos": {k: v for k, v in drivers.items() if not isinstance(v, (list, dict))},
-        "costo_capital": capital,
-        "escenarios": SCENARIOS, "politicas": POLICIES, "umbrales_decision": DECISION_THRESHOLDS,
-        "recomendacion_politicas": recs, "decision_inversion": decision,
-        "monte_carlo": {k: v for k, v in mc.items() if k != "simulaciones"},
-        "tecnicas": ["T1 Pronóstico por drivers", "T2 Parametrización de escenarios",
-                     "T3 Sensibilidad (tornado y matriz WACC×g)", "T4 Simulación de políticas (regla si–entonces)",
-                     "T5 Monte Carlo", "T6 Ingeniería de prompts"],
-        "advertencias": [
-            "Los shocks de escenarios, los parámetros de las políticas y los umbrales son hipótesis del equipo, no datos observados ni metas de ISA.",
-            "El CAPEX histórico es PP&E + intangibles pagados en caja; las inversiones en concesiones registradas como activos financieros/contractuales (CINIIF 12) pueden no estar incluidas, lo que subestimaría la reinversión y sobrestimaría el FCFF.",
-            "2023 no es comparable en CAPEX y NWC; la intensidad de CAPEX se calibra solo con 2024–2025.",
-            "NWC 2024–2025 es preliminar (derivado del balance, no certificado).",
-            "La tasa de impuestos de 22 % es provisional; el tornado muestra el efecto de 35 %.",
-            "El puente EV→patrimonio usa asociadas a valor contable y no modela distribuciones a minoritarios en la trayectoria de deuda.",
-            "Resultado académico: no es una recomendación de inversión profesional.",
-        ],
-        "fuentes": {
-            "historico": isa.get("fuente_historico"), "verificacion": isa.get("verificacion"),
-            "puente": isa["puente"].get("fuente"), "precio": isa["mercado"].get("fuente_precio_ref"),
-            "tes": isa["capital"].get("fuente_tes_10a"), "primas": isa["capital"].get("fuente_primas"),
-            "beta": isa["capital"].get("fuente_beta_u"), "de_ratio": isa["capital"].get("fuente_de_ratio"),
-            "tax": isa["capital"].get("fuente_tax"), "g": isa["capital"].get("fuente_g_terminal"),
-        },
-    }
     (output_dir / "metadatos_modelo.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2, default=lambda x: None if isinstance(x, float) and math.isnan(x) else x),
         encoding="utf-8")
-    return {"isa": isa, "inputs": inputs_clean, "fingerprint": metadata["huella_datos"], "drivers": drivers, "capital": capital, "evals": evals, "summary": summary,
-            "detail": detail, "impacts": impacts, "recommendations": recs, "tornado": torn,
-            "matrix": matrix, "monte_carlo": mc, "decision": decision, "leverage": leverage_rows,
-            "metadata": metadata}
+    return r
 
 
 def inputs_from_app(empresa: str, df_hist, *, tax: float, g: float, de_ratio: float, kd: float, beta_u: float,
@@ -831,7 +937,7 @@ def inputs_from_app(empresa: str, df_hist, *, tax: float, g: float, de_ratio: fl
                     mid_year: bool = True, deuda_es_bruta: bool = False, moneda: str = "COP",
                     fuente_precio: str | None = None, fecha_precio: str | None = None,
                     fuente_historico: str | None = None, ticker: str | None = None,
-                    descripcion: str | None = None) -> dict:
+                    descripcion: str | None = None, fechas: dict | None = None) -> dict:
     """Arma los datos de entrada del taller con lo que la app tiene en la sesión.
 
     Usa solo argumentos explícitos (histórico de ``cargar_y_limpiar_excel`` y valores de la barra lateral);
@@ -877,6 +983,9 @@ def inputs_from_app(empresa: str, df_hist, *, tax: float, g: float, de_ratio: fl
     }
     if descripcion:
         data["descripcion_negocio"] = descripcion
+    if fechas:
+        data["fechas"] = {k: fechas.get(k) for k in ("frac_transcurrida", "t_valoracion", "fecha_cierre",
+                                                       "fecha_balance", "fecha_valoracion", "nota")}
     validate_inputs(data)
     return data
 

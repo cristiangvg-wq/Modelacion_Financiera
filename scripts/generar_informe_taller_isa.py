@@ -134,7 +134,8 @@ def narrativa(r: dict) -> dict:
     for p, rec in recs.items():
         i += 1
         pasos.append(f"({i}) {p}: {rec['decision'].lower()}.")
-    p1 = next((rec for p, rec in recs.items() if POLICIES[p]["tipo"] == "inversion"), None)
+    _pols = (r.get("metadata") or {}).get("politicas") or POLICIES
+    p1 = next((rec for p, rec in recs.items() if _pols[p]["tipo"] == "inversion"), None)
     lectura_p1 = ""
     if p1 and p1["decision"].startswith("Descartar"):
         lectura_p1 = ("Diferir CAPEX de expansión libera caja al inicio, pero si los ingresos nacen de la base de activos el "
@@ -276,7 +277,8 @@ def charts(r: dict, tmp: Path) -> dict:
     # Políticas + apalancamiento
     f = _fig(None, 7.2, 3.0)
     ax = f.add_subplot(1, 2, 1)
-    pols = [p for p in POLICIES if POLICIES[p]["tipo"] != "financiera"]
+    _pols = (r.get("metadata") or {}).get("politicas") or POLICIES
+    pols = [p for p in _pols if _pols[p]["tipo"] != "financiera"]
     width = 0.38
     for j, p in enumerate(pols):
         d = [next(i for i in r["impacts"] if i["politica"] == p and i["escenario"] == s)["delta_vpn"] for s in SCENARIO_ORDER]
@@ -291,7 +293,8 @@ def charts(r: dict, tmp: Path) -> dict:
             rows = [x for x in r["leverage"] if x["escenario"] == s and x["politica"] == pol]
             ax2.plot([x["año"] for x in rows], [x["deuda_neta_ebitda"] for x in rows], ls=ls, color=SC_COLORS[s],
                      label=f"{s}{' + P3' if ls == ':' else ''}")
-    ax2.axhline(DECISION_THRESHOLDS["covenant_deuda_neta_ebitda"], color="black", ls="--", lw=0.8)
+    ax2.axhline(((r.get("metadata") or {}).get("umbrales_decision") or DECISION_THRESHOLDS)["covenant_deuda_neta_ebitda"],
+                color="black", ls="--", lw=0.8)
     ax2.set_title("Deuda neta / EBITDA")
     ax2.legend(frameon=False, fontsize=6)
     f.tight_layout()
@@ -436,6 +439,15 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
           Paragraph("Definiciones: el VPN se interpreta como la decisión de comprar el patrimonio al precio de mercado (inversión inicial = "
                     "capitalización). La TIR es la rentabilidad que obtendría quien compre hoy si se cumplen los flujos proyectados; "
                     "VPN &lt; 0 equivale a TIR &lt; WACC.", st["small"])]
+    _fe = isa.get("fechas") or {}
+    if _fe.get("t_valoracion"):
+        S += [Paragraph(
+            f"<b>Fecha de valoración.</b> Los flujos parten del cierre {_fe.get('fecha_cierre')}; la deuda neta, los "
+            f"minoritarios y las asociadas son del {_fe.get('fecha_balance')}, por eso del FCFF 2026 solo cuenta el "
+            f"{(1 - float(_fe.get('frac_transcurrida') or 0)) * 100:.0f} % posterior a esa fecha (lo anterior ya redujo la "
+            f"deuda); el valor se expresa al {_fe.get('fecha_valoracion')}, fecha del precio con el que se compara. "
+            "Sin este ajuste el valor quedaría a fin de 2025 y se compararía con un precio de diez meses después.",
+            st["small"])]
 
     # 4. Escenarios
     sm = {x["escenario"]: x for x in r["summary"]}
@@ -450,7 +462,8 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
                  ["NWC / ingresos"] + [pct(sm[s]["nwc_ingresos"], 2) for s in SCENARIO_ORDER],
                  ["WACC"] + [pct(sm[s]["wacc"], 2) for s in SCENARIO_ORDER],
                  ["g terminal"] + [pct(sm[s]["g_terminal"], 2) for s in SCENARIO_ORDER],
-                 ["Narrativa"] + [SCENARIOS[s]["descripcion"] for s in SCENARIO_ORDER]], st,
+                 ["Narrativa"] + [((r.get("metadata") or {}).get("escenarios") or SCENARIOS)[s]["descripcion"]
+                                  for s in SCENARIO_ORDER]], st,
                 [3.6 * cm] + [3.5 * cm] * 4),
           Spacer(1, 4),
           table([["Métrica"] + SCENARIO_ORDER,
@@ -476,7 +489,7 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
                     "como contrafactual frente al mismo escenario sin política: ΔVPN = EV<sub>con</sub> − EV<sub>sin</sub> (incluye valor "
                     "terminal). Para las políticas que alteran el FCFF se calcula la TIR de los flujos incrementales y se lee según su "
                     "forma (inversión: conviene si TIR &gt; WACC; financiación: conviene si costo &lt; WACC).", st["body"])]
-    for p, cfg in POLICIES.items():
+    for p, cfg in ((r.get("metadata") or {}).get("politicas") or POLICIES).items():
         rows = [i for i in r["impacts"] if i["politica"] == p]
         S += [Paragraph(p, st["h2"]), Paragraph(f"<b>Regla:</b> {cfg['regla']}", st["body"])]
         if cfg["tipo"] == "financiera":
@@ -498,7 +511,7 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
           Paragraph("<b>Lectura.</b> " + nv["lectura_politicas"], st["body"])]
 
     # 6. Decisión
-    th = DECISION_THRESHOLDS
+    th = (r.get("metadata") or {}).get("umbrales_decision") or DECISION_THRESHOLDS
     S += [Paragraph("6. Decisión e integración de resultados (camino: evaluación empresarial)", st["h1"]),
           table([["Umbral (parámetro del equipo)", "Valor", "Uso"],
                  ["Covenant deuda neta/EBITDA", f"{th['covenant_deuda_neta_ebitda']:.1f}x", "Disparador de P1/P3; criterio de viabilidad en escenarios adversos"],
