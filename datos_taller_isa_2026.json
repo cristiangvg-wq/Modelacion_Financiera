@@ -1,5 +1,6 @@
 {
-  "descripcion": "Instantánea de datos de ISA para el Taller evaluativo 2026. Independiente del catálogo de la app para que el taller siga siendo reproducible aunque cambien o se eliminen los datos precargados. Regenerable con: python scripts/taller_isa.py --refrescar-instantanea",
+  "descripcion": "Instantánea del Taller 2026 con la proyección y la valoración del modelo principal de la app (pestañas 2–7) y sus valores por defecto para ISA. Regenerable con: python scripts/taller_isa.py --refrescar-instantanea-modelo",
+  "fuente_datos": "Instantánea del modelo de la app (ISA, valores por defecto)",
   "empresa": "ISA — Interconexión Eléctrica",
   "ticker_bvc": "ISA",
   "moneda": "COP",
@@ -12,85 +13,164 @@
       2025
     ],
     "Ingresos": [
-      14168,
+      14168.0,
       14934.751,
       15918.005
     ],
     "EBITDA": [
-      8584,
+      8584.0,
       8897.325,
       7922.182
     ],
     "EBIT": [
-      7068,
+      7068.0,
       7870.095,
       6841.99
     ],
     "Depreciacion": [
-      1268,
+      1268.0,
       1027.23,
       1080.192
     ],
     "CAPEX": [
-      4600,
+      4600.0,
       1578.149,
       1706.308
     ],
     "NWC": [
-      1750,
+      1750.0,
       3767.732,
       3995.661
     ]
   },
   "fuente_historico": "ISA EEFF consolidados oficiales 2025/2024 para ingresos, EBIT operativo ex participación de asociadas y D&A; EBITDA derivado como EBIT + D&A para consistencia con el perímetro operativo. CAPEX 2024/2025 corresponde solo a adquisiciones de PP&E + intangibles pagadas en caja (1.578,149 y 1.706,308 COP miles de millones), no al CAPEX/inversión ejecutada de reportes de gestión. NWC 2024/2025 preliminar derivado de partidas corrientes del balance (3.767,732 y 3.995,661), no certificado por posible mezcla de componentes de concesiones/deudores. 2023 conserva la serie anterior y no es plenamente comparable: CAPEX y NWC no reconciliados con el mismo perímetro. Participación de asociadas excluida del EBIT porque el puente EV agrega participadas por separado; verificar valoración de asociadas y evitar doble conteo.",
   "verificacion": "parcial: ingresos, EBIT ex asociadas y D&A de 2024/2025 conciliados con EEFF oficiales; EBITDA derivado; CAPEX 2024/2025 corresponde a dos líneas de inversión de caja; NWC preliminar no auditado y no certificado; 2023 y su CAPEX/NWC no plenamente comparables; tasa fiscal provisional; asociadas a valor contable, no valor de mercado.",
-  "calidad_historico_por_anio": {
-    "2023": "Serie heredada de informes previos; CAPEX y NWC no reconciliados con el perímetro de caja/operación del informe 2025.",
-    "2024": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance.",
-    "2025": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance."
-  },
   "puente": {
-    "deuda_neta": 30430,
-    "caja": 3725,
-    "nci": 10539,
-    "otros_claims": 0,
-    "asociados": 4332,
+    "deuda_neta": 30430.0,
+    "caja": 3725.0,
+    "nci": 10539.0,
+    "otros_claims": 0.0,
+    "asociados": 4332.0,
     "acciones": 1107.7,
     "fuente": "Informe consolidado ISA 2T26: deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539; inversiones en negocios conjuntos y asociadas 4.332 (valor contable, jun-2026)."
   },
   "mercado": {
-    "precio_ref": 27500,
+    "precio_ref": 27500.0,
     "fecha_precio_ref": "2026-10-29 11:38:41 America/Bogota",
     "fuente_precio_ref": "La República, fuente BVC: https://www.larepublica.co/indicadores-economicos/movimiento-accionario/isa"
   },
   "capital": {
     "beta_u": 0.42,
-    "fuente_beta_u": "Catálogo de la app (beta desapalancada de ISA). Referencia sectorial Damodaran 'Power' (mercados emergentes/EE. UU.) ≈ 0,31; 0,42 es más conservadora.",
     "de_ratio": 1.1212,
-    "fuente_de_ratio": "Instantánea de mercado BVC del 29-oct-2026 11:38:41 (hora Colombia): precio COP 27.500; 1.107,7 millones de acciones; capitalización calculada COP 30.461,75 miles de millones. D/E = deuda financiera bruta nominal COP 34.155 / capitalización de mercado COP 30.461,75 = 1,1212. Fuente de cotización: La República/BVC, https://www.larepublica.co/indicadores-economicos/movimiento-accionario/isa. Instantánea fechada; debe actualizarse para valoraciones futuras.",
     "tax": 0.22,
+    "g_terminal": 0.06,
+    "rf": 0.1143,
+    "erp": 0.0692,
+    "crp": 0.0,
+    "kd": 0.1418,
+    "mid_year": true,
     "tax_estado": "provisional_no_validado",
+    "fuente_beta_u": "Catálogo de la app (beta desapalancada de ISA). Referencia sectorial Damodaran 'Power' (mercados emergentes/EE. UU.) ≈ 0,31; 0,42 es más conservadora.",
+    "fuente_de_ratio": "Instantánea de mercado BVC del 29-oct-2026 11:38:41 (hora Colombia): precio COP 27.500; 1.107,7 millones de acciones; capitalización calculada COP 30.461,75 miles de millones. D/E = deuda financiera bruta nominal COP 34.155 / capitalización de mercado COP 30.461,75 = 1,1212. Fuente de cotización: La República/BVC, https://www.larepublica.co/indicadores-economicos/movimiento-accionario/isa. Instantánea fechada; debe actualizarse para valoraciones futuras.",
     "fuente_tax": "El reporte consolidado ISA 2025 informa impuesto a las ganancias de 1.111 y utilidad antes de impuestos de 5.020 miles de millones COP, una tasa efectiva contable aproximada de 22,13% (1.111/5.020). Esto da contexto al 22% del catálogo, pero no valida que sea la tasa fiscal operativa apropiada sobre EBIT para FCFF: el gasto incluye efectos corrientes/diferidos y varias jurisdicciones. Mantener 22% como aproximación provisional para reproducibilidad, documentar la limitación y ejecutar sensibilidad al 35% solo como estrés, no como tasa consolidada definitiva.",
-    "g_terminal": 0.05,
     "fuente_g_terminal": "Catálogo de la app (g nominal en COP). Inferior a la inflación implícita de largo plazo de Colombia (6,15 %, Banco de la República ago-2026): implica crecimiento real ligeramente negativo, supuesto conservador.",
-    "tes_10a": 0.1318,
+    "fuente_primas": "Mismas anclas que la app: rf 11.43% (TES − spread de default), ERP 6.92% (Damodaran: madura + riesgo país), CRP 0 en pesos.",
     "fuente_tes_10a": "TES 10 años, curva cero cupón (Banco de la República, 16-oct-2026), referencia usada por la app (REFERENCIAS_TASAS en modelacion_logic.py).",
-    "spread_default_co": 0.017499,
-    "erp_total_co": 0.069202,
-    "fuente_primas": "Damodaran ctrypremJuly26.xlsx (2026-07-01): Colombia Baa3; ERP madura 4.20% + riesgo país 2.72%; spread de default 1.75%.",
-    "kd_spread": 0.01,
     "fuente_kd_spread": "Spread de crédito para emisor colombiano usado por la app (CAPM_POR_MERCADO['CO']['kd_spread']); coherente con calificación AAA (col)."
   },
-  "anios_intensidad_capex": [
-    2024,
-    2025
-  ],
   "fechas": {
     "frac_transcurrida": 0.4956,
     "t_valoracion": 0.8268,
     "fecha_cierre": "2025-12-31",
     "fecha_balance": "2026-06-30",
     "fecha_valoracion": "2026-10-29",
-    "nota": "Flujos desde el cierre 2025; puente del informe 2T26 (30-jun-2026), por eso solo cuenta el segundo semestre del FCFF 2026; valor expresado a la fecha del precio de referencia (29-oct-2026)."
+    "nota": "Flujos desde el cierre 2025-12-31; puente al 2026-06-30 (se descuenta el 50 % del primer año ya reflejado en la deuda); valor expresado al 2026-10-29, fecha del precio de mercado."
+  },
+  "proyeccion_base": {
+    "Año": [
+      2026,
+      2027,
+      2028,
+      2029,
+      2030
+    ],
+    "Ingresos": [
+      16872.72840404955,
+      17884.80838201336,
+      18957.69638821092,
+      20095.051909364083,
+      21300.75502392593
+    ],
+    "EBITDA": [
+      8948.846256026181,
+      10070.218892449806,
+      11293.980463232278,
+      11971.555985733059,
+      12689.849344877044
+    ],
+    "EBIT": [
+      7314.2878205183915,
+      8337.614437011282,
+      9457.439163740455,
+      10024.832502497553,
+      10626.322452647408
+    ],
+    "Depreciacion": [
+      1160.5263990334904,
+      1230.1384679433615,
+      1303.9329856160243,
+      1382.1616559161964,
+      1465.0913552711681
+    ],
+    "CAPEX": [
+      1808.6482230440927,
+      1837.6475291741738,
+      1863.6281471480393,
+      1886.122771307148,
+      1904.618761852519
+    ],
+    "Delta_NWC": [
+      239.65007369629768,
+      254.04744481678824,
+      269.31118338832914,
+      285.4935087032811,
+      302.649792636282
+    ],
+    "NOPAT": [
+      5705.144500004346,
+      6503.339260868799,
+      7376.802547717555,
+      7819.369351948091,
+      8288.531513064978
+    ],
+    "FCFF": [
+      4817.372602297446,
+      5641.782754821199,
+      6547.796202797211,
+      7029.9147278538585,
+      7546.354313847345
+    ],
+    "ingresos_base": 15918.005,
+    "nwc_marginal": 0.2510151868905683,
+    "metodo": "Drivers robustos + identidad FCFF"
+  },
+  "valoracion": {
+    "g_max_macro": 0.06,
+    "ronic": {
+      "modo": "roic",
+      "roic": 0.1355621127176158,
+      "spread": 0.0,
+      "spread_defecto": 0.0,
+      "convergencia": 0.5,
+      "spread_max": 0.2
+    },
+    "horizonte": 5,
+    "capex_extra": 0.0,
+    "motor": "modelo_app"
+  },
+  "calidad_historico_por_anio": {
+    "2023": "Serie heredada de informes previos; CAPEX y NWC no reconciliados con el perímetro de caja/operación del informe 2025.",
+    "2024": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance.",
+    "2025": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance."
   }
 }

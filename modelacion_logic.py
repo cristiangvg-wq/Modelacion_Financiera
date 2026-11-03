@@ -91,7 +91,7 @@ def _almacen_estado():
     # Se vincula al session_state de la sesión activa; fuera de Streamlit (pruebas, scripts) se usa el global.
     try:
         from streamlit.runtime.scriptrunner import get_script_run_ctx
-        if get_script_run_ctx() is not None:
+        if get_script_run_ctx(suppress_warning=True) is not None:
             import streamlit as _st
             return vincular_estado_sesion(_st.session_state.setdefault("_estado_logica", {}))
     except Exception:
@@ -13848,3 +13848,57 @@ def recomendar_metodologia_sectorial(sector, descripcion=""):
     return {"metodo_principal": "DCF FCFF/WACC",
             "nota": "Método inicial para negocio operativo no financiero; comprobar estabilidad del FCFF, deuda, CAPEX, NWC y participadas.",
             "requiere_revision": False, "clasificacion": "regla_textual_provisional"}
+
+
+# =============================================================================
+# Pestaña 10 (taller): datos de entrada con la MISMA proyección y valoración de las pestañas 2–7
+# =============================================================================
+def config_ronic_sesion():
+    """Regla de RONIC vigente en la sesión (la que usa valoracion_dcf), para replicarla fuera de la app."""
+    return {"modo": modo_ronic_sesion(), "roic": roic_referencia_sesion(),
+            "spread": float(_almacen_estado().get("_ronic_spread", RONIC_SPREAD)),
+            "spread_defecto": float(RONIC_SPREAD), "convergencia": float(RONIC_CONVERGENCIA),
+            "spread_max": float(RONIC_SPREAD_MAX)}
+
+
+def datos_taller_modelo(nombre_empresa, *, archivo=None, usar_datos_publicos=True, horizonte=5, tax, g, de_ratio, kd,
+                        beta_u, rf, erp, crp=0.0, deuda_neta, caja=0.0, nci=0.0, otros_claims=0.0, asociados=0.0,
+                        acciones=None, mid_year=True, g_max_macro=0.05, capex_extra=0.0, precio=None,
+                        fuente_precio=None, fecha_precio=None, moneda=None, deuda_es_bruta=False, ticker=None):
+    """Datos del taller con la proyección (pestañas 2–7) y la configuración de valoración de la sesión.
+
+    Mismas llamadas que la pestaña 4: cargar_y_limpiar_excel → proyectar_variables_con_meta (drivers) →
+    recalcular_fcff(capex_extra); el puente con fecha de valoración (bridge_con_fechas) y el RONIC de la sesión.
+    """
+    from scripts import taller_isa as _T
+    df_hist, msg = cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=bool(usar_datos_publicos))
+    df_proj, meta = proyectar_variables_con_meta(df_hist, int(horizonte), tax=float(tax))
+    df_proj = recalcular_fcff(df_proj.copy(), tax=float(tax), capex_extra=float(capex_extra or 0.0))
+    acc = resolver_acciones_millones(nombre_empresa, acciones)
+    if not precio:
+        precio = resolver_precio_mercado(nombre_empresa)
+    hoy_val = None
+    if not precio:
+        # Sin cotización en vivo: precio de referencia fechado del catálogo (se rotula como tal) y el valor se
+        # expresa a la fecha de ese precio, no a hoy.
+        sup = ((_DATOS_CURADOS.get("empresas") or {}).get(nombre_empresa) or {}).get("supuestos") or {}
+        if sup.get("precio_ref_mercado"):
+            precio = float(sup["precio_ref_mercado"])
+            fuente_precio = fuente_precio or f"Precio de referencia del catálogo: {sup.get('fuente_precio_ref') or 'N/D'}"
+            fecha_precio = fecha_precio or sup.get("fecha_precio_ref")
+            hoy_val = _fecha_iso(str(fecha_precio)[:10]) if fecha_precio else None
+    if not precio:
+        raise ValueError("No hay precio de mercado para la empresa; sin él no se pueden calcular el VPN ni la TIR implícita.")
+    cal = calendario_valoracion(nombre_empresa, df_hist=df_hist, hoy=hoy_val)
+    p = params_empresa(nombre_empresa) or {}
+    return _T.inputs_from_app(
+        nombre_empresa, df_hist, tax=tax, g=g, de_ratio=de_ratio, kd=kd, beta_u=beta_u, rf=rf, erp=erp, crp=crp,
+        deuda_neta=deuda_neta, caja=caja, nci=nci, otros_claims=otros_claims, asociados=asociados, acciones=acc,
+        precio=float(precio), mid_year=bool(mid_year), deuda_es_bruta=bool(deuda_es_bruta or p.get("deuda_es_bruta")),
+        moneda=str(moneda or p.get("moneda") or "COP").upper(), fuente_precio=fuente_precio, fecha_precio=fecha_precio,
+        fuente_historico=msg if isinstance(msg, str) else None,
+        ticker=ticker or p.get("ticker_bvc") or p.get("ticker_yf"), fechas=cal, proyeccion=df_proj,
+        meta_proyeccion=meta,
+        valoracion={"g_max_macro": float(g_max_macro), "ronic": config_ronic_sesion(), "horizonte": int(horizonte),
+                    "capex_extra": float(capex_extra or 0.0)},
+    )

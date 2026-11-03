@@ -4,8 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# Estas pruebas cubren el motor CLÁSICO del taller (drivers propios + Gordon sobre el FCFF terminal), que se
+# conserva en la instantánea clásica. El motor unificado con las pestañas 2–7 se prueba en
+# tests/test_taller_motor_unificado.py.
+from scripts.taller_isa import CLASSIC_DATA as DEFAULT_DATA  # noqa: E402
 from scripts.taller_isa import (
-    CATALOG, DECISION_THRESHOLDS, DEFAULT_DATA, POLICIES, SCENARIOS, SCENARIO_ORDER,
+    CATALOG, DECISION_THRESHOLDS, POLICIES, SCENARIOS, SCENARIO_ORDER,
     cost_of_capital, evaluate, historical_drivers, implied_irr, irr, load_isa, market_ev,
     monte_carlo, policy_impact, policy_triggered, project, run_model, scenario_params,
     snapshot_from_catalog, tornado, value,
