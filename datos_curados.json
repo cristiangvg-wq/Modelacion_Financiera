@@ -26,7 +26,8 @@
         "otros_claims": 0,
         "asociados": 4332,
         "acciones": 1107.7,
-        "fuente": "Informe consolidado ISA 2T26: deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539; inversiones en negocios conjuntos y asociadas 4.332 (valor contable, jun-2026)."
+        "fuente": "Informe consolidado ISA 2T26: deuda financiera nominal 34.155 − caja 3.725 = deuda neta 30.430; NCI 10.539; inversiones en negocios conjuntos y asociadas 4.332 (valor contable, jun-2026).",
+        "fecha_balance": "2026-06-30"
       },
       "supuestos": {
         "beta_u": 0.42,
@@ -87,7 +88,8 @@
         "2023": "Serie heredada de informes previos; CAPEX y NWC no reconciliados con el perímetro de caja/operación del informe 2025.",
         "2024": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance.",
         "2025": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance."
-      }
+      },
+      "fecha_cierre_fiscal": "2025-12-31"
     },
     "GEB — Grupo Energía Bogotá": {
       "ticker_bvc": "GEB",
@@ -102,7 +104,8 @@
         "otros_claims": 0,
         "asociados": 13688.2,
         "acciones": 9181,
-        "fuente": "Balance Yahoo dic-2025: interés minoritario 576,2; inversiones en asociadas y negocios conjuntos 13.688,2 (valor en libros). Deuda neta 1T26 17,54 billones."
+        "fuente": "Balance Yahoo dic-2025: interés minoritario 576,2; inversiones en asociadas y negocios conjuntos 13.688,2 (valor en libros). Deuda neta 1T26 17,54 billones.",
+        "fecha_balance": "2026-03-31"
       },
       "supuestos": {
         "beta_u": 0.4,
@@ -161,7 +164,8 @@
       },
       "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA reemplazados por utilidad OPERATIVA de Yahoo (oct-2026): el EBIT anterior incluía ≈ 2,3 billones/año del método de participación, que el puente ya suma como asociadas.",
       "verificacion": "parcial: EBIT operativo, NCI y asociadas contrastados con Yahoo (oct-2026); asociadas a valor en libros.",
-      "industria_damodaran": "Power"
+      "industria_damodaran": "Power",
+      "fecha_cierre_fiscal": "2025-12-31"
     },
     "CELSIA — Celsia S.A. E.S.P.": {
       "ticker_bvc": "CELSIA",
@@ -176,7 +180,8 @@
         "otros_claims": 0,
         "asociados": 624.5,
         "acciones": 1033,
-        "fuente": "Balance Yahoo dic-2025: interés minoritario 1.743,7; inversiones de largo plazo en participadas 624,5."
+        "fuente": "Balance Yahoo dic-2025: interés minoritario 1.743,7; inversiones de largo plazo en participadas 624,5.",
+        "fecha_balance": "2025-12-31"
       },
       "supuestos": {
         "beta_u": 0.45,
@@ -233,7 +238,8 @@
       },
       "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA = utilidad operativa (Yahoo, oct-2026).",
       "verificacion": "pendiente: verificar contra estados financieros consolidados",
-      "industria_damodaran": "Power"
+      "industria_damodaran": "Power",
+      "fecha_cierre_fiscal": "2025-12-31"
     },
     "EPM — Empresas Públicas de Medellín": {
       "ticker_bvc": "EPM",
@@ -368,7 +374,8 @@
         ]
       },
       "fuente_historico": "Catálogo previo (cifras de reportes públicos).",
-      "verificacion": "pendiente: verificar contra estados financieros consolidados"
+      "verificacion": "pendiente: verificar contra estados financieros consolidados",
+      "fecha_cierre_fiscal": "2025-12-31"
     },
     "ECOPETROL": {
       "ticker_bvc": "ECOPETROL",
@@ -383,7 +390,8 @@
         "otros_claims": 0,
         "asociados": 8913,
         "acciones": 41117,
-        "fuente": "Estados financieros intermedios condensados consolidados Ecopetrol al 30-jun-2025 (notas GEE): préstamos y financiaciones 120.259 (15.640 corriente + 104.619 no corriente) − efectivo 10.118 = deuda neta 110.141; participación no controladora 26.356 (principalmente minoritarios de ISA); inversiones en asociadas y negocios conjuntos 8.913. Acciones 41.116,7 M (circular 2T26). Antes: NCI 3.000 y asociados 2.000 eran valores de relleno sin fuente."
+        "fuente": "Estados financieros intermedios condensados consolidados Ecopetrol al 30-jun-2025 (notas GEE): préstamos y financiaciones 120.259 (15.640 corriente + 104.619 no corriente) − efectivo 10.118 = deuda neta 110.141; participación no controladora 26.356 (principalmente minoritarios de ISA); inversiones en asociadas y negocios conjuntos 8.913. Acciones 41.116,7 M (circular 2T26). Antes: NCI 3.000 y asociados 2.000 eran valores de relleno sin fuente.",
+        "fecha_balance": "2025-06-30"
       },
       "supuestos": {
         "beta_u": 0.75,
@@ -442,7 +450,8 @@
       "fuente_historico": "Catálogo previo (cifras de reportes públicos). EBIT/EBITDA = utilidad operativa (Yahoo, oct-2026), sin método de participación (≈ 710/año), que entra por el puente.",
       "verificacion": "parcial: puente EV→equity verificado con EEFF consolidados 30-jun-2025; histórico de ingresos/EBITDA por verificar (catálogo previo). Ingresos 1S25 = 61.035 consistentes con 2025 ≈ 119.694.",
       "ciclico": true,
-      "industria_damodaran": "Oil/Gas (Integrated)"
+      "industria_damodaran": "Oil/Gas (Integrated)",
+      "fecha_cierre_fiscal": "2025-12-31"
     }
   },
   "series": {

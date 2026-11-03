@@ -84,5 +84,13 @@
   "anios_intensidad_capex": [
     2024,
     2025
-  ]
+  ],
+  "fechas": {
+    "frac_transcurrida": 0.4956,
+    "t_valoracion": 0.8268,
+    "fecha_cierre": "2025-12-31",
+    "fecha_balance": "2026-06-30",
+    "fecha_valoracion": "2026-10-29",
+    "nota": "Flujos desde el cierre 2025; puente del informe 2T26 (30-jun-2026), por eso solo cuenta el segundo semestre del FCFF 2026; valor expresado a la fecha del precio de referencia (29-oct-2026)."
+  }
 }

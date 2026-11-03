@@ -263,7 +263,11 @@ class TestTallerConectadoApp(unittest.TestCase):
 
     def test_tab10_passes_sidebar_context(self):
         src = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
-        call = src.split("with tab10:", 1)[1].split("_ui_informe_taller_isa(", 1)[1][:600]
+        # El contexto de la barra lateral se arma una vez (_t10_ctx) y lo reciben el tablero y el PDF.
+        tab10 = src.split("with tab10:", 1)[1]
+        call = tab10.split("_t10_ctx = {", 1)[1][:600]
+        self.assertIn("_ui_informe_taller_isa(_t10_ctx", tab10)
+        self.assertIn("render(_t10_taller, _datos_taller_desde_app, _t10_ctx)", tab10)
         for key in ("empresa", "archivo", "tax", "deuda_neta", "acciones", "mid_year"):
             self.assertIn(f'"{key}"', call)
 

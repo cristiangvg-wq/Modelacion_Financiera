@@ -101,10 +101,13 @@ class TestAnclas(_Base):
                                  {"objetivo_analistas": 31000.0, "n_analistas": 5})
         ids = {a["id"]: a for a in anc["anclas"]}
         # El pesimista (equity 2.000 → 1.805 COP/acción) es < ½ de la mediana: se informa, no amplía el rango.
-        self.assertEqual(set(ids), {"A1", "A3", "A4", "A5", "A6", "A7"})
-        self.assertEqual([a["id"] for a in anc["descartadas"]], ["A2"])
+        # Su par (optimista) sale con él para que el rango no quede sesgado al alza (hallazgo A-04).
+        self.assertEqual(set(ids), {"A1", "A4", "A5", "A6", "A7"})
+        self.assertEqual({d["id"] for d in anc["descartadas"]}, {"A2", "A3"})
+        self.assertEqual([a["id"] for a in anc["descartadas"]], ["A2", "A3"])
         self.assertAlmostEqual(ids["A1"]["vps_precio"], 13423.0)
-        self.assertAlmostEqual(ids["A3"]["vps_modelo"], 32000.0 * 1000 / 1108.0)
+        a3 = next(d for d in anc["descartadas"] if d["id"] == "A3")
+        self.assertAlmostEqual(a3["vps_modelo"], 32000.0 * 1000 / 1108.0)
         self.assertEqual(anc["multiplo_pares"], 8.0)  # mediana de 9,0 y 7,0: excluye focal y estimados
         eq_par = 8.0 * 8186.0 - 30430.0 - 10539.0 + 4332.0
         self.assertAlmostEqual(ids["A6"]["vps_modelo"], eq_par * 1000 / 1108.0)

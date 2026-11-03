@@ -224,6 +224,17 @@ def _construir_catalogo(datos):
             "otros_claims": pu.get("otros_claims"), "asociados": pu.get("asociados"),
             "acciones": pu.get("acciones"), "moneda": datos.get("moneda", "COP"),
             "ciclico": c.get("ciclico"),
+            # Fechas del puente y del cierre: definen la fecha de valoración (calendario_valoracion).
+            "fecha_balance": pu.get("fecha_balance"),
+            "fecha_cierre_fiscal": c.get("fecha_cierre_fiscal"),
+            # Procedencia real de cada dato del catálogo (antes la trazabilidad rotulaba «Yahoo Finance»).
+            "deuda_fuente": ("catálogo curado: " + pu["fuente"]) if pu.get("fuente") else "catálogo curado",
+            "caja_fuente": ("catálogo curado: " + pu["fuente"]) if pu.get("fuente") else "catálogo curado",
+            "nci_fuente": ("catálogo curado: " + pu["fuente"]) if pu.get("fuente") else "catálogo curado",
+            "asociados_fuente": ("catálogo curado: " + pu["fuente"]) if pu.get("fuente") else "catálogo curado",
+            "acciones_fuente": "catálogo curado" + (f" (instantánea {sup['fecha_precio_ref']})" if sup.get("fecha_precio_ref") else ""),
+            "beta_fuente": "supuesto del catálogo curado (beta desapalancada)",
+            "tax_fuente": "supuesto del catálogo curado" + (f" — estado: {sup['tax_estado']}" if sup.get("tax_estado") else ""),
             "industria_damodaran": c.get("industria_damodaran"),
             # Los supuestos se exponen junto con su calidad; no inferir que un valor
             # numérico es auditado solo porque existe en el catálogo.
@@ -2245,6 +2256,9 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
         rows = []
         prev_nwc = None
         omitidos = []
+        # Partidas que Yahoo no reportó y se sustituyen por una regla: se registran por año (hallazgo C-02)
+        # para que la trazabilidad las muestre como ESTIMADO y la calidad de datos baje.
+        proxies = {"EBIT": [], "EBITDA": [], "Depreciación": [], "CAPEX": [], "NWC": []}
         for y in years:
             ing = rev.get(y)
             eb = ebit.get(y)
@@ -2257,13 +2271,23 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
             if eb is None and ebd is None:
                 omitidos.append(y)
                 continue
+            if eb is None:
+                proxies["EBIT"].append(int(y))
+            if ebd is None:
+                proxies["EBITDA"].append(int(y))
             eb = float(eb) if eb is not None else float(ebd) * 0.85
             ebd = float(ebd) if ebd is not None else float(eb) * 1.15
             d_raw = dep.get(y)
+            if d_raw is None:
+                proxies["Depreciación"].append(int(y))
             d = float(d_raw) if d_raw is not None else max(ebd - eb, abs(ebd) * 0.10)
             cx_raw = capex.get(y)
             # Proxy CAPEX más realista (tech/hardware ~3–4 %; antes 12 % sesgaba FCFF a la baja)
+            if cx_raw is None:
+                proxies["CAPEX"].append(int(y))
             cx = float(cx_raw) if cx_raw is not None else abs(ing) * 0.04
+            if y not in nwc_real:
+                proxies["NWC"].append(int(y))
             if y in nwc_real:
                 nwc = float(nwc_real[y])
             elif nwc_real:
@@ -2311,7 +2335,14 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
             df.attrs["ingreso_participadas"] = float(ingreso_participadas[_ult])
         while len(df) > 3 and abs(float(df["Ingresos"].iloc[-1])) < 1e-9:
             df = df.iloc[:-1]
+        proxies = {k: [a for a in v if a in set(int(i) for i in df.index)] for k, v in proxies.items()}
+        proxies = {k: v for k, v in proxies.items() if v}
+        df.attrs["proxies"] = proxies
+        _almacen_estado().setdefault("proxies_ticker", {})[str(ticker_yf).upper()] = proxies
         extra = f" Omitidos {omitidos}." if omitidos else ""
+        if proxies:
+            extra += (" Partidas proxy/estimadas por regla (no reportadas por Yahoo): "
+                      + "; ".join(f"{k} {', '.join(map(str, v))}" for k, v in proxies.items()) + ".")
         return df, (
             f"Descargado desde Yahoo Finance ({ticker_yf}), {len(df)} años "
             f"({int(df.index.min())}–{int(df.index.max())}). "
@@ -3581,11 +3612,9 @@ def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None)
     try:
         sh = _safe_float(info.get("sharesOutstanding") or info.get("impliedSharesOutstanding"))
         if sh is not None and sh > 0:
-            if sh >= 1e6:
-                return round(sh / 1e6, 4)
-            if sh >= 1e3:
-                return round(sh / 1e3, 4)
-            return round(sh, 4)
+            # Yahoo informa acciones en UNIDADES: siempre se pasan a millones (antes, entre 1.000 y
+            # 1.000.000 se dividía por 1.000 y 500.000 acciones se leían como 500 millones).
+            return round(sh / 1e6, 6)
     except Exception:
         pass
     # marketCap / precio
@@ -3594,7 +3623,7 @@ def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None)
         px = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
         if mcap and px and px > 0:
             sh = mcap / px
-            return round(sh / 1e6, 4) if sh >= 1e6 else round(sh, 4)
+            return round(sh / 1e6, 6)
     except Exception:
         pass
     # Live Yahoo si hay ticker (incluye parseo de "Nombre — TICKER")
@@ -3616,11 +3645,7 @@ def resolver_acciones_millones(nombre_empresa=None, acciones_ui=None, info=None)
                 except Exception:
                     pass
             if sh is not None and sh > 0:
-                if sh >= 1e6:
-                    return round(sh / 1e6, 4)
-                if sh >= 1e3:
-                    return round(sh / 1e3, 4)
-                return round(float(sh), 4)
+                return round(float(sh) / 1e6, 6)
             mcap = _safe_float(inf.get("marketCap"))
             px = _safe_float(inf.get("regularMarketPrice") or inf.get("currentPrice"))
             if (mcap is None or px is None):
@@ -4222,6 +4247,8 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         mcap = float(shares) * _px_info
         p["mcap_fuente"] = "precio × acciones (resumen sin capitalización)"
 
+    p.setdefault("deuda_fuente", "yahoo: totalDebt − totalCash (último trimestre reportado)")
+    p.setdefault("caja_fuente", "yahoo: totalCash (último trimestre reportado)")
     if cash is not None:
         p["caja"] = round(cash / 1e9, 4)
     if total_debt is not None:
@@ -4371,8 +4398,10 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
             pass
     if nci_val is not None:
         p["nci"] = round(abs(float(nci_val)) / 1e9, 4)
+        p.setdefault("nci_fuente", "yahoo: balance (interés minoritario, valor en libros)")
     if asociados_val is not None:
         p["asociados"] = round(abs(float(asociados_val)) / 1e9, 4)
+        p.setdefault("asociados_fuente", "yahoo: balance (inversiones en participadas, valor en libros)")
 
     # D/E solo con cifras de esta empresa
     if total_debt is not None and mcap_fin is not None and mcap_fin > 0:
@@ -4558,6 +4587,13 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["exit_multiple"] = 22.0 if merc == "US" else 10.0
         p["exit_multiple_fuente"] = f"fallback_{merc}"
 
+    # Fechas para la valoración: totalDebt/totalCash de Yahoo corresponden al último trimestre reportado.
+    _fb = _fecha_iso(info.get("mostRecentQuarter"))
+    _fc = _fecha_iso(info.get("lastFiscalYearEnd"))
+    if _fb:
+        p["fecha_balance"] = _fb.isoformat()
+    if _fc:
+        p["fecha_cierre_fiscal"] = _fc.isoformat()
     p["ticker_yf"] = ticker_yf
     p["currency"] = currency or ""
     return p
@@ -5048,7 +5084,13 @@ def cargar_y_limpiar_excel(archivo, nombre_empresa, usar_datos_publicos=True):
             else:
                 _nop = None
             _dfr = df if _nop is None else df.assign(NOPAT=_nop)
-            _roic = roic_observado(_dfr, (params_empresa(nombre_empresa) or {}).get("capital_invertido"))
+            # Capital OPERATIVO (sin asociadas), coherente con un NOPAT que excluye su resultado. Antes se usaba
+            # el capital total y el ROIC del RONIC (12,3 % en ISA) no coincidía con el mostrado (16,5 %).
+            _pp0 = params_empresa(nombre_empresa) or {}
+            _ci0 = float(_pp0.get("capital_invertido") or 0.0)
+            _as0 = float(_pp0.get("asociados") or 0.0)
+            _ci_op = _ci0 - _as0 if 0 <= _as0 < 0.8 * _ci0 else _ci0
+            _roic = roic_observado(_dfr, _ci_op if _ci_op > 0 else None)
             df.attrs["roic_observado"] = _roic
             fijar_roic_referencia(nombre_empresa, _roic)
         except Exception:
@@ -5806,6 +5848,8 @@ VENTAS_CAPITAL_RANGO = (0.10, 10.0)
 # indexadas, parte del crecimiento nominal no exige capital nuevo y la razón ventas/capital histórica lo
 # sobrestima. Queda a decisión del usuario, con el impacto visible.
 REINVERSION_LIGADA_POR_DEFECTO = False
+# Años para que el margen EBITDA pase del último observado al representativo cuando difieren > 2 pp.
+ANIOS_CONVERGENCIA_MARGEN_DEFECTO = 3
 
 
 def ventas_capital_historica(df_hist, capital_invertido=None, anios=3):
@@ -5908,7 +5952,15 @@ def proyectar_por_drivers(df_hist, horizonte=5, tax=0.35, g_convergencia=None, c
     except (ZeroDivisionError, TypeError, ValueError):
         m_ultimo = m_ebitda
     m_obj = float(pal["margen_ebitda"]) if pal.get("margen_ebitda") is not None else m_ebitda
-    n_conv = int(pal.get("anios_convergencia") or 1)
+    if pal.get("anios_convergencia"):
+        n_conv = int(pal["anios_convergencia"])
+    elif abs(m_obj - m_ultimo) > 0.02 and not base_ltm:
+        # Con 3–5 años de histórico, suponer que el margen vuelve a la mediana en el año 1 es una
+        # hipótesis fuerte (ISA: 49,8 % → 59,6 % de un año a otro). Por defecto converge en 3 años;
+        # la narrativa puede fijar otra velocidad (hallazgo C-04).
+        n_conv = int(min(ANIOS_CONVERGENCIA_MARGEN_DEFECTO, max(H, 1)))
+    else:
+        n_conv = 1
     if pal.get("margen_ebitda") is not None:
         fuentes_pal["margen_ebitda"] = "usuario"
     if pal.get("anios_convergencia") is not None:
@@ -6351,7 +6403,8 @@ def procedencia_datos(mensaje_carga, ticker_yf=None, mkt=None):
     }
 
 
-def matriz_sensibilidad_wacc_g(fcff_series, deuda_neta, wacc_base, g_base, deuda_neta_val=None, mid_year=True, g_max_macro=0.05, nopat_final=None):
+def matriz_sensibilidad_wacc_g(fcff_series, deuda_neta, wacc_base, g_base, deuda_neta_val=None, mid_year=True, g_max_macro=0.05, nopat_final=None,
+                               frac_transcurrida=0.0, t_valoracion=0.0):
     """Matriz EV y Equity ante cambios de WACC y g (herramienta de comité)."""
     deuda = float(deuda_neta if deuda_neta_val is None else deuda_neta_val)
     waccs = [max(0.04, wacc_base + dw) for dw in (-0.02, -0.01, 0.0, 0.01, 0.02)]
@@ -6368,7 +6421,8 @@ def matriz_sensibilidad_wacc_g(fcff_series, deuda_neta, wacc_base, g_base, deuda
         row = {"WACC %": round(w * 100, 2)}
         for g in gs:
             # valoracion_dcf aplica el mismo techo (min(g_max_macro, WACC−1pp)) que el caso base
-            val = valoracion_dcf(fcff_series, w, g, deuda_neta=deuda, mid_year=mid_year, g_max_macro=g_max_macro, nopat_final=nopat_final)
+            val = valoracion_dcf(fcff_series, w, g, deuda_neta=deuda, mid_year=mid_year, g_max_macro=g_max_macro, nopat_final=nopat_final,
+                                 frac_transcurrida=frac_transcurrida, t_valoracion=t_valoracion)
             row[f"g={g*100:.1f}% EV"] = round(val["EV"], 1)
         rows.append(row)
     return pd.DataFrame(rows)
@@ -7052,9 +7106,18 @@ def valoracion_dcf(
     nopat_final=None,
     ronic_spread=None,
     deuda_es_bruta=False,
+    frac_transcurrida=0.0,
+    t_valoracion=0.0,
 ):
     """
     DCF profesional sobre FCFF → Enterprise Value → Equity bridge → por acción.
+
+    Fecha de valoración (opcional, en años desde el cierre del último ejercicio):
+      · frac_transcurrida = fracción del primer año proyectado ya transcurrida a la fecha del
+        BALANCE usado en el puente (deuda neta, NCI, asociadas). Ese tramo del FCFF ya está
+        reflejado en la deuda neta, así que solo se cuenta (1 − frac) del primer flujo.
+      · t_valoracion = fecha a la que se expresa el valor (normalmente la del precio).
+    Con ambos en 0 (por defecto) el resultado es idéntico al método anterior: valor al cierre fiscal.
 
     Equity atribuible ≈ EV − deuda_neta − NCI − otros claims + asociados.
     Convención: `deuda_neta` = deuda financiera − caja operativa (ya neta).
@@ -7102,15 +7165,29 @@ def valoracion_dcf(
     if n == 0:
         return empty
 
-    # Factores de descuento (fin de año o mitad de año)
+    try:
+        s0 = float(frac_transcurrida or 0.0)
+        tv_t = float(t_valoracion or 0.0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("La fecha de valoración debe expresarse en años (número).") from exc
+    if not (np.isfinite(s0) and 0.0 <= s0 < 1.0):
+        raise ValueError("La fracción transcurrida del primer año debe estar en [0, 1).")
+    if not (np.isfinite(tv_t) and 0.0 <= tv_t < n):
+        raise ValueError("La fecha de valoración debe caer dentro del horizonte proyectado.")
+    # Flujos: el primer año solo aporta el tramo posterior a la fecha del balance.
+    flujos = list(fcff_series)
+    flujos[0] = flujos[0] * (1.0 - s0)
+    # Momento de cada flujo (años desde el cierre fiscal) y descuento hasta la fecha de valoración.
     if mid_year:
-        dfs = [(1 + wacc) ** -(i + 0.5) for i in range(n)]
-        df_tv = (1 + wacc) ** -(n - 0.5)
+        tiempos = [s0 + (1.0 - s0) / 2.0] + [i + 0.5 for i in range(1, n)]
+        t_tv = n - 0.5
     else:
-        dfs = [(1 + wacc) ** -(i + 1) for i in range(n)]
-        df_tv = (1 + wacc) ** -n
+        tiempos = [1.0] + [i + 1.0 for i in range(1, n)]
+        t_tv = float(n)
+    dfs = [(1 + wacc) ** -(t - tv_t) for t in tiempos]
+    df_tv = (1 + wacc) ** -(t_tv - tv_t)
 
-    pv_fcff = sum(f * d for f, d in zip(fcff_series, dfs))
+    pv_fcff = sum(f * d for f, d in zip(flujos, dfs))
 
     # Terminal Gordon: no sustituir un FCFF final negativo por un promedio histórico
     # positivo. Esa heurística puede inflar materialmente el valor terminal y ocultar
@@ -7164,7 +7241,7 @@ def valoracion_dcf(
         # El múltiplo EV/EBITDA es un precio de mercado observado al CIERRE del año N:
         # se descuenta N años completos aunque los flujos usen mitad de año
         # (descontarlo N−0,5 sobrevaloraba el escenario de salida ≈ ½·WACC).
-        pv_tv_exit = tv_exit * (1 + wacc) ** -n
+        pv_tv_exit = tv_exit * (1 + wacc) ** -(n - tv_t)
         ev_exit = pv_fcff + pv_tv_exit
 
     # Caso base explícito: Gordon. Exit multiple queda separado para comparación.
@@ -7213,6 +7290,10 @@ def valoracion_dcf(
         "WACC": wacc,
         "deuda_es_bruta": bool(deuda_es_bruta),
     }
+    if s0 or tv_t:
+        bridge["Nota fecha"] = (
+            f"Valor expresado {tv_t:.2f} años después del cierre fiscal; el primer año proyectado cuenta solo el "
+            f"{(1 - s0) * 100:.0f} % posterior a la fecha del balance del puente (lo anterior ya está en la deuda neta).")
     # Solo listar caja en el puente si se sumó (deuda bruta). Si deuda ya es neta, anotar.
     if deuda_es_bruta:
         # Insertar caja después de deuda neta en el dict ordenado
@@ -7277,6 +7358,8 @@ def valoracion_dcf(
         "acciones": acciones_out,
         "precio_mercado": precio_mercado,
         "nota_vps": _vu.get("nota_vps"),
+        "frac_transcurrida": s0,
+        "t_valoracion": tv_t,
     }
 
 
@@ -7389,7 +7472,80 @@ def valorar_con_bridge(fcff_series, wacc, g, bridge_params, ebitda_salida=None, 
         g_max_macro=g_max_macro,
         nopat_final=nopat_final,
         deuda_es_bruta=bool(bp.get("deuda_es_bruta", False)),
+        frac_transcurrida=float(bp.get("frac_transcurrida") or 0.0),
+        t_valoracion=float(bp.get("t_valoracion") or 0.0),
     )
+
+
+def _fecha_iso(x):
+    """Fecha ISO (YYYY-MM-DD) desde texto ISO o epoch de Yahoo; None si no es interpretable."""
+    if x is None or x == "":
+        return None
+    try:
+        if isinstance(x, (int, float)) and np.isfinite(float(x)) and float(x) > 1e8:
+            return datetime.utcfromtimestamp(float(x)).date()
+        return datetime.fromisoformat(str(x)[:10]).date()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def calendario_valoracion(nombre_empresa=None, params=None, df_hist=None, hoy=None):
+    """Fecha de valoración coherente entre flujos, puente y precio (hallazgo C-03 de la auditoría).
+
+    Devuelve {"frac_transcurrida", "t_valoracion", "fecha_cierre", "fecha_balance", "fecha_valoracion", "nota"}:
+      · fecha_cierre: cierre del último ejercicio histórico (los flujos proyectados empiezan ahí);
+      · fecha_balance: fecha de la deuda neta, NCI y asociadas del puente;
+      · fecha_valoracion: hoy (fecha del precio de mercado con el que se compara el valor).
+    Sin fecha de cierre identificable devuelve ceros (método anterior: valor al cierre fiscal).
+    """
+    p = dict(params or {})
+    if not p and nombre_empresa:
+        try:
+            p = dict(params_empresa(nombre_empresa) or {})
+        except Exception:
+            p = {}
+    hoy = hoy or datetime.now().date()
+    cierre = _fecha_iso(p.get("fecha_cierre_fiscal"))
+    if cierre is None and df_hist is not None and len(getattr(df_hist, "index", [])):
+        try:
+            cierre = datetime(int(max(df_hist.index)), 12, 31).date()
+        except (TypeError, ValueError):
+            cierre = None
+    out = {"frac_transcurrida": 0.0, "t_valoracion": 0.0, "fecha_cierre": None, "fecha_balance": None,
+           "fecha_valoracion": None, "nota": "Sin fecha de cierre identificable: valor expresado al cierre fiscal."}
+    if cierre is None:
+        return out
+    balance = _fecha_iso(p.get("fecha_balance")) or cierre
+    avisos = []
+    if balance < cierre:
+        avisos.append(f"el puente es del {balance.isoformat()}, anterior al cierre {cierre.isoformat()}: "
+                      "actualiza deuda neta, NCI y asociadas")
+        balance = cierre
+    s0 = (balance - cierre).days / 365.25
+    tv = (hoy - cierre).days / 365.25
+    if s0 >= 1.0 or tv >= 1.0:
+        avisos.append("el último ejercicio histórico tiene más de un año: el primer año proyectado ya pasó; "
+                      "carga el ejercicio más reciente")
+    s0 = float(min(max(s0, 0.0), 0.95))
+    tv = float(min(max(tv, s0), 0.95))
+    out.update({
+        "frac_transcurrida": round(s0, 4), "t_valoracion": round(tv, 4),
+        "fecha_cierre": cierre.isoformat(), "fecha_balance": balance.isoformat(), "fecha_valoracion": hoy.isoformat(),
+        "nota": (f"Flujos desde el cierre {cierre.isoformat()}; puente al {balance.isoformat()} (se descuenta el "
+                 f"{s0 * 100:.0f} % del primer año ya reflejado en la deuda); valor expresado al {hoy.isoformat()}, "
+                 "fecha del precio de mercado." + (" Aviso: " + "; ".join(avisos) + "." if avisos else "")),
+    })
+    return out
+
+
+def bridge_con_fechas(bp, nombre_empresa=None, df_hist=None, params=None):
+    """Añade al puente la fecha de valoración (frac_transcurrida, t_valoracion) y su nota."""
+    cal = calendario_valoracion(nombre_empresa, params=params, df_hist=df_hist)
+    bp = dict(bp or {})
+    bp["frac_transcurrida"] = cal["frac_transcurrida"]
+    bp["t_valoracion"] = cal["t_valoracion"]
+    bp["calendario"] = cal
+    return bp
 
 
 def wacc_implicito_mercado(fcff_series, g, bridge_params, precio_objetivo, mid_year=True,
@@ -7641,6 +7797,18 @@ SHOCKS_ESCENARIOS = {
     "Optimista": {"g_ingresos": 1.08, "margen_ebitda": 1.06, "capex_factor": 0.92, "nwc_factor": 0.95},
 }
 FACTOR_RESPALDO_ESCENARIO = {"Pesimista": 0.75, "Base": 1.0, "Optimista": 1.25}
+
+
+def wacc_optimista(wacc, g_opt=None):
+    """WACC del escenario optimista: 1 pp menos que el base, con un margen mínimo de 1,5 pp sobre g.
+
+    Antes era max(WACC − 1 pp; 6 %): con un WACC base < 7 % el optimista no bajaba 1 pp y con < 6 %
+    quedaba POR ENCIMA del base (hallazgo M-01).
+    """
+    w = float(wacc) - 0.01
+    if g_opt is not None:
+        w = max(w, float(g_opt) + 0.015)
+    return min(w, float(wacc))
 
 
 def insumos_escenario(df_proj, nombre, tax=0.35):
@@ -9889,10 +10057,11 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
         for nombre, fac, g_e, w_adj in [
             ("Pesimista", 0.75, g_pes, wacc + 0.015),
             ("Base", 1.00, float(g), wacc),
-            ("Optimista", 1.25, g_opt, max(wacc - 0.01, 0.06)),
+            ("Optimista", 1.25, g_opt, wacc_optimista(wacc, g_opt)),
         ]:
             acc_res = resolver_acciones_millones(nombre_empresa, acciones)
-            bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res, exit_multiple)
+            bp = bridge_con_fechas(params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res,
+                                                          exit_multiple), nombre_empresa, df_hist)
             try:
                 _emp2 = resolver_empresa(nombre_empresa) or {}
                 if (_emp2.get("params") or {}).get("deuda_es_bruta"):
@@ -9965,7 +10134,8 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
                 if eq > 0 and ev > 0:
                     veredicto = (
                         f"Aunque todo lo que pudiera salir mal saliera mal "
-                        f"(flujos 25% más bajos, crecimiento de largo plazo más flojo y dinero más caro), "
+                        f"(ingresos 10 % por debajo, margen EBITDA 8 % menor, CAPEX +15 %, más capital de trabajo, "
+                        f"crecimiento de largo plazo más flojo y dinero más caro), "
                         f"la empresa <b>todavía tendría valor positivo</b>: "
                         f"EV ≈ {ev:,.0f} y para los dueños ≈ {eq:,.0f} miles de millones (moneda del emisor). "
                         f"Eso sugiere un <b>colchón de resiliencia</b>."
@@ -9983,13 +10153,14 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
                         f"Si todo sale mal, <b>no habría un rendimiento atractivo</b> bajo estos supuestos."
                     )
                 supuesto = (
-                    "Flujos de caja libres al 75% de lo esperado, crecimiento a largo plazo un punto más bajo "
-                    f"y WACC más alto ({w_adj*100:.2f}%). Es el “si todo lo malo ocurre a la vez”."
+                    "Ingresos ×0,90, margen EBITDA ×0,92, CAPEX ×1,15 y ΔNWC ×1,10 sobre la proyección base "
+                    f"(SHOCKS_ESCENARIOS), crecimiento a largo plazo un punto más bajo y WACC más alto ({w_adj*100:.2f}%). "
+                    "Es el “si todo lo malo ocurre a la vez”."
                 )
             elif nombre == "Base":
                 if eq > 0:
                     veredicto = (
-                        f"Es el futuro <b>más probable</b> con los supuestos actuales. "
+                        f"Es el escenario <b>central</b> con los supuestos actuales (no una probabilidad calculada). "
                         f"La empresa valdría cerca de {ev:,.0f} en total y unos {eq:,.0f} para los dueños. "
                         f"Sirve como <b>punto de referencia</b> para comparar el pesimista y el optimista."
                     )
@@ -10004,13 +10175,13 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
                 )
             else:  # Optimista
                 veredicto = (
-                    f"Si las cosas salen mejor de lo esperado (flujos 25% más altos, un poco más de crecimiento "
+                    f"Si las cosas salen mejor de lo esperado (ingresos +8 %, margen EBITDA +6 %, CAPEX −8 %, un poco más de crecimiento "
                     f"y dinero un poco más barato), el valor sube a EV ≈ {ev:,.0f} y Equity ≈ {eq:,.0f}. "
                     f"Muestra el <b>potencial al alza</b>, no una promesa."
                 )
                 supuesto = (
-                    "Flujos al 125% de lo esperado, crecimiento de largo plazo un punto más alto "
-                    f"y WACC más bajo ({w_adj*100:.2f}%)."
+                    "Ingresos ×1,08, margen EBITDA ×1,06, CAPEX ×0,92 y ΔNWC ×0,95 sobre la proyección base, "
+                    f"crecimiento de largo plazo un punto más alto y WACC más bajo ({w_adj*100:.2f}%)."
                 )
             return f"""
 <div style="background:#151C2C;border:1px solid #243044;border-left:5px solid {tono};
@@ -10029,7 +10200,7 @@ def tab2_simulacion_politicas(nombre_empresa, archivo, horizonte, de_ratio, kd, 
         bloque_escenarios = (
             lectura_escenario("Pesimista", p, 0.75, p["g"], wacc + 0.015, "#DC2626")
             + lectura_escenario("Base", b, 1.00, b["g"], wacc, "#1D4ED8")
-            + lectura_escenario("Optimista", o, 1.25, o["g"], max(wacc - 0.01, 0.06), "#059669")
+            + lectura_escenario("Optimista", o, 1.25, o["g"], wacc_optimista(wacc, g_opt), "#059669")
         )
 
         # Mensaje de margen de seguridad
@@ -10115,7 +10286,9 @@ def tab3_auditoria_teorica(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         wacc, we, wd = calcular_wacc(de_ratio, kd, ke, tax)
         nopat_prom = float(df_proj["NOPAT"].mean())
         try:
-            roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
+            _roic_h = (getattr(df_hist, "attrs", {}) or {}).get("roic_observado")
+            roic = (float(_roic_h) if _roic_h is not None and np.isfinite(float(_roic_h)) else
+                    float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom))
         except (TypeError, ValueError, ZeroDivisionError):
             roic = float("nan")
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(), df_proj["Delta_NWC"].mean(), nopat_prom)
@@ -10204,7 +10377,8 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         ke = costo_equity_capm(beta_l, rf=rf, erp=erp, crp=crp)
         wacc, _, _ = calcular_wacc(de_ratio, kd, ke, tax)
         acc_res = resolver_acciones_millones(nombre_empresa, acciones)
-        bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res, exit_multiple)
+        bp = bridge_con_fechas(params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res,
+                                                      exit_multiple), nombre_empresa, df_hist)
         try:
             _emp4 = resolver_empresa(nombre_empresa) or {}
             if (_emp4.get("params") or {}).get("deuda_es_bruta"):
@@ -10226,7 +10400,10 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         # balance (frecuente en descargas Yahoo) el ROIC es N/D: antes calcular_roic
         # lanzaba una excepción y la pestaña 4 completa fallaba (caso XOM).
         try:
-            roic = float(df_proj["NOPAT"].mean()) / capital_base_roic(capital_invertido, df_proj["NOPAT"].mean())
+            # Misma definición que usa el valor terminal (RONIC): NOPAT histórico mediano / capital operativo.
+            _roic_h = (getattr(df_hist, "attrs", {}) or {}).get("roic_observado")
+            roic = (float(_roic_h) if _roic_h is not None and np.isfinite(float(_roic_h)) else
+                    float(df_proj["NOPAT"].mean()) / capital_base_roic(capital_invertido, df_proj["NOPAT"].mean()))
         except (TypeError, ValueError, ZeroDivisionError):
             roic = float("nan")
         roic_ok = bool(np.isfinite(roic))
@@ -10405,7 +10582,9 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
         soportes_html = "".join(f"<li style='color:#6EE7B7'>{s}</li>" for s in motor["soportes"]) or "<li>Sin soportes destacados</li>"
 
         try:
-            sens = matriz_sensibilidad_wacc_g(df_proj["FCFF"].values, deuda_neta, wacc, float(g), mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj))
+            sens = matriz_sensibilidad_wacc_g(df_proj["FCFF"].values, deuda_neta, wacc, float(g), mid_year=bool(mid_year), g_max_macro=float(g_max_macro), nopat_final=_nopat_final(df_proj),
+                                              frac_transcurrida=float(bp.get("frac_transcurrida") or 0.0),
+                                              t_valoracion=float(bp.get("t_valoracion") or 0.0))
             sens_html = sens.to_html(index=False, na_rep="—")
             sens_html = sens_html.replace(
                 '<table',
@@ -11271,21 +11450,30 @@ ESTADOS_DATO = {
     "ESTIMADO": "sustituto o regla del modelo: leer con su sensibilidad",
     "USUARIO": "escrito o cargado por el usuario",
     "FALTANTE": "no disponible: no se reemplaza por cero en silencio",
+    "SIN FUENTE": "hay un valor pero no una procedencia identificada: verificar antes de usar",
 }
 
 
-def _estado_por_fuente(fuente, por_defecto="OBSERVADO"):
+def _estado_por_fuente(fuente, por_defecto="SIN FUENTE"):
+    """Estado de un dato según su fuente declarada.
+
+    Sin fuente declarada el estado es «SIN FUENTE» (antes «OBSERVADO»: el informe rotulaba como observados
+    datos sin procedencia; hallazgo C-01). Un supuesto o una cifra provisional es ESTIMADO aunque venga del
+    catálogo.
+    """
     f = str(fuente or "").lower()
-    if not f:
+    if not f or f in ("n/d", "none"):
         return por_defecto
     if any(k in f for k in ("hoja parámetros", "usuario", "archivo", "excel")):
         return "USUARIO"
+    if any(k in f for k in ("proxy", "supuest", "provisional", "no_validado", "no validado", "estimad", "sustitut")):
+        return "ESTIMADO"
     if f.startswith("yahoo") or f.startswith("estados_financieros") or f == "sharesoutstanding":
         return "OBSERVADO"  # dato de Yahoo, aunque la fuente cite una referencia adicional
     if any(k in f for k in ("catálogo", "catalogo", "curad")):
         return "CURADO"
-    if any(k in f for k in ("proxy", "bottom-up", "industria", "estatutaria", "default", "balance anual",
-                            "regla", "spread", "inferid", "trimestres", "precio ×", "supuest")):
+    if any(k in f for k in ("bottom-up", "industria", "estatutaria", "default", "balance anual",
+                            "regla", "spread", "inferid", "trimestres", "precio ×", "derivad")):
         return "ESTIMADO"
     return "OBSERVADO"
 
@@ -11336,13 +11524,23 @@ def calidad_variables(nombre_empresa, usados=None):
     elif est_f.get("fuente") == "sin_datos":
         filas.append(["Estados financieros", "", "FALTANTE", "sin serie: cargar estados financieros"])
     else:
-        filas.append(["Estados financieros", "", "OBSERVADO", p.get("fuente") or "Yahoo Finance"])
+        filas.append(["Estados financieros", "", "SIN FUENTE" if not p.get("fuente") else "OBSERVADO",
+                      p.get("fuente") or "origen no identificado: verificar en la pestaña 1"])
+    try:
+        _tk_pr = str(ticker_yf_empresa(nombre_empresa) or "").upper()
+    except Exception:
+        _tk_pr = ""
+    _prox = ((_almacen_estado().get("proxies_ticker") or {}).get(_tk_pr) or {}) if est_f.get("fuente") == "yahoo" or origen == "derivado_desde_cero" else {}
+    for _var, _anios in (_prox or {}).items():
+        if _anios:
+            filas.append([f"{_var} histórico", ", ".join(str(a) for a in _anios), "ESTIMADO",
+                          "sustituto por regla (Yahoo no reportó la partida en esos años)"])
 
     dn = u.get("deuda_neta", p.get("deuda_neta"))
     de = u.get("de_ratio", p.get("de_ratio"))
-    fila("Deuda neta", "deuda_neta", _fmt_monto(dn), p.get("deuda_fuente") or "Yahoo Finance (totalDebt − totalCash)",
+    fila("Deuda neta", "deuda_neta", _fmt_monto(dn), p.get("deuda_fuente") or "N/D",
          faltante=(dn is not None and abs(float(dn)) < 1e-9 and float(de or 0) > 0.2))
-    fila("Caja", "caja", _fmt_monto(u.get("caja", p.get("caja"))), p.get("caja_fuente") or "Yahoo Finance (totalCash)")
+    fila("Caja", "caja", _fmt_monto(u.get("caja", p.get("caja"))), p.get("caja_fuente") or "N/D")
     acc = u.get("acciones", p.get("acciones"))
     fila("Acciones (millones)", "acciones", _fmt_monto(acc), p.get("acciones_fuente") or "N/D", faltante=not acc)
     _det = str(est_f.get("detalle") or "")
@@ -11353,7 +11551,7 @@ def calidad_variables(nombre_empresa, usados=None):
             return p[f"{k}_fuente"]
         if _de_cat and k in _det:
             return "catálogo curado (Yahoo no lo reporta)"
-        return "catálogo curado" if est_f.get("fuente") == "curado" else "Yahoo Finance (balance)"
+        return "catálogo curado" if est_f.get("fuente") == "curado" else "N/D"
     fila("Interés minoritario", "nci", _fmt_monto(u.get("nci", p.get("nci"))), _fuente_puente("nci"))
     sdp = suma_partes_sesion(nombre_empresa)
     if sdp:
@@ -11369,8 +11567,11 @@ def calidad_variables(nombre_empresa, usados=None):
     mon = str(p.get("moneda") or "").upper()
     tm = TASAS_MERCADO.get("co_rf_bruto" if mon == "COP" else "us_rf") or {}
     venc = [a for a in tasas_vigencia() if ("TES" in a if mon == "COP" else "Tesoro" in a)]
-    filas.append(["Tasa libre de riesgo", _pct_txt(u.get("rf")), "USUARIO" if u.get("rf_editada") else "OBSERVADO",
-                  f"{tm.get('fuente', 'N/D')} · {tm.get('fecha', '')}" + (" · desactualizada" if venc else "")])
+    _rf_der = CAPM_POR_MERCADO.get("CO", {}).get("rf_fuente") if mon == "COP" else None
+    filas.append(["Tasa libre de riesgo", _pct_txt(u.get("rf")),
+                  "USUARIO" if u.get("rf_editada") else ("ESTIMADO" if _rf_der else "OBSERVADO"),
+                  (f"derivada: {_rf_der} · TES: " if _rf_der else "")
+                  + f"{tm.get('fuente', 'N/D')} · {tm.get('fecha', '')}" + (" · desactualizada" if venc else "")])
     crp = float(u.get("crp") or 0)
     filas.append(["Primas ERP / CRP", f"{_pct_txt(u.get('erp'))} / {_pct_txt(crp)}",
                   "USUARIO" if u.get("erp_editada") else "OBSERVADO",
@@ -11908,7 +12109,8 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         g_pes = max(0.005, float(g) - 0.01)
         g_opt = min(float(g) + 0.01, wacc - 0.005) if wacc > 0.02 else float(g)
         acc_res = resolver_acciones_millones(nombre_empresa, acciones)
-        bp = params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res, exit_multiple)
+        bp = bridge_con_fechas(params_bridge_desde_ui(deuda_neta, caja, nci, otros_claims, asociados, acc_res,
+                                                      exit_multiple), nombre_empresa, df_hist)
         emp_sel = resolver_empresa(nombre_empresa) or {}
         try:
             if (emp_sel.get("params") or {}).get("deuda_es_bruta"):
@@ -11921,7 +12123,7 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         for nombre, fac, g_e, w_adj in [
             ("Pesimista", 0.75, g_pes, wacc + 0.015),
             ("Base", 1.00, float(g), wacc),
-            ("Optimista", 1.25, g_opt, max(wacc - 0.01, 0.06)),
+            ("Optimista", 1.25, g_opt, wacc_optimista(wacc, g_opt)),
         ]:
             # Mismos escenarios que la pestaña 2 (shocks de drivers); el base es la proyección de la pestaña 4.
             if nombre == "Base":
@@ -11950,7 +12152,9 @@ def tab7_informe_ejecutivo(nombre_empresa, archivo, horizonte, de_ratio, kd, tax
         # ROIC / auditoría
         nopat_prom = df_proj["NOPAT"].mean()
         try:
-            roic = float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom)
+            _roic_h = (getattr(df_hist, "attrs", {}) or {}).get("roic_observado")
+            roic = (float(_roic_h) if _roic_h is not None and np.isfinite(float(_roic_h)) else
+                    float(nopat_prom) / capital_base_roic(capital_invertido, nopat_prom))
         except (TypeError, ValueError, ZeroDivisionError):
             roic = float("nan")
         reinv = tasa_reinversion(df_proj["CAPEX"].mean(), df_proj["Depreciacion"].mean(),

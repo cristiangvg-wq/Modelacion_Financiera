@@ -14,11 +14,18 @@ def valoracion_por_multiplos(
     multiples_comparables,
     deuda_neta: float = 0.0,
     acciones_millones: float | None = None,
+    nci: float = 0.0,
+    asociados: float = 0.0,
+    otros_claims: float = 0.0,
 ) -> dict:
     """Value enterprise and equity from the median EV/EBITDA of valid comparables.
 
     Monetary units for EBITDA, EV and net debt must match. If monetary values are in
     billions and shares are in millions, equity/share = equity * 1,000 / shares.
+
+    Equity uses the SAME bridge as the DCF: EV − net debt − NCI − other claims + associates.
+    (Before, only net debt was subtracted; for ISA that overstated value by ≈ 9,500 COP/share.)
+    A negative equity gives a value per share of 0 (limited liability), as in the DCF.
     """
     try:
         ebitda = float(ebitda_objetivo)
@@ -29,6 +36,12 @@ def valoracion_por_multiplos(
         raise ValueError("El EBITDA objetivo debe ser positivo y finito.")
     if not math.isfinite(deuda):
         raise ValueError("La deuda neta debe ser finita.")
+    try:
+        nci_v, aso_v, otros_v = float(nci or 0.0), float(asociados or 0.0), float(otros_claims or 0.0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("NCI, asociadas y otros derechos deben ser numéricos.") from exc
+    if not all(math.isfinite(x) for x in (nci_v, aso_v, otros_v)) or min(nci_v, aso_v, otros_v) < 0:
+        raise ValueError("NCI, asociadas y otros derechos deben ser finitos y no negativos.")
 
     if multiples_comparables is None:
         valores_entrada = []
@@ -54,7 +67,7 @@ def valoracion_por_multiplos(
     valid.sort()
     mult_med = float(median(valid))
     ev = ebitda * mult_med
-    equity = ev - deuda
+    equity = ev - deuda - nci_v - otros_v + aso_v
     shares = None
     if acciones_millones not in (None, ""):
         try:
@@ -63,14 +76,22 @@ def valoracion_por_multiplos(
             raise ValueError("Las acciones en circulación deben ser numéricas.") from exc
         if not math.isfinite(shares) or shares <= 0:
             raise ValueError("Las acciones en circulación deben ser positivas.")
-    per_share = equity * 1000.0 / shares if shares is not None else None
+    per_share = max(equity, 0.0) * 1000.0 / shares if shares is not None else None
     if not math.isfinite(ev) or not math.isfinite(equity) or (
         per_share is not None and not math.isfinite(per_share)
     ):
         raise ValueError("La valoración genera resultados no finitos; revisa EBITDA, múltiplos y unidades.")
     q1 = float(valid[(len(valid) - 1) // 4]) if len(valid) < 4 else _percentile(valid, 0.25)
     q3 = float(valid[(3 * (len(valid) - 1)) // 4]) if len(valid) < 4 else _percentile(valid, 0.75)
+
+    def _vps(mult):
+        eq = ebitda * mult - deuda - nci_v - otros_v + aso_v
+        return max(eq, 0.0) * 1000.0 / shares if shares is not None else None
+
     return {
+        "puente": {"deuda_neta": deuda, "nci": nci_v, "otros_claims": otros_v, "asociados": aso_v},
+        "valor_por_accion_q1": _vps(q1),
+        "valor_por_accion_q3": _vps(q3),
         "multiple_mediano": mult_med,
         "enterprise_value": ev,
         "equity_value": equity,
