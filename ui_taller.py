@@ -156,24 +156,41 @@ def _bloque_a(r, cur):
     base = r["evals"]["Base"]
     v = base["valuation"]
     st.markdown("#### Bloque A · Pronóstico base")
-    st.markdown(
+    app = bool(isa.get("proyeccion_base"))
+    if app:
+        st.markdown(
+            "**Método (T1): drivers robustos del modelo principal (mismos de las pestañas 1–7).** Crecimiento de ingresos "
+            "por mediana robusta de las variaciones históricas que converge al crecimiento nominal de largo plazo; margen "
+            "EBITDA representativo (mediana robusta) al que el último año converge en 3 años; CAPEX y capital de trabajo "
+            "ligados a ingresos. Para las políticas, el CAPEX se separa en mantenimiento (≈ D&A) y expansión (ligada al "
+            "aumento de ingresos). Valor terminal y descuento: los mismos de las pestañas 2–7 (valor-conductor con RONIC, "
+            "mitad de año, fecha de valoración). ETS/ARIMA quedan como comparativos en la pestaña 1: con 3–5 años de "
+            "historia darían falsa precisión."
+        )
+    else:
+        st.markdown(
         "**Método (T1): drivers deterministas.** Ingresos con crecimiento compuesto calibrado con el histórico; costos vía "
         "margen EBIT; reinversión separada en mantenimiento (∝ ingresos) y expansión (∝ aumento de ingresos), de modo que "
         "más ventas exigen más CAPEX y más capital de trabajo. Con 3–5 observaciones anuales, una regresión o un ARIMA "
         "darían falsa precisión; la incertidumbre se trata con escenarios, sensibilidad y Monte Carlo."
-    )
+        )
     h = pd.DataFrame(isa["history"]).set_index("Año")
     with st.expander("Datos históricos usados (miles de millones)", expanded=False):
         st.dataframe(h.style.format("{:,.0f}"), width="stretch")
         st.caption(f"Fuente: {isa.get('fuente_historico') or 'N/D'}")
     drv = pd.DataFrame([
         ["Crecimiento de ingresos", _pct(d["growth"], 2), d["growth_formula"]],
-        ["Margen EBIT (último año)", _pct(d["ebit_margin"], 2), f"EBIT/Ingresos {isa['history'][-1]['Año']}; "
-                                                              f"promedio histórico {_pct(d['ebit_margin_avg'], 2)}"],
-        ["D&A / ingresos", _pct(d["da_ratio"], 2), "Último año"],
+        (["Margen EBIT (promedio proyectado)", _pct(d["ebit_margin"], 2),
+          "ruta: " + " → ".join(f"{x * 100:.1f} %" for x in d.get("ebit_margin_path") or [])
+          + f"; promedio histórico {_pct(d['ebit_margin_avg'], 2)}"] if app else
+         ["Margen EBIT (último año)", _pct(d["ebit_margin"], 2), f"EBIT/Ingresos {isa['history'][-1]['Año']}; "
+                                                               f"promedio histórico {_pct(d['ebit_margin_avg'], 2)}"]),
+        ["D&A / ingresos", _pct(d["da_ratio"], 2), "Promedio de la proyección base" if app else "Último año"],
         ["CAPEX de mantenimiento / ingresos", _pct(d["maint_capex_ratio"], 2), "≈ D&A / ingresos (repone el desgaste)"],
-        ["Intensidad CAPEX de expansión", f"{d['capex_intensity']:.2f}", "(CAPEX − D&A) / ΔIngresos, años comparables"],
-        ["Capital de trabajo / ingresos", _pct(d["nwc_ratio"], 2), "Último año"],
+        ["Intensidad CAPEX de expansión", f"{d['capex_intensity']:.2f}",
+         "(CAPEX − mantenimiento) / ΔIngresos de la proyección base" if app else "(CAPEX − D&A) / ΔIngresos, años comparables"],
+        (["Capital de trabajo / ΔIngresos", _pct(d["nwc_ratio"], 2), "Coeficiente marginal del modelo (ΔNWC = coef. × ΔIngresos)"]
+         if app else ["Capital de trabajo / ingresos", _pct(d["nwc_ratio"], 2), "Último año"]),
         ["WACC (CAPM)", _pct(c["wacc"], 2), f"Ke {_pct(c['ke'], 2)} · Kd después de impuestos {_pct(c['kd_despues_imp'], 2)} "
                                             f"· pesos E/D {_pct(c['we'], 0)}/{_pct(c['wd'], 0)} · β apalancada {c['beta_l']:.2f}"],
         ["g terminal", _pct(isa["capital"]["g_terminal"], 2), isa["capital"].get("fuente_g_terminal") or "Supuesto"],
@@ -187,7 +204,10 @@ def _bloque_a(r, cur):
                  "depreciacion": "D&A", "capex": "CAPEX", "delta_nwc": "ΔNWC", "fcff": "FCFF"})
     st.dataframe(show.style.format({c_: "{:,.0f}" for c_ in show.columns if c_ not in ("Año", "Margen EBIT")}
                                    | {"Margen EBIT": "{:.1%}"}), hide_index=True, width="stretch")
-    st.caption("FCFF = NOPAT + D&A − CAPEX − ΔNWC · NOPAT = EBIT × (1 − t) · valor terminal = FCFF terminal / (WACC − g).")
+    st.caption("FCFF = NOPAT + D&A − CAPEX − ΔNWC · NOPAT = EBIT × (1 − t) · "
+               + ("valor terminal = NOPAT terminal × (1 − g/RONIC) / (WACC − g); la fila terminal muestra ese flujo "
+                  "normalizado (reinversión = g/RONIC del NOPAT)." if app else
+                  "valor terminal = FCFF terminal / (WACC − g)."))
     precio = isa["mercado"]["precio_ref"]
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Valor por acción (Base)", f"{_n0(v['valor_por_accion'])} {cur}",
@@ -200,11 +220,36 @@ def _bloque_a(r, cur):
     fe = isa.get("fechas") or {}
     if fe.get("nota"):
         st.caption("📅 " + fe["nota"])
+    if app:
+        st.caption(f"Valor terminal: {v.get('metodo_vt') or 'valor-conductor'} · g usada {_pct(v.get('g_usada'), 2)} · "
+                   f"RONIC {_pct(v.get('ronic'), 2)}. Es el mismo cálculo de la pestaña 4 con la misma proyección.")
+        _conciliar_con_pestana4(r, cur)
     if v["vpn_inversionista"] < 0:
         st.info("Lectura: con los supuestos base, comprar la empresa al precio actual tiene VPN negativo (TIR implícita < WACC): "
                 "el mercado paga más de lo que justifican estos flujos al costo de capital del modelo.")
     else:
         st.info("Lectura: con los supuestos base el VPN de comprar al precio actual es positivo (TIR implícita > WACC).")
+
+
+def _conciliar_con_pestana4(r, cur):
+    """Comprueba que el escenario Base del taller coincide con la última corrida de la pestaña 4."""
+    try:
+        import modelacion_logic as L
+        m = L.metricas_valoracion_sesion(r["isa"]["empresa"])
+    except Exception:
+        m = None
+    vb = r["evals"]["Base"]["valuation"]["valor_por_accion"]
+    if not m or m.get("vps_modelo") is None:
+        st.caption("Conciliación con la pestaña 4: pulsa **Generar todo** para compararlas.")
+        return
+    v4 = float(m["vps_modelo"])
+    dif = vb / v4 - 1 if v4 else float("nan")
+    texto = (f"Pestaña 4: {v4:,.0f} {cur}/acción · pestaña 10 (Base): {vb:,.0f} · diferencia {dif * 100:+.2f} %")
+    if abs(dif) <= 0.005:
+        st.success("✔ Conciliado con la pestaña 4. " + texto)
+    else:
+        st.warning("Diferencia con la pestaña 4: " + texto + ". Suele deberse a que el precio o la fecha de valoración "
+                   "cambiaron entre corridas, o a que la pestaña 4 no se volvió a generar tras cambiar supuestos.")
 
 
 def _bloque_b(r, cur, T):
@@ -232,6 +277,10 @@ def _bloque_b(r, cur, T):
     st.dataframe(res, hide_index=True, width="stretch")
     st.caption("Coherencia entre variables: más crecimiento aumenta automáticamente el CAPEX de expansión y la inversión en "
                "capital de trabajo; los escenarios de tasas altas combinan más WACC con menor g terminal.")
+    if r["isa"].get("proyeccion_base"):
+        st.caption("Relación con la pestaña 2: el Base es idéntico y los choques de WACC y g son los mismos (pesimista "
+                   "+1,5 pp / −1 pp; optimista −1 pp / +1 pp con techo). Los choques operativos difieren a propósito: aquí "
+                   "se ligan entre sí, como exige el taller, mientras la pestaña 2 multiplica cada partida por separado.")
     try:
         import plotly.graph_objects as go
         fig = go.Figure()
@@ -406,10 +455,12 @@ def render(T, datos_app_fn, ctx):
     st.markdown("### Taller evaluativo 2026 · pronóstico → escenarios → políticas → decisión")
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
-        fuente = st.radio("Datos", ["Instantánea del taller (ISA, reproducible)", "Modelo de la app (empresa y supuestos actuales)"],
+        fuente = st.radio("Datos", ["Modelo de la app (empresa y supuestos actuales)",
+                                    "Instantánea del modelo (ISA, valores por defecto, reproducible)"],
                           horizontal=True, key="t10_fuente",
-                          help="La instantánea usa datos_taller_isa_2026.json (corte y fuentes documentados). La opción de la "
-                               "app usa el histórico de la pestaña 1 y la barra lateral.")
+                          help="Ambas usan la proyección y la valoración de las pestañas 2–7. «Modelo de la app» toma la "
+                               "empresa y la barra lateral actuales; la instantánea congela los valores por defecto de ISA "
+                               "(datos_taller_isa_2026.json) para que el informe sea reproducible.")
     with c2:
         camino = st.selectbox("Camino del taller", ["Evaluación empresarial"], key="t10_camino",
                               help="El modelo implementa el camino de evaluación empresarial (Bloque D).")

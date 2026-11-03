@@ -367,7 +367,7 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
     h0, h1 = isa["history"][0]["Año"], isa["history"][-1]["Año"]
     S += [Paragraph("1. Resumen ejecutivo", st["h1"]),
           Paragraph(
-              f"Se proyectó el FCFF de {ticker} para {FORECAST_YEARS[0]}–{FORECAST_YEARS[-1]} con un modelo de drivers calibrado con los estados financieros "
+              f"Se proyectó el FCFF de {ticker} para {r['metadata']['horizonte'][0]}–{r['metadata']['horizonte'][1]} con un modelo de drivers calibrado con los estados financieros "
               f"{h0}–{h1}, un WACC por CAPM de {pct(c['wacc'])} y crecimiento terminal de {pct(isa['capital']['g_terminal'])}. "
               f"En el escenario Base el valor del patrimonio es {n0(ev['Base']['valuation']['patrimonio'])} "
               f"({n0(dec['valor_base'])} {cur} por acción) frente a un precio de {n0(dec['precio'])} {cur}; la TIR implícita al precio "
@@ -412,15 +412,25 @@ def build(r: dict, equipo: list[str], fecha: str, curso: str, out_pdf: Path) -> 
     base_rows = [x for x in ev["Base"]["rows"]]
     vb = ev["Base"]["valuation"]
     S += [Paragraph("3. Pronóstico base y método", st["h1"]),
-          Paragraph("<b>Método.</b> Modelo de drivers determinista: ingresos con crecimiento compuesto calibrado; costos vía margen "
+          (Paragraph("<b>Método.</b> La proyección base y la valoración son las del modelo principal de la app (pestañas 2–7): "
+                     "crecimiento por mediana robusta que converge al nominal de largo plazo, margen EBITDA representativo con "
+                     "convergencia en 3 años, CAPEX y capital de trabajo ligados a ingresos. Para escenarios y políticas, el CAPEX "
+                     "se separa en mantenimiento (≈ D&amp;A) y expansión ligada al aumento de ingresos. El valor terminal usa el "
+                     "valor-conductor: VT = NOPAT<sub>N+1</sub>(1 − g/RONIC)/(WACC − g), con descuento a mitad de año y fecha de "
+                     "valoración. Con 3–5 observaciones anuales, una regresión o un ARIMA darían falsa precisión.", st["body"])
+           if isa.get("proyeccion_base") else
+           Paragraph("<b>Método.</b> Modelo de drivers determinista: ingresos con crecimiento compuesto calibrado; costos vía margen "
                     "EBIT; reinversión separada en mantenimiento (proporcional a ingresos) y expansión (proporcional al aumento de "
                     "ingresos), lo que garantiza que más ventas exijan más inversión. Con solo tres observaciones anuales, una "
                     "regresión o un ARIMA darían falsa precisión; el modelo de drivers es auditable y la incertidumbre se trata con "
-                    "escenarios, sensibilidad y Monte Carlo.", st["body"]),
+                    "escenarios, sensibilidad y Monte Carlo.", st["body"])),
           Paragraph("Ingresos<sub>t</sub> = Ingresos<sub>t−1</sub>(1+g) · EBIT = Ingresos × margen − costo de política · "
                     "NOPAT = EBIT(1−t) · CAPEX = Ingresos × m<sub>mant</sub> + k × ΔIngresos · ΔNWC = (NWC/Ingresos) × ΔIngresos · "
-                    "<b>FCFF = NOPAT + D&amp;A − CAPEX − ΔNWC</b> · VT = FCFF<sub>2031</sub>/(WACC − g) · "
-                    "EV = Σ FCFF<sub>t</sub>/(1+WACC)<sup>t</sup> + VT/(1+WACC)<sup>5</sup>", st["quote"]),
+                    "<b>FCFF = NOPAT + D&amp;A − CAPEX − ΔNWC</b> · "
+                    + ("VT = NOPAT<sub>N+1</sub>(1 − g/RONIC)/(WACC − g) · EV a la fecha de valoración, flujos a mitad de año"
+                       if isa.get("proyeccion_base") else
+                       "VT = FCFF<sub>2031</sub>/(WACC − g) · EV = Σ FCFF<sub>t</sub>/(1+WACC)<sup>t</sup> + VT/(1+WACC)<sup>5</sup>"),
+                    st["quote"]),
           table([["Año", "Ingresos", "Margen EBIT", "NOPAT", "D&A", "CAPEX", "ΔNWC", "FCFF"]] +
                 [[("2031 (VT)" if x["terminal"] else x["año"]), n0(x["ingresos"]), pct(x["margen_ebit"]), n0(x["nopat"]),
                   n0(x["depreciacion"]), n0(x["capex"]), n0(x["delta_nwc"]), n0(x["fcff"])] for x in base_rows], st),

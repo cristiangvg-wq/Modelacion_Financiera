@@ -27,7 +27,11 @@ import random
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# Instantánea por defecto: proyección y valoración del modelo principal (pestañas 2–7) con los valores por
+# defecto de la app para ISA. La versión «clásica» (drivers propios del taller, Gordon sobre el FCFF terminal)
+# se conserva para reproducir el informe anterior y para las pruebas del motor clásico.
 DEFAULT_DATA = ROOT / "datos_taller_isa_2026.json"
+CLASSIC_DATA = ROOT / "datos_taller_isa_2026_clasico.json"
 CATALOG = ROOT / "datos_curados.json"
 DEFAULT_OUT = ROOT / "salidas_taller_isa"
 COMPANY = "ISA — Interconexión Eléctrica"
@@ -55,7 +59,7 @@ SCENARIOS = {
         "ebit_margin_delta": -0.020,
         "capex_intensity_mult": 1.15,
         "nwc_ratio_mult": 1.08,
-        "wacc_delta": 0.010,
+        "wacc_delta": 0.015,          # mismo choque de tasa que la pestaña 2 (WACC + 1,5 pp, g − 1 pp)
         "g_terminal_delta": -0.010,
         "descripcion": "Menor crecimiento, presión en márgenes, sobrecostos y tasas más altas.",
     },
@@ -66,15 +70,15 @@ SCENARIOS = {
         "nwc_ratio_mult": 1.0,
         "wacc_delta": 0.0,
         "g_terminal_delta": 0.0,  # sobre la g base de los datos de entrada
-        "descripcion": "Drivers calibrados con el histórico 2023–2025 y WACC por CAPM.",
+        "descripcion": "Proyección base del modelo principal (pestañas 2–7) y su WACC por CAPM.",
     },
     "Optimista": {
         "growth_delta": 0.020,
         "ebit_margin_delta": 0.020,   # recuperación parcial hacia el margen promedio 2023–2025
         "capex_intensity_mult": 0.90,
         "nwc_ratio_mult": 0.95,
-        "wacc_delta": -0.0075,
-        "g_terminal_delta": 0.005,
+        "wacc_delta": -0.010,         # mismo choque de tasa que la pestaña 2 (WACC − 1 pp, g + 1 pp con techo)
+        "g_terminal_delta": 0.010,
         "descripcion": "Nuevas adjudicaciones, recuperación de margen y compresión de tasas.",
     },
 }
@@ -197,6 +201,32 @@ def umbrales_de(isa: dict) -> dict:
 HIST_FIELDS = ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "NWC")
 
 
+def _drivers_modo_app(isa: dict) -> dict:
+    """Drivers representativos de la proyección del modelo principal (para mostrar, escenarios y Monte Carlo)."""
+    b, h = isa["_base_app"], isa["history"]
+    last, prev = h[-1], h[-2]
+    margins = [r["EBIT"] / r["Ingresos"] for r in h]
+    return {
+        "growth": b["growth_rep"],
+        "growth_formula": "ruta de la pestaña 1: " + " → ".join(f"{x * 100:.1f} %" for x in b["growth"]),
+        "growth_last": last["Ingresos"] / prev["Ingresos"] - 1,
+        "ebit_margin": b["margin_rep"],
+        "ebit_margin_path": b["margin"],
+        "ebit_margin_avg": sum(margins) / len(margins),
+        "ebit_margins": {r["Año"]: m for r, m in zip(h, margins)},
+        "da_ratio": sum(b["da_ratio"]) / len(b["da_ratio"]),
+        "maint_capex_ratio": sum(b["maint_ratio"]) / len(b["maint_ratio"]),
+        "capex_intensity": b["k_rep"],
+        "capex_intensities": b["k"],
+        "capex_ratio_last": last["CAPEX"] / last["Ingresos"],
+        "capex_ratio_prev": prev["CAPEX"] / prev["Ingresos"],
+        "nwc_ratio": b["nwc_marginal"],
+        "revenue_base": b["rev0"],
+        "nwc_base": last["NWC"],
+        "ebitda_base": last["EBITDA"],
+    }
+
+
 def load_isa(data: Path | dict = DEFAULT_DATA) -> dict:
     """Carga los datos de entrada: ruta a la instantánea, ruta al catálogo o un diccionario ya armado
     (por ejemplo, el que construye ``inputs_from_app`` con los datos de la sesión de la app)."""
@@ -216,7 +246,73 @@ def load_isa(data: Path | dict = DEFAULT_DATA) -> dict:
         rows.append(row)
     rows.sort(key=lambda r: r["Año"])
     raw.setdefault("fuente_datos", "Instantánea del taller")
-    return {**raw, "history": rows}
+    out = {**raw, "history": rows}
+    if raw.get("proyeccion_base"):
+        out["_base_app"] = _base_desde_modelo(out)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Motor unificado con las pestañas 2–7
+# Si los datos traen ``proyeccion_base`` (la proyección por drivers de la app) y ``valoracion.motor ==
+# "modelo_app"``, el escenario Base reproduce EXACTAMENTE esa proyección y se valora con ``valoracion_dcf`` de
+# modelacion_logic (valor terminal por valor-conductor con RONIC, mitad de año, fecha de valoración, techo de g).
+# Los escenarios y las políticas mueven los drivers alrededor de esa base, con la misma estructura del taller:
+# CAPEX de mantenimiento + expansión ligada al aumento de ingresos y capital de trabajo ligado a ΔIngresos.
+# ---------------------------------------------------------------------------
+def modo_app(isa: dict) -> bool:
+    return bool(isa.get("_base_app"))
+
+
+def _base_desde_modelo(isa: dict) -> dict:
+    pb = isa["proyeccion_base"]
+    years = [int(a) for a in pb["Año"]]
+    rev = [float(x) for x in pb["Ingresos"]]
+    ebit = [float(x) for x in pb["EBIT"]]
+    da = [float(x) for x in pb["Depreciacion"]]
+    capex = [float(x) for x in pb["CAPEX"]]
+    ebitda = [float(x) for x in pb.get("EBITDA") or [e + d for e, d in zip(ebit, da)]]
+    rev0 = float(pb["ingresos_base"])
+    prevs = [rev0] + rev[:-1]
+    growth = [r / p - 1.0 for r, p in zip(rev, prevs)]
+    maint = [min(c, d) for c, d in zip(capex, da)]          # mantenimiento ≈ D&A (sin superar el CAPEX)
+    exp_ = [c - m for c, m in zip(capex, maint)]
+    drev = [r - p for r, p in zip(rev, prevs)]
+    k = [e / dr if dr > 1e-9 else 0.0 for e, dr in zip(exp_, drev)]
+    k_rep = (sum(exp_) / sum(dr for dr in drev if dr > 0)) if any(dr > 0 for dr in drev) else 0.0
+    nwc_m = float(pb["nwc_marginal"])
+    return {
+        "years": years, "rev0": rev0, "growth": growth,
+        "margin": [e / r for e, r in zip(ebit, rev)], "ebitda_margin": [e / r for e, r in zip(ebitda, rev)],
+        "da_ratio": [d / r for d, r in zip(da, rev)], "maint_ratio": [m / r for m, r in zip(maint, rev)],
+        "k": k, "k_rep": k_rep, "nwc_marginal": nwc_m,
+        "growth_rep": sum(growth) / len(growth), "margin_rep": sum(e / r for e, r in zip(ebit, rev)) / len(rev),
+    }
+
+
+def anios_proyeccion(isa: dict) -> list[int]:
+    return list(isa["_base_app"]["years"]) if modo_app(isa) else list(FORECAST_YEARS)
+
+
+def _desplazar_anios(isa: dict, anios: list[int]) -> list[int]:
+    """Las reglas de política están escritas para 2026–2030; si la proyección empieza otro año se desplazan."""
+    off = anios_proyeccion(isa)[0] - FORECAST_YEARS[0]
+    return [a + off for a in anios]
+
+
+def ronic_spread(isa: dict, wacc: float) -> float:
+    """Spread RONIC − WACC con la misma regla que la sesión de la app (ronic_spread_sesion)."""
+    r = ((isa.get("valoracion") or {}).get("ronic") or {})
+    modo = r.get("modo") or "roic"
+    if modo == "wacc":
+        return 0.0
+    if modo == "manual":
+        return float(r.get("spread") or 0.0)
+    roic = r.get("roic")
+    if roic is None:
+        return float(r.get("spread_defecto") or 0.0)
+    return float(min(max(float(r.get("convergencia", 0.5)) * (float(roic) - float(wacc)), 0.0),
+                     float(r.get("spread_max", 0.20))))
 
 
 def validate_inputs(raw: dict) -> None:
@@ -255,7 +351,7 @@ def validate_inputs(raw: dict) -> None:
 def snapshot_from_catalog(catalog: dict) -> dict:
     """Construye la instantánea a partir de datos_curados.json conservando la parte de mercado vigente."""
     e = catalog["empresas"][COMPANY]
-    current = json.loads(DEFAULT_DATA.read_text(encoding="utf-8")) if DEFAULT_DATA.exists() else {}
+    current = json.loads(CLASSIC_DATA.read_text(encoding="utf-8")) if CLASSIC_DATA.exists() else {}
     snap = copy.deepcopy(current)
     s = e["supuestos"]
     snap.update({
@@ -286,6 +382,8 @@ def snapshot_from_catalog(catalog: dict) -> dict:
 
 def historical_drivers(isa: dict) -> dict:
     """T1 — Calibra los drivers con el histórico. Devuelve cada driver con su fórmula."""
+    if modo_app(isa):
+        return _drivers_modo_app(isa)
     h = isa["history"]
     first, prev, last = h[0], h[-2], h[-1]
     n = last["Año"] - first["Año"]
@@ -365,6 +463,8 @@ def scenario_params(isa: dict, scenario: str | dict, overrides: dict | None = No
 
 def project(isa: dict, params: dict, policy: str | None = None, policy_params: dict | None = None) -> list[dict]:
     """Proyecta 2026–2030 + año terminal (2031) con la política de inversión/márgenes aplicada."""
+    if modo_app(isa):
+        return _project_modo_app(isa, params, policy, policy_params)
     d = historical_drivers(isa)
     pol = (politicas_de(isa)[policy] if policy else {}) | (policy_params or {})
     revenue_prev = d["revenue_base"]
@@ -419,6 +519,74 @@ def project(isa: dict, params: dict, policy: str | None = None, policy_params: d
     return rows
 
 
+def _project_modo_app(isa: dict, params: dict, policy: str | None, policy_params: dict | None) -> list[dict]:
+    """Escenario Base = proyección de la pestaña 1/4 al peso; los escenarios mueven sus drivers año a año."""
+    b, d = isa["_base_app"], historical_drivers(isa)
+    pol = (politicas_de(isa)[policy] if policy else {}) | (policy_params or {})
+    tipo = pol.get("tipo")
+    dg = params["growth"] - d["growth"]
+    dm = params["ebit_margin"] - d["ebit_margin"]
+    kx = params["capex_intensity"] / d["capex_intensity"] if d["capex_intensity"] else 1.0
+    nx = params["nwc_ratio"] / d["nwc_ratio"] if d["nwc_ratio"] else 1.0
+    years = b["years"]
+    pen_years = set(_desplazar_anios(isa, pol.get("growth_penalty_years", []))) if tipo == "inversion" else set()
+    defer_from = set(_desplazar_anios(isa, pol.get("defer_from", []))) if tipo == "inversion" else set()
+    defer_to = _desplazar_anios(isa, pol.get("defer_to", [])) if tipo == "inversion" else []
+    uplift = {a + (years[0] - FORECAST_YEARS[0]): v for a, v in (pol.get("margin_uplift_by_year") or {}).items()}
+    rev_prev, nwc_prev, pool, rows = b["rev0"], isa["history"][-1]["NWC"], 0.0, []
+    for i, year in enumerate(years):
+        growth = b["growth"][i] + dg - (pol["growth_penalty"] if year in pen_years else 0.0)
+        revenue = rev_prev * (1 + growth)
+        margin = b["margin"][i] + dm
+        cost = 0.0
+        if tipo == "margenes":
+            margin += uplift.get(year, pol["margin_uplift_steady"])
+            cost = revenue * pol["recurring_cost_pct_revenue"] + (revenue * pol["upfront_cost_pct_revenue"] if i == 0 else 0.0)
+        ebit = revenue * margin - cost
+        da = revenue * b["da_ratio"][i]
+        maint = revenue * b["maint_ratio"][i]
+        exp_ = b["k"][i] * kx * max(revenue - rev_prev, 0.0)
+        if year in defer_from:
+            cut = exp_ * pol["defer_share"]
+            exp_ -= cut
+            pool += cut
+        elif year in defer_to and pool:
+            exp_ += pool / len(defer_to)
+        capex = maint + exp_
+        delta_nwc = b["nwc_marginal"] * nx * (revenue - rev_prev)
+        nwc = nwc_prev + delta_nwc
+        tax_paid = max(ebit, 0.0) * params["tax"]
+        nopat = ebit - tax_paid
+        rows.append({
+            "año": year, "terminal": False, "crecimiento": growth, "ingresos": revenue, "margen_ebit": ebit / revenue,
+            "costo_politica": cost, "ebit": ebit, "ebitda": revenue * (b["ebitda_margin"][i] + dm) - cost,
+            "impuestos": tax_paid, "nopat": nopat, "depreciacion": da, "capex_mantenimiento": maint,
+            "capex_expansion": exp_, "capex": capex, "nwc": nwc, "delta_nwc": delta_nwc,
+            "fcff": nopat + da - capex - delta_nwc,
+        })
+        rev_prev, nwc_prev = revenue, nwc
+    # Año terminal (referencia): valor-conductor, igual que valoracion_dcf. NOPAT_{N+1} = NOPAT_N × (1 + g) y
+    # reinversión = g / RONIC; el valor terminal se calcula en value() con el motor de la app.
+    g = params["g_terminal"]
+    w = params["wacc"]
+    g_use = min(g, float((isa.get("valoracion") or {}).get("g_max_macro", g)), w - 0.01)
+    ronic = w + ronic_spread(isa, w)
+    reinv = min(max(g_use / ronic, 0.0), 0.95) if ronic > 0 else 0.0
+    last = rows[-1]
+    nop_t = last["nopat"] * (1 + g_use)
+    rev_t = last["ingresos"] * (1 + g_use)
+    rows.append({
+        "año": years[-1] + 1, "terminal": True, "crecimiento": g_use, "ingresos": rev_t,
+        "margen_ebit": last["margen_ebit"], "costo_politica": 0.0, "ebit": last["ebit"] * (1 + g_use),
+        "ebitda": last["ebitda"] * (1 + g_use), "impuestos": last["impuestos"] * (1 + g_use), "nopat": nop_t,
+        "depreciacion": last["depreciacion"] * (1 + g_use), "capex_mantenimiento": last["capex_mantenimiento"] * (1 + g_use),
+        "capex_expansion": nop_t * reinv, "capex": last["capex_mantenimiento"] * (1 + g_use) + nop_t * reinv,
+        "nwc": last["nwc"], "delta_nwc": 0.0, "fcff": nop_t * (1 - reinv),
+        "reinversion_terminal": reinv, "ronic": ronic,
+    })
+    return rows
+
+
 def valuation_timing(isa: dict) -> tuple[float, float]:
     """(fracción del primer año ya reflejada en el puente, fecha de valoración en años desde el cierre).
 
@@ -434,8 +602,37 @@ def valuation_timing(isa: dict) -> tuple[float, float]:
     return s0, tv
 
 
+def _value_modo_app(isa: dict, rows: list[dict], wacc: float, g: float) -> dict:
+    """Valora con valoracion_dcf de la app: mismo resultado que las pestañas 2–7 para los mismos flujos."""
+    import modelacion_logic as L  # import diferido: el modo instantánea clásico no necesita la app
+    explicit = [r for r in rows if not r["terminal"]]
+    b = isa["puente"]
+    s0, t_val = valuation_timing(isa)
+    v = isa.get("valoracion") or {}
+    res = L.valoracion_dcf(
+        [r["fcff"] for r in explicit], wacc, g,
+        deuda_neta=b["deuda_neta"], nci=b["nci"], otros_claims=b.get("otros_claims", 0.0),
+        asociados=b.get("asociados", 0.0), acciones=b["acciones"],
+        mid_year=bool(isa["capital"].get("mid_year", True)), g_max_macro=float(v.get("g_max_macro", 0.05)),
+        nopat_final=explicit[-1]["nopat"], ronic_spread=ronic_spread(isa, wacc),
+        frac_transcurrida=s0, t_valoracion=t_val,
+    )
+    mcap = isa["mercado"]["precio_ref"] * b["acciones"] / 1000
+    equity = float(res["Equity_Value"])
+    return {
+        "vp_fcff_explicito": float(res["PV_FCFF"]), "valor_terminal": float(res["TV"]),
+        "vp_valor_terminal": float(res["PV_TV"]), "peso_valor_terminal": res.get("tv_pct_ev") or float("nan"),
+        "ev": float(res["EV"]), "patrimonio": equity,
+        "valor_por_accion": max(equity, 0.0) / b["acciones"] * 1000, "capitalizacion_mercado": mcap,
+        "vpn_inversionista": equity - mcap, "fcff_acumulado": sum(r["fcff"] for r in explicit),
+        "g_usada": float(res["g_used"]), "ronic": res.get("ronic"), "metodo_vt": res.get("tv_metodo"),
+    }
+
+
 def value(isa: dict, rows: list[dict], wacc: float, g: float) -> dict:
     """DCF: VP de FCFF explícitos + VP del valor terminal (Gordon sobre FCFF del año terminal)."""
+    if modo_app(isa):
+        return _value_modo_app(isa, rows, wacc, g)
     if wacc <= g:
         raise ValueError(f"WACC ({wacc:.2%}) debe superar g ({g:.2%}).")
     explicit = [r for r in rows if not r["terminal"]]
@@ -815,7 +1012,7 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
 def inputs_fingerprint(isa: dict) -> str:
     """Huella SHA-256 (12 caracteres) de los datos de entrada, para enlazar un informe con su JSON."""
     import hashlib
-    clean = {k: v for k, v in isa.items() if k != "history"}
+    clean = {k: v for k, v in isa.items() if k != "history" and not k.startswith("_")}
     blob = json.dumps(clean, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:12]
 
@@ -839,7 +1036,7 @@ def calcular_modelo(data_path: Path | dict = DEFAULT_DATA, mc_n: int = MC_DEFAUL
         summary.append({
             "escenario": s, "crecimiento": e["params"]["growth"], "margen_ebit": e["params"]["ebit_margin"],
             "intensidad_capex": e["params"]["capex_intensity"], "nwc_ingresos": e["params"]["nwc_ratio"],
-            "wacc": e["params"]["wacc"], "g_terminal": e["params"]["g_terminal"],
+            "wacc": e["params"]["wacc"], "g_terminal": v.get("g_usada", e["params"]["g_terminal"]),
             "fcff_acumulado_2026_2030": v["fcff_acumulado"], "vp_fcff_explicito": v["vp_fcff_explicito"],
             "vp_valor_terminal": v["vp_valor_terminal"], "peso_valor_terminal": v["peso_valor_terminal"],
             "ev": v["ev"], "patrimonio": v["patrimonio"], "valor_por_accion": v["valor_por_accion"],
@@ -865,13 +1062,16 @@ def calcular_modelo(data_path: Path | dict = DEFAULT_DATA, mc_n: int = MC_DEFAUL
             for x in e["leverage"]:
                 leverage_rows.append({"escenario": s, "politica": pol or "Sin política", **x})
 
-    inputs_clean = {k: v for k, v in isa.items() if k != "history"}
+    inputs_clean = {k: v for k, v in isa.items() if k != "history" and not k.startswith("_")}
     metadata = {
         "empresa": isa["empresa"], "camino": "Evaluación empresarial",
         "fuente_datos": isa.get("fuente_datos"), "huella_datos": inputs_fingerprint(isa),
         "corte_datos": isa.get("corte_catalogo"), "moneda": isa["moneda"], "unidad": isa["unidad"],
         "fechas_valoracion": isa.get("fechas") or {},
-        "historia": [r["Año"] for r in isa["history"]], "horizonte": [FORECAST_YEARS[0], FORECAST_YEARS[-1]],
+        "historia": [r["Año"] for r in isa["history"]],
+        "horizonte": [anios_proyeccion(isa)[0], anios_proyeccion(isa)[-1]],
+        "motor_valoracion": ("modelo principal de la app (valoracion_dcf: valor-conductor con RONIC, mitad de año, "
+                             "fecha de valoración)" if modo_app(isa) else "Gordon sobre el FCFF del año terminal"),
         "drivers_historicos": {k: v for k, v in drivers.items() if not isinstance(v, (list, dict))},
         "costo_capital": capital,
         "escenarios": escenarios_de(isa), "politicas": pols, "umbrales_decision": umbrales_de(isa),
@@ -937,7 +1137,8 @@ def inputs_from_app(empresa: str, df_hist, *, tax: float, g: float, de_ratio: fl
                     mid_year: bool = True, deuda_es_bruta: bool = False, moneda: str = "COP",
                     fuente_precio: str | None = None, fecha_precio: str | None = None,
                     fuente_historico: str | None = None, ticker: str | None = None,
-                    descripcion: str | None = None, fechas: dict | None = None) -> dict:
+                    descripcion: str | None = None, fechas: dict | None = None,
+                    proyeccion=None, meta_proyeccion: dict | None = None, valoracion: dict | None = None) -> dict:
     """Arma los datos de entrada del taller con lo que la app tiene en la sesión.
 
     Usa solo argumentos explícitos (histórico de ``cargar_y_limpiar_excel`` y valores de la barra lateral);
@@ -986,6 +1187,23 @@ def inputs_from_app(empresa: str, df_hist, *, tax: float, g: float, de_ratio: fl
     if fechas:
         data["fechas"] = {k: fechas.get(k) for k in ("frac_transcurrida", "t_valoracion", "fecha_cierre",
                                                        "fecha_balance", "fecha_valoracion", "nota")}
+    if proyeccion is not None:
+        # Proyección base = la misma de las pestañas 2–7 (drivers + recalcular_fcff con el CAPEX adicional).
+        pr = proyeccion.copy()
+        if pr.index.name == "Año" and "Año" not in pr.columns:
+            pr = pr.reset_index()
+        meta_p = meta_proyeccion or {}
+        g0 = float((meta_p.get("g_ingresos_ruta") or [None])[0] or 0.0)
+        data["proyeccion_base"] = {
+            "Año": [int(a) for a in pr["Año"]],
+            **{k: [float(x) for x in pd.to_numeric(pr[k], errors="raise")]
+               for k in ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "Delta_NWC", "NOPAT", "FCFF")},
+            "ingresos_base": float(pr["Ingresos"].iloc[0]) / (1.0 + g0),
+            "nwc_marginal": float(meta_p.get("nwc_ratio", 0.0)),
+            "metodo": meta_p.get("metodo") or "Drivers robustos + identidad FCFF",
+        }
+        data["valoracion"] = dict(valoracion or {}, motor="modelo_app")
+        data["fuente_datos"] = "Modelo de la app: proyección y valoración de las pestañas 2–7"
     validate_inputs(data)
     return data
 
@@ -996,9 +1214,49 @@ def datetime_now_iso() -> str:
 
 
 def refresh_snapshot() -> Path:
+    """Regenera la instantánea clásica desde el catálogo."""
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     snap = snapshot_from_catalog(catalog)
-    DEFAULT_DATA.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
+    CLASSIC_DATA.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
+    return CLASSIC_DATA
+
+
+def refresh_snapshot_modelo(empresa: str = COMPANY) -> Path:
+    """Regenera la instantánea del taller con el MODELO PRINCIPAL y los valores por defecto de la app.
+
+    Usa los mismos parámetros que carga la barra lateral para la empresa (params_empresa y _capm_para_ui), la
+    proyección de la pestaña 4 y el precio de referencia fechado del catálogo. Conserva las fuentes documentadas
+    de la instantánea clásica para que el informe siga siendo trazable.
+    """
+    import sys
+    sys.path.insert(0, str(ROOT))
+    import modelacion_logic as L
+    p = dict(L.params_empresa(empresa) or {})
+    rf, erp, crp, gmax = L._capm_para_ui(p)
+    d = L.datos_taller_modelo(
+        empresa, tax=p["tax"], g=p["g"], de_ratio=p["de_ratio"], kd=p["kd"], beta_u=p["beta_u"], rf=rf, erp=erp,
+        crp=crp, deuda_neta=p["deuda_neta"], caja=p.get("caja") or 0.0, nci=p.get("nci") or 0.0,
+        otros_claims=p.get("otros_claims") or 0.0, asociados=p.get("asociados") or 0.0, acciones=p.get("acciones"),
+        mid_year=True, g_max_macro=gmax, precio=None)
+    clasico = json.loads(CLASSIC_DATA.read_text(encoding="utf-8")) if CLASSIC_DATA.exists() else {}
+    for k in ("fuente_historico", "verificacion", "calidad_historico_por_anio", "corte_catalogo"):
+        if clasico.get(k):
+            d[k] = clasico[k]
+    if clasico.get("puente", {}).get("fuente"):
+        d["puente"]["fuente"] = clasico["puente"]["fuente"]
+    for k in ("fecha_precio_ref", "fuente_precio_ref"):
+        if clasico.get("mercado", {}).get(k):
+            d["mercado"][k] = clasico["mercado"][k]
+    for k, v in (clasico.get("capital") or {}).items():
+        if k.startswith("fuente_") or k == "tax_estado":
+            d["capital"][k] = v
+    d["capital"]["fuente_primas"] = (f"Mismas anclas que la app: rf {rf:.2%} (TES − spread de default), ERP {erp:.2%} "
+                                     "(Damodaran: madura + riesgo país), CRP 0 en pesos.")
+    d["descripcion"] = ("Instantánea del Taller 2026 con la proyección y la valoración del modelo principal de la app "
+                        "(pestañas 2–7) y sus valores por defecto para ISA. Regenerable con: "
+                        "python scripts/taller_isa.py --refrescar-instantanea-modelo")
+    d["fuente_datos"] = "Instantánea del modelo de la app (ISA, valores por defecto)"
+    DEFAULT_DATA.write_text(json.dumps(d, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
     return DEFAULT_DATA
 
 
@@ -1008,10 +1266,15 @@ def main():
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="Directorio de salida")
     parser.add_argument("--mc", type=int, default=MC_DEFAULTS["n"], help="Número de simulaciones Monte Carlo")
     parser.add_argument("--refrescar-instantanea", action="store_true",
-                        help="Regenera datos_taller_isa_2026.json desde datos_curados.json y termina")
+                        help="Regenera la instantánea clásica desde datos_curados.json y termina")
+    parser.add_argument("--refrescar-instantanea-modelo", action="store_true",
+                        help="Regenera datos_taller_isa_2026.json con el modelo principal de la app y termina")
     args = parser.parse_args()
     if args.refrescar_instantanea:
         print(f"Instantánea actualizada: {refresh_snapshot()}")
+        return
+    if args.refrescar_instantanea_modelo:
+        print(f"Instantánea del modelo actualizada: {refresh_snapshot_modelo()}")
         return
     r = run_model(args.data, args.out, args.mc)
     d, c, dec = r["drivers"], r["capital"], r["decision"]

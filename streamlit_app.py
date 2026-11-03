@@ -3584,34 +3584,30 @@ def _informe_taller_isa(equipo: tuple, fecha: str, mc_n: int, datos_json: str | 
 
 
 def _datos_taller_desde_app(ctx: dict) -> dict:
-    """Datos de entrada del taller con la empresa y los supuestos actuales de la app.
+    """Datos de entrada del taller con la MISMA proyección y valoración de las pestañas 2–7.
 
-    Usa la misma carga de histórico que la pestaña 1 (cargar_y_limpiar_excel) y los valores de la barra
-    lateral; no lee las tuplas internas de resultados de otras pestañas.
+    Usa la barra lateral (ctx) y L.datos_taller_modelo: cargar_y_limpiar_excel → proyección por drivers →
+    recalcular_fcff(CAPEX adicional), puente con fecha de valoración y la regla de RONIC de la sesión.
     """
-    taller, _ = _modulos_taller()
-    inputs_from_app = taller.inputs_from_app
     empresa = ctx["empresa"]
-    df_hist, _msg = L.cargar_y_limpiar_excel(ctx.get("archivo"), empresa, usar_datos_publicos=bool(ctx.get("usar_publicos")))
     params = st.session_state.get("params") or {}
     moneda = str(ctx.get("moneda") or params.get("moneda") or "COP").upper()
     moneda_px = str(st.session_state.get("moneda_precio_alineada") or moneda).upper()
     if moneda_px != moneda:
         raise ValueError(f"El precio está en {moneda_px} y el modelo en {moneda}; alinea monedas antes de generar el informe.")
-    precio = st.session_state.get("precio_mercado_alineado")
-    if not precio:
-        raise ValueError("No hay precio de mercado para la empresa; sin él no se pueden calcular el VPN ni la TIR implícita.")
-    return inputs_from_app(
-        empresa, df_hist, tax=ctx["tax"], g=ctx["g"], de_ratio=ctx["de_ratio"], kd=ctx["kd"], beta_u=ctx["beta_u"],
-        rf=ctx["rf"], erp=ctx["erp"], crp=ctx["crp"], deuda_neta=ctx["deuda_neta"], caja=ctx["caja"], nci=ctx["nci"],
-        otros_claims=ctx["otros_claims"], asociados=ctx["asociados"], acciones=ctx["acciones"], precio=float(precio),
-        mid_year=bool(ctx.get("mid_year", True)), deuda_es_bruta=bool(params.get("deuda_es_bruta", False)), moneda=moneda,
-        fuente_precio=st.session_state.get("fuente_precio_mercado"), fecha_precio=st.session_state.get("fecha_precio_mercado"),
-        fuente_historico=_msg if isinstance(_msg, str) else None,
+    return L.datos_taller_modelo(
+        empresa, archivo=ctx.get("archivo"), usar_datos_publicos=bool(ctx.get("usar_publicos")),
+        horizonte=int(ctx.get("horizonte") or 5), tax=ctx["tax"], g=ctx["g"], de_ratio=ctx["de_ratio"], kd=ctx["kd"],
+        beta_u=ctx["beta_u"], rf=ctx["rf"], erp=ctx["erp"], crp=ctx["crp"], deuda_neta=ctx["deuda_neta"],
+        caja=ctx["caja"], nci=ctx["nci"], otros_claims=ctx["otros_claims"], asociados=ctx["asociados"],
+        acciones=ctx["acciones"], mid_year=bool(ctx.get("mid_year", True)),
+        g_max_macro=float(ctx.get("g_max_macro") or 0.05), capex_extra=float(ctx.get("capex_extra") or 0.0),
+        precio=st.session_state.get("precio_mercado_alineado"),
+        fuente_precio=st.session_state.get("fuente_precio_mercado"),
+        fecha_precio=st.session_state.get("fecha_precio_mercado"), moneda=moneda,
+        deuda_es_bruta=bool(params.get("deuda_es_bruta", False)),
         ticker=params.get("ticker_bvc") or params.get("ticker_yf"),
-        fechas=L.calendario_valoracion(empresa, df_hist=df_hist) if hasattr(L, "calendario_valoracion") else None,
     )
-
 
 def _ui_informe_taller_isa(ctx: dict | None = None, datos: dict | None = None):
     """Pestaña 10: genera el informe del Taller evaluativo 2026.
@@ -6171,6 +6167,7 @@ def main():
             "de_ratio": de_ratio, "kd": kd, "beta_u": beta_u, "rf": rf, "erp": erp, "crp": crp,
             "deuda_neta": deuda_neta, "caja": caja, "nci": nci, "otros_claims": otros_claims,
             "asociados": asociados, "acciones": acciones, "mid_year": mid_year, "moneda": moneda,
+            "horizonte": horizonte, "capex_extra": capex_extra, "g_max_macro": g_max_macro,
         }
         _t10_datos = None
         try:

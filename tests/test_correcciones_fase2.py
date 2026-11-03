@@ -132,13 +132,14 @@ class TestCorreccionesPuntuales(unittest.TestCase):
 class TestTallerPestana10(unittest.TestCase):
     def setUp(self):
         self.data = json.loads(T.DEFAULT_DATA.read_text(encoding="utf-8"))
+        self.clasico = json.loads(T.CLASSIC_DATA.read_text(encoding="utf-8"))
 
     def test_fechas_en_la_instantanea(self):
         f = self.data["fechas"]
         self.assertEqual((f["fecha_cierre"], f["fecha_balance"]), ("2025-12-31", "2026-06-30"))
 
     def test_valor_con_fechas_es_calculo_independiente(self):
-        isa = T.load_isa(self.data)
+        isa = T.load_isa(self.clasico)  # motor clásico: fórmula Gordon explícita
         e = T.evaluate(isa, "Base")
         s0, tv = T.valuation_timing(isa)
         w, g = e["params"]["wacc"], e["params"]["g_terminal"]
