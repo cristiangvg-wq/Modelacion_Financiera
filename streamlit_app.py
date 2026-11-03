@@ -4046,6 +4046,7 @@ def main():
         # «Modo claro (experimental)» se retiró: inyectaba un <script> que Streamlit no ejecuta
         # (st.markdown no corre JavaScript) y no existía CSS claro, así que no hacía nada.
         st.markdown('<p class="tf-sidebar-label">Experiencia</p>', unsafe_allow_html=True)
+        st.page_link("pages/11_Academia_Financiera.py", label="🎓 Academia financiera", icon="🎓", help="Aprende finanzas con lecciones y laboratorios interactivos")
         _pdf_manual = _manual_usuario_pdf()
         if _pdf_manual:
             st.download_button(
