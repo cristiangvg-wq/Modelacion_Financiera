@@ -45,3 +45,15 @@ def test_ejemplo_del_simulador_coincide_con_el_manual():
     for nombre in ("Pesimista", "Base", "Optimista"):
         valor = f"{r['escenarios'][nombre]['valor_final']:,.0f}".replace(",", ".")
         assert valor in texto, (nombre, valor)
+
+
+def test_manual_cubre_todas_las_pestanas_de_la_app():
+    """Si la app gana una pestaña nueva, el manual debe explicarla (evita que quede desactualizado)."""
+    src = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
+    bloque = src[src.index("= st.tabs(", src.index('"1 · Pronóstico"') - 400):]
+    bloque = bloque[: bloque.index("]")]
+    pestanas = re.findall(r'"(\d+) · ([^"]+)"', bloque)
+    assert len(pestanas) >= 10
+    texto = MD.read_text(encoding="utf-8")
+    for num, nombre in pestanas:
+        assert f"Pestaña {num} · {nombre}" in texto, f"Falta la pestaña {num} · {nombre} en el manual"
