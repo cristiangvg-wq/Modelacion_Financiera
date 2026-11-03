@@ -337,6 +337,120 @@ def g_simulador():
     return _guardar(fig, "simulador")
 
 
+# ---------------------------------------------------------------------------
+# Pestaña 10 · Escenarios y políticas (caso ficticio de María)
+# ---------------------------------------------------------------------------
+def _escalar(fcff, f):
+    return [x * f for x in fcff]
+
+
+def tornado_datos():
+    """Valor por acción ante el choque desfavorable y favorable de cada driver."""
+    crec = lambda d: [x * (1 + d) ** (i + 1) for i, x in enumerate(FCFF_PROY)]  # noqa: E731
+    filas = [
+        ("Crecimiento de ingresos (±2 pp)", _vps(WACC, G, crec(-0.02)), _vps(WACC, G, crec(0.02))),
+        ("Margen EBIT (±2 pp)", _vps(WACC, G, _escalar(FCFF_PROY, 0.90)), _vps(WACC, G, _escalar(FCFF_PROY, 1.10))),
+        ("Intensidad CAPEX (×1,15 / ×0,90)", _vps(WACC, G, _escalar(FCFF_PROY, 0.94)),
+         _vps(WACC, G, _escalar(FCFF_PROY, 1.04))),
+        ("Capital de trabajo (×1,08 / ×0,95)", _vps(WACC, G, _escalar(FCFF_PROY, 0.98)),
+         _vps(WACC, G, _escalar(FCFF_PROY, 1.012))),
+        ("WACC (+1,5 / −1 pp)", _vps(WACC + 0.015, G), _vps(WACC - 0.01, G)),
+        ("g terminal (−1 / +1 pp)", _vps(WACC, G - 0.01), _vps(WACC, G + 0.01)),
+    ]
+    return sorted(filas, key=lambda r: abs(r[2] - r[1]))
+
+
+def montecarlo_datos(n: int = 5000, semilla: int = 42):
+    rng = np.random.default_rng(semilla)
+    d_crec = rng.normal(0, 0.015, n)
+    d_marg = rng.normal(0, 0.015, n)
+    capex = rng.triangular(0.9, 1.0, 1.15, n)
+    d_wacc = rng.normal(0, 0.0075, n)
+    d_g = rng.uniform(-0.01, 0.01, n)
+    vals = np.empty(n)
+    for k in range(n):
+        f = [x * (1 + d_crec[k]) ** (i + 1) * (1 + 5 * d_marg[k]) * (1 - 0.4 * (capex[k] - 1))
+             for i, x in enumerate(FCFF_PROY)]
+        w = WACC + d_wacc[k]
+        g = min(G + d_g[k], w - 0.01)
+        vals[k] = _vps(w, g, f)
+    apalancamiento = 2.3 / np.clip(1 + 5 * d_marg + 3 * d_crec, 0.05, None)
+    return {
+        "valores": vals,
+        "p5": float(np.percentile(vals, 5)),
+        "p50": float(np.percentile(vals, 50)),
+        "p95": float(np.percentile(vals, 95)),
+        "prob_mayor_precio": float((vals > PRECIO).mean()),
+        "prob_covenant": float((apalancamiento > 4.0).mean()),
+    }
+
+
+def g_bloques10():
+    bloques = [
+        ("A", "Pronóstico\nbase", "Drivers, FCFF,\nvalor y TIR"),
+        ("B", "Escenarios", "4 escenarios,\ntornado, WACC × g"),
+        ("C", "Políticas", "3 reglas\nSI–ENTONCES"),
+        ("D", "Decisión", "Umbrales y\nveredicto"),
+        ("E", "Técnicas", "Monte Carlo\ny prompts"),
+    ]
+    fig, ax = plt.subplots(figsize=(9, 2.1))
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 2.2)
+    ax.axis("off")
+    for i, (letra, titulo, detalle) in enumerate(bloques):
+        x = 0.15 + i * 2.0
+        color = TEAL if letra == "D" else NAVY
+        ax.add_patch(FancyBboxPatch((x, 0.55), 1.6, 1.35, boxstyle="round,pad=0.02,rounding_size=0.15",
+                                    fc=color, ec="none"))
+        ax.text(x + 0.8, 1.6, f"Bloque {letra}", ha="center", va="center", color="white", fontsize=8.5, alpha=0.75)
+        ax.text(x + 0.8, 1.12, titulo, ha="center", va="center", color="white", fontsize=10.5, weight="bold")
+        ax.text(x + 0.8, 0.2, detalle, ha="center", va="center", color=GRIS, fontsize=8)
+        if i < len(bloques) - 1:
+            ax.annotate("", xy=(x + 2.0, 1.22), xytext=(x + 1.65, 1.22),
+                        arrowprops=dict(arrowstyle="-|>", color=GRIS, lw=1.6))
+    return _guardar(fig, "bloques10")
+
+
+def g_tornado():
+    filas = tornado_datos()
+    base = _vps(WACC, G)
+    fig, ax = plt.subplots(figsize=(7.8, 3.4))
+    for y, (nombre, bajo, alto) in enumerate(filas):
+        ax.barh(y, bajo - base, left=base, color=AMBAR, height=0.6, label="Choque desfavorable" if y == 0 else None)
+        ax.barh(y, alto - base, left=base, color=TEAL, height=0.6, label="Choque favorable" if y == 0 else None)
+        ax.text(min(bajo, alto) - 300, y, _miles(min(bajo, alto)), ha="right", va="center", fontsize=8, color=NAVY)
+        ax.text(max(bajo, alto) + 300, y, _miles(max(bajo, alto)), ha="left", va="center", fontsize=8, color=NAVY)
+    ax.axvline(base, color=NAVY, lw=1.2)
+    ax.axvline(PRECIO, color=GRIS, lw=1, ls="--")
+    ax.text(PRECIO - 200, -0.75, "precio 20.000", ha="right", fontsize=8, color=GRIS)
+    ax.set_yticks(range(len(filas)), [f[0] for f in filas])
+    ax.set_xlim(12000, 40000)
+    ax.set_ylim(-1, len(filas) - 0.4)
+    ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: _miles(v)))
+    ax.set_xlabel("Valor por acción (COP) · línea negra = Base 25.000")
+    ax.set_title("Tornado: ¿qué supuesto mueve más el valor?")
+    ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+    return _guardar(fig, "tornado")
+
+
+def g_montecarlo():
+    mc = montecarlo_datos()
+    fig, ax = plt.subplots(figsize=(7.5, 3.2))
+    ax.hist(mc["valores"], bins=60, color=TEAL, alpha=0.85)
+    ax.axvline(PRECIO, color=ROJO, ls="--", lw=1.4)
+    ax.text(PRECIO - 400, ax.get_ylim()[1] * 0.92, "precio 20.000", ha="right", fontsize=8.5, color=ROJO)
+    for p, etiqueta, lado in ((mc["p5"], "P5", "right"), (mc["p50"], "P50", "left"), (mc["p95"], "P95", "left")):
+        ax.axvline(p, color=NAVY, lw=0.8, ls=":")
+        dx = -300 if lado == "right" else 300
+        y = ax.get_ylim()[1] * (0.55 if etiqueta == "P5" else 0.75)
+        ax.text(p + dx, y, f"{etiqueta}\n{_miles(p)}", ha=lado, fontsize=8, color=NAVY)
+    ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: _miles(v)))
+    ax.set_xlabel("Valor por acción (COP)")
+    ax.set_ylabel("Número de simulaciones")
+    ax.set_title(f"Monte Carlo: 5.000 futuros posibles · {mc['prob_mayor_precio']:.0%} quedan sobre el precio")
+    return _guardar(fig, "montecarlo")
+
+
 GRAFICOS = {
     "flujo": g_flujo,
     "semaforo": g_semaforo,
@@ -347,6 +461,9 @@ GRAFICOS = {
     "upside": g_upside,
     "portafolio": g_portafolio,
     "simulador": g_simulador,
+    "bloques10": g_bloques10,
+    "tornado": g_tornado,
+    "montecarlo": g_montecarlo,
 }
 
 
@@ -406,6 +523,8 @@ def construir_pdf(md_path: Path = FUENTE_MD, salida: Path = SALIDA_PDF) -> Path:
                              backColor=c_navy, borderPadding=(7, 8, 7, 8), spaceBefore=6, spaceAfter=14),
         "h3": ParagraphStyle("h3", fontName="DejaVu-Bold", fontSize=12.5, leading=16, textColor=c_teal,
                              spaceBefore=12, spaceAfter=6),
+        "h4": ParagraphStyle("h4", fontName="DejaVu-Bold", fontSize=11, leading=14.5, textColor=c_navy,
+                             spaceBefore=10, spaceAfter=5),
         "quote": ParagraphStyle("quote", fontName="DejaVu-Oblique", fontSize=9.5, leading=13.5,
                                 textColor=colors.HexColor("#334155"), backColor=colors.HexColor("#F1F5F9"),
                                 borderColor=c_teal, borderWidth=0, borderPadding=8, leftIndent=8,
@@ -456,6 +575,10 @@ def construir_pdf(md_path: Path = FUENTE_MD, salida: Path = SALIDA_PDF) -> Path:
                 story.append(PageBreak())
             primera_h2 = False
             story.append(Paragraph(_inline(l[3:]), est["h2"]))
+        elif l.startswith("#### "):
+            vaciar()
+            story.append(CondPageBreak(3 * cm))
+            story.append(Paragraph(_inline(l[5:]), est["h4"]))
         elif l.startswith("### "):
             vaciar()
             story.append(CondPageBreak(3.5 * cm))

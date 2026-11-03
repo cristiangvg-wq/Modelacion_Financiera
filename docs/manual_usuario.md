@@ -1,6 +1,6 @@
 # Manual de Usuario — Modelación Financiera
 
-Guía paso a paso para personas sin conocimientos previos de finanzas ni programación · Versión octubre 2026
+Guía paso a paso para personas sin conocimientos previos de finanzas ni programación · Versión noviembre 2026
 
 ## 1. 🚀 Introducción: ¿Para qué sirve esta herramienta?
 
@@ -10,23 +10,26 @@ Imagina un puesto de limonada. Un vecino te ofrece venderte la mitad del puesto 
 
 Todo funciona en el navegador: no tienes que programar nada. Eliges una empresa, ajustas unos pocos supuestos (o dejas los que vienen por defecto) y pulsas un botón.
 
-### Los dos superpoderes de la app
+### Los tres superpoderes de la app
 
 **Superpoder 1 · Saber cuánto vale una empresa realmente (Valoración).** La app proyecta la "plata libre" que dejará el negocio en los próximos años y la convierte a pesos de hoy. El resultado es un **valor por acción** que puedes comparar con el precio de la bolsa. Si el valor estimado es mayor que el precio, la acción podría estar barata; si es menor, podría estar cara. Esto vive en las pestañas 1 a 7.
 
 **Superpoder 2 · Combinar inversiones para ganar más arriesgando menos (Portafolios).** Un portafolio es como una canasta de frutas: si solo llevas mangos y llega una plaga de mangos, pierdes todo; si llevas mangos, bananos y fresas, una mala cosecha no te arruina. La app mira cómo se han movido varias acciones juntas en el pasado y sugiere **qué porcentaje de tu dinero poner en cada una**. También trae un simulador que muestra cuánto podrían valer tus ahorros en 1, 3 o 10 años. Esto vive en las pestañas 8 y 9.
 
+**Superpoder 3 · Probar qué pasa si las cosas cambian y qué decisiones tomar (Escenarios y políticas).** Es como preguntarle al dueño del puesto de limonada: "¿y si sube el azúcar y llueve todo el verano?, ¿conviene aplazar la compra del exprimidor nuevo?". La app pone a prueba la empresa en cuatro escenarios, simula miles de futuros posibles y mide si ciertas decisiones (aplazar inversiones, recortar costos, pagar menos dividendos) crean o destruyen valor. Al final da un veredicto: comprar, mantener o no comprar. Esto vive en la pestaña 10.
+
 > Importante: la app es una herramienta de estudio y apoyo para pensar. No es asesoría financiera ni una orden de comprar o vender. Sus resultados dependen de los supuestos que tú escribas.
 
 ## 2. 🧰 Guía de Herramientas y Módulos
 
-La pantalla tiene tres zonas: la **barra lateral izquierda** (donde eliges la empresa y ajustas supuestos), la **franja superior** (indicadores, semáforo y herramientas rápidas) y las **9 pestañas** de resultados. El orden de uso casi siempre es el mismo:
+La pantalla tiene tres zonas: la **barra lateral izquierda** (donde eliges la empresa y ajustas supuestos), la **franja superior** (indicadores, semáforo y herramientas rápidas) y las **10 pestañas** de resultados. El orden de uso casi siempre es el mismo:
 
 1. Elegir la empresa en la barra lateral.
 2. Revisar (o dejar como vienen) los parámetros.
 3. Pulsar **▶ Generar todo**.
 4. Leer las pestañas 1 a 7 para la valoración.
 5. Usar las pestañas 8 y 9 para armar tu canasta y simular tu inversión.
+6. Usar la pestaña 10 para poner a prueba la empresa en escenarios difíciles y obtener un veredicto.
 
 [[IMG:flujo|El recorrido típico dentro de la app, de izquierda a derecha.]]
 
@@ -49,6 +52,8 @@ La primera vez que entras aparece un **tour guiado de 4 pasos** con botones «Si
 3. Pulsa **Descargar datos**. Verás «Cargada» en verde y la empresa aparecerá en la lista.
 
 **¿Cómo interpretar el resultado?** La **Ficha** muestra el sector, la moneda y datos base de la empresa. Si sale «Sin datos» en rojo, el ticker está mal escrito o Yahoo no tiene información: revisa el apodo.
+
+Debajo de la Ficha está el desplegable **Metodología de valoración sugerida**. Te dice qué método conviene según el tipo de empresa: no se valora igual una fábrica que un banco o una aseguradora. Si aparece en ámbar «Clasificación provisional», revisa el sector antes de confiar en los resultados. Es una orientación; no cambia los cálculos por sí sola.
 
 ### 2.2 Subir tus propios estados financieros (barra lateral · «Estados financieros»)
 
@@ -129,7 +134,7 @@ La franja también dice si el modelo y el precio están en la **misma moneda**. 
 
 **¿Qué es en la vida real?** Es el botón de "calcular" de la calculadora: hace todas las cuentas de una vez.
 
-**¿Qué datos necesitas?** Haber elegido empresa. Opcionalmente, el **método de pronóstico**: deja el recomendado («Drivers + identidad FCFF»). Los otros dos (ETS/Holt y ARIMA) son métodos estadísticos para comparar.
+**¿Qué datos necesitas?** Haber elegido empresa. Opcionalmente, el **método de pronóstico**: deja el recomendado («Drivers + identidad FCFF»). Los otros dos (ETS/Holt y ARIMA) son métodos estadísticos para comparar: solo cambian el gráfico de la pestaña 1, no el valor de la empresa.
 
 **Paso a paso:** pulsa **▶ Generar todo** y espera a que la barra de progreso llegue a «Listo». Si solo quieres recalcular una pestaña, elige «Solo pestaña seleccionada abajo» y pulsa su botón.
 
@@ -144,6 +149,8 @@ La franja también dice si el modelo y el precio están en la **misma moneda**. 
 **Paso a paso:** después de «Generar todo», abre la pestaña. Verás una tabla **Historial** (años pasados), una tabla **Proyección** (años futuros) y el gráfico **Fan chart**. Cada tabla tiene un botón para descargarla en CSV.
 
 **¿Cómo interpretar el resultado?** En el fan chart, la línea azul es lo que ya pasó y la línea teal es lo que el modelo espera. La **sombra** alrededor muestra el rango probable: entre más ancha, más incertidumbre. Las cruces rojas marcan años raros (una crisis, la venta de un activo).
+
+Si elegiste ETS o ARIMA, la pestaña muestra un aviso ámbar: ese pronóstico es solo de comparación y la valoración de las demás pestañas sigue usando el método por drivers.
 
 [[IMG:fan|Fan chart de ejemplo: historia en azul, proyección en teal y rango probable sombreado. La cruz roja marca un año atípico.]]
 
@@ -204,6 +211,8 @@ El comité IA entrega tres bloques: una crítica a los números del modelo, el c
 
 **¿Qué es en la vida real?** Es preguntar si poner una nueva máquina de exprimir limones "se paga sola" y cuánto rinde.
 
+Ojo: esta pestaña evalúa un **proyecto ilustrativo** de la empresa, no la compra de la acción. Si quieres saber si te conviene comprar la acción al precio de hoy, mira el **VPN del inversionista** y la **TIR implícita** de la pestaña 10.
+
 **¿Qué datos necesitas?** El campo **Inversión proyecto** de la barra lateral (cuánto cuesta el proyecto hoy).
 
 **Paso a paso:** escribe la inversión, pulsa «Generar todo» y abre la pestaña.
@@ -225,6 +234,21 @@ El comité IA entrega tres bloques: una crítica a los números del modelo, el c
 **Paso a paso:** revisa el ranking y pasa el cursor por cada empresa.
 
 **¿Cómo interpretar el resultado?** Un **Score** más alto indica mejor posición frente a sus vecinas. El **margen EBITDA** dice cuánto queda de cada 100 pesos vendidos. Un **EV/EBITDA** muy bajo puede ser una ganga… o una señal de problemas.
+
+#### Valoración por múltiplos (parte inferior de la pestaña 6)
+
+**¿Qué es en la vida real?** Es ponerle precio a tu casa mirando cuánto se vendieron las casas parecidas del barrio. Si las vecinas se vendieron a 8 veces su arriendo anual, la tuya debería valer algo parecido. Es un segundo método, independiente del DCF, para contrastar el resultado.
+
+**¿Qué datos necesitas?**
+
+- El **EBITDA normalizado** de la empresa (la app propone el último dato histórico).
+- La **deuda neta**, el **interés minoritario (NCI)**, las **asociadas** y el número de **acciones** (en millones), todo en la misma unidad.
+- Opcionalmente, múltiplos **EV/EBITDA** de empresas comparables que hayas verificado, separados por coma (ej. «7,2, 8,1, 9,0»).
+- En **Otros múltiplos** puedes probar también **EV/Ventas**, **P/E** (precio / utilidad) y **P/VL** (precio / valor en libros).
+
+**Paso a paso:** revisa los datos propuestos, añade múltiplos de comparables si los tienes y pulsa **Calcular valoración por múltiplos**.
+
+**¿Cómo interpretar el resultado?** Verás el **múltiplo mediano**, el **valor de la empresa (EV)**, el **valor del patrimonio** y el **valor por acción**, con un rango de los comparables. Compáralo con el DCF: si los dos métodos se alejan mucho, revisa si los comparables de verdad se parecen en crecimiento, márgenes y deuda.
 
 ### 2.14 Pestaña 7 · Informe PDF
 
@@ -295,6 +319,62 @@ Al final verás la **Recomendación integrada**, que cruza el peso sugerido con 
 [[IMG:simulador|Ejemplo de evolución del capital en los tres escenarios. La línea punteada es lo que invertiste.]]
 
 Un mensaje verde indica ganancia en el escenario base; uno ámbar, pérdida. Mira siempre también el pesimista: es el que te dice si podrías dormir tranquilo. El simulador no incluye inflación ni cambios futuros del dólar, y no reinvierte los dividendos.
+
+### 2.17 Pestaña 10 · Escenarios y políticas
+
+**¿Qué es en la vida real?** Es el ensayo general antes de comprar el puesto de limonada. Imaginas un verano terrible, uno malo, uno normal y uno bueno; pruebas reglas como "si las ventas caen, aplazo la compra del exprimidor"; y al final decides si compras, esperas o pasas.
+
+[[IMG:bloques10|La pestaña 10 se recorre en cinco bloques, de izquierda a derecha.]]
+
+**¿Qué datos necesitas?** Ninguno adicional si ya pulsaste **▶ Generar todo**: la pestaña usa la misma proyección y el mismo valor de las pestañas 2 a 7. Todos los supuestos traen valores por defecto que puedes editar.
+
+**Paso a paso:**
+
+1. En **Datos** elige «Modelo de la app» (la empresa y los supuestos que tienes abiertos) o «Instantánea del modelo (ISA)», un caso fijo y reproducible que viene con la app.
+2. Si quieres, abre **✏️ Supuestos editables** para cambiar los escenarios, las reglas de las políticas y los umbrales de decisión. La app avisa si te apartas de los valores documentados.
+3. Recorre las cinco sub-pestañas: **A · Pronóstico**, **B · Escenarios**, **C · Políticas**, **D · Decisión** y **E · Prompts y técnicas**.
+4. Al final de la página, abre **📄 Informe del Taller evaluativo 2026 (PDF)**, escribe los integrantes y la fecha, y pulsa **Generar informe del taller**. Podrás descargar el PDF y un JSON con los datos exactos usados.
+5. Opcional: abre **Análisis complementario**, que aplica ahorro en CAPEX y mejora de margen directamente sobre la proyección de la pestaña 1.
+
+**¿Cómo interpretar el resultado?**
+
+**Bloque A · Pronóstico base.** Muestra los supuestos (crecimiento, margen, inversión, WACC, impuestos) con su fórmula y fuente. Tiene cuatro indicadores clave:
+
+- **Valor por acción (Base):** lo que vale cada acción en el escenario normal.
+- **VPN del inversionista:** cuánto valor ganarías (o perderías) si compraras toda la empresa al precio de hoy. Positivo es buena señal.
+- **TIR implícita:** la rentabilidad anual que obtendrías comprando al precio de hoy. Si es mayor que el WACC, el precio es atractivo.
+- **Valor terminal / EV:** qué parte del valor viene de los años lejanos.
+
+Un mensaje verde «Conciliado con la pestaña 4» confirma que ambas pestañas dan el mismo valor. Si sale en ámbar, casi siempre es porque cambió el precio o la fecha de valoración.
+
+**Bloque B · Escenarios y sensibilidad.** Compara cuatro escenarios: **Estrés** (recesión y tasas altas), **Pesimista**, **Base** y **Optimista**. Cada uno mueve seis supuestos a la vez. El **tornado** ordena los supuestos de mayor a menor impacto: la barra más larga es la que más debes vigilar. La **matriz WACC × g** muestra el valor por acción para muchas combinaciones de esas dos tasas.
+
+[[IMG:tornado|Ejemplo de tornado: en este caso el WACC es el supuesto que más mueve el valor por acción.]]
+
+**Bloque C · Políticas.** Prueba tres reglas del tipo "SI pasa esto, ENTONCES hago aquello":
+
+| Política | Qué hace, en palabras simples |
+| --- | --- |
+| P1 Diferir CAPEX de expansión | Si el crecimiento es bajo o la deuda sube mucho, aplaza parte de las inversiones nuevas (nunca el mantenimiento). |
+| P2 Programa de eficiencia operativa | Si el margen cae por debajo de su promedio, paga un programa de ahorro que mejora el margen en los años siguientes. |
+| P3 Dividendos condicionados al apalancamiento | Si la deuda supera 4 veces el EBITDA, reparte menos dividendos hasta que baje. |
+
+Cada política recibe una recomendación: **Adoptar** (crea valor en Base y Pesimista), **Condicionar** (solo sirve en ciertos casos), **Descartar** (no crea valor) o **Descartar (no se activa)** (la condición nunca se cumple).
+
+**Bloque D · Decisión.** Aplica unos umbrales que puedes editar: **margen de seguridad** (por defecto 15 %), **banda para mantener** (±15 %), **covenant** de deuda (4 veces el EBITDA) y **probabilidad mínima** para adoptar una política (60 %). El veredicto puede ser:
+
+| Veredicto | Qué significa |
+| --- | --- |
+| Comprar / sobreponderar | El valor Base supera el precio con margen de seguridad y el Pesimista también lo supera. |
+| Mantener con sesgo positivo | El valor está por encima del precio, pero no alcanza el margen de seguridad. |
+| Mantener | El valor está muy cerca del precio. |
+| No comprar / subponderar | El valor está claramente por debajo del precio. |
+
+También verás el **precio máximo de compra**: lo más que deberías pagar por acción para respetar tu margen de seguridad.
+
+**Bloque E · Técnicas y Monte Carlo.** La simulación Monte Carlo prueba miles de futuros posibles al azar (con semilla fija, así que siempre da lo mismo). Fíjate en tres datos: **P5** (el valor en un futuro malo), **P(valor > precio)** (en cuántos futuros la acción vale más que su precio) y **P(covenant roto)** (en cuántos la deuda se sale de control).
+
+[[IMG:montecarlo|Ejemplo de Monte Carlo: cada barra cuenta cuántos de los 5.000 futuros simulados terminan en ese valor por acción.]]
 
 ## 3. 💡 Ejemplo Práctico "Paso a Paso"
 
@@ -402,6 +482,22 @@ Pulsa **Simular inversión**. La app le dice que alcanza para **174 acciones** y
 | Base | 4.620.274 COP | +1.120.274 COP | +9,7 % |
 | Optimista | 6.361.813 COP | +2.861.813 COP | +22,0 % |
 
+### Paso 6 · Pone a prueba su decisión (Pestaña 10)
+
+Antes de comprar, María abre la pestaña 10 con «Modelo de la app» y deja los supuestos por defecto.
+
+| Resultado | Valor | Qué le dice a María |
+| --- | --- | --- |
+| Valor Base / Pesimista | 25.000 / 18.500 COP | En el escenario malo la acción valdría menos que su precio de 20.000. |
+| Supuesto que más mueve el valor | WACC | Si las tasas suben 1,5 puntos, el valor cae a unos 20.070 pesos, casi el precio. |
+| P(valor > precio) en Monte Carlo | 88 % | En casi 9 de cada 10 futuros simulados la acción vale más que su precio. |
+| P5 del Monte Carlo | 18.463 COP | En un futuro malo (1 de cada 20) valdría unos 18.500 pesos. |
+| P(covenant roto) | 0 % | La deuda no se sale de control en ninguna simulación. |
+| Veredicto | Mantener con sesgo positivo | El valor supera el precio, pero el Pesimista no lo cubre. |
+| Precio máximo de compra | 21.739 COP | Con un 15 % de margen de seguridad, no debería pagar más de esto. |
+
+El veredicto coincide con el del comité IA. Como el precio actual (20.000) está por debajo del precio máximo de compra (21.739), María se siente cómoda comprando, pero sin poner más del peso sugerido.
+
 ### La decisión de María
 
 María decide invertir **3.500.000 pesos en EMPX, 4.000.000 en ACCB y 2.500.000 en ACCC**, siguiendo los pesos sugeridos. Lo razona así:
@@ -410,8 +506,9 @@ María decide invertir **3.500.000 pesos en EMPX, 4.000.000 en ACCB y 2.500.000 
 2. **Los datos son confiables:** con estados oficiales la decisión subió a «Favorable condicionado».
 3. **El riesgo está controlado:** en el peor escenario perdería unos 760.000 pesos en EMPX, una pérdida que puede soportar sin tocar sus gastos del mes. Si esa cifra le quitara el sueño, bajaría el peso de EMPX y volvería a optimizar.
 4. **No pone todos los huevos en la misma canasta:** el 65 % restante queda en otras dos acciones.
+5. **Pasó el ensayo general:** la pestaña 10 confirma un sesgo positivo y que el precio está por debajo de su precio máximo de compra.
 
-María anota que debe repetir el análisis cuando la empresa publique su próximo informe anual o si el precio sube por encima de 25.000 pesos, porque ahí desaparecería el margen de seguridad.
+María anota que debe repetir el análisis cuando la empresa publique su próximo informe anual o si el precio sube por encima de 21.739 pesos, porque ahí perdería su margen de seguridad.
 
 ## 4. ❓ Preguntas Frecuentes y Glosario Relámpago
 
@@ -431,6 +528,10 @@ María anota que debe repetir el análisis cuando la empresa publique su próxim
 
 **¿El simulador garantiza esas ganancias?** No. Solo multiplica tus supuestos. Si escribes que la acción subirá 20 % al año, eso es lo que calculará.
 
+**La pestaña 10 no da el mismo valor que la pestaña 4. ¿Cuál está bien?** Deberían coincidir en el escenario Base: la pestaña 10 te lo dice con un mensaje verde «Conciliado». Si no coinciden, pulsa otra vez **▶ Generar todo**; la diferencia suele venir de un precio o una fecha de valoración distintos.
+
+**¿Qué método de valoración me sirve para un banco o una aseguradora?** Abre **Metodología de valoración sugerida** en la barra lateral. Para esas empresas el DCF de esta app es solo orientativo: contrasta con los múltiplos P/E y P/VL de la pestaña 6.
+
 **¿Puedo confiar en los datos de Yahoo?** Sirven como punto de partida, pero no son estados auditados. Para decisiones importantes, sube los estados financieros oficiales con la plantilla.
 
 ### Glosario relámpago
@@ -441,6 +542,7 @@ María anota que debe repetir el análisis cuando la empresa publique su próxim
 | CAPEX | Lo que la empresa gasta en máquinas, edificios y equipos. Es como comprar un exprimidor nuevo para el puesto de limonada. |
 | CRP (riesgo país) | Un pago extra que se exige por invertir en un país más inestable. En pesos ya viene incluido en otras tasas, por eso suele quedar en 0. |
 | CVaR | El promedio de lo que pierdes en los peores días. Si el VaR es el "día malo", el CVaR es el "día terrible". |
+| Covenant | Un límite de deuda que la empresa se compromete a no superar con sus bancos, por ejemplo 4 veces su EBITDA. Romperlo puede traer multas o préstamos más caros. |
 | D/E | Cuánta deuda tiene la empresa por cada peso de los dueños. Más deuda, más riesgo. |
 | DCF | Método que suma toda la plata libre futura del negocio, traída a pesos de hoy. Un peso mañana vale menos que un peso hoy, y el DCF lo tiene en cuenta. |
 | EBITDA | Lo que gana el negocio con su operación antes de pagar intereses, impuestos y el desgaste de sus equipos. Es la ganancia "en bruto" del día a día. |
@@ -453,16 +555,23 @@ María anota que debe repetir el análisis cuando la empresa publique su próxim
 | g (crecimiento terminal) | Qué tan rápido crecerá el negocio para siempre después del horizonte. Debe ser siempre menor que el WACC. |
 | Kd | La tasa de interés que la empresa paga por sus préstamos. |
 | Ke | La rentabilidad que exigen los dueños por arriesgar su dinero. Suele ser mayor que la de los bancos. |
+| Margen de seguridad | El descuento que exiges entre lo que vale la acción y lo que pagas, por si te equivocaste. Con 15 %, si vale 100 no pagas más de 87. |
+| Monte Carlo | Una simulación que prueba miles de futuros posibles al azar. Sirve para ver qué tan probable es que la acción valga más que su precio. |
+| P/E y P/VL | Precio de la acción dividido por la utilidad (P/E) o por el valor en libros (P/VL). Sirven para comparar empresas, sobre todo bancos y aseguradoras. |
 | Payback | Cuántos años tardas en recuperar lo que invertiste. No dice si valió la pena el riesgo. |
+| Política (pestaña 10) | Una regla de decisión del tipo "SI pasa esto, ENTONCES hago aquello", por ejemplo aplazar inversiones si la deuda sube. |
 | rf (tasa libre de riesgo) | Lo que ganarías prestándole al gobierno, la inversión más segura. En pesos son los TES; en dólares, los bonos del Tesoro de EE. UU. |
 | ROIC | Cuánto gana la empresa por cada peso invertido en el negocio. Si es mayor que el WACC, crea valor. |
 | Sharpe Ratio | Cuánta ganancia extra obtienes por cada unidad de riesgo que aceptas. Más alto es mejor: por encima de 1 es muy bueno. |
 | TIR | La rentabilidad anual que da un proyecto. Si es mayor que el WACC, el proyecto suele valer la pena. |
+| TIR implícita | La rentabilidad anual que obtienes si compras la acción al precio de hoy y el modelo acierta. Si supera el WACC, el precio es atractivo. |
+| Tornado | Un gráfico que ordena los supuestos según cuánto mueven el valor. La barra más larga es el supuesto más delicado. |
 | Upside | La diferencia entre lo que vale la acción según el modelo y su precio. +25 % significa que podría estar 25 % barata. |
 | Valor terminal (TV) | El valor de todos los años después del horizonte, resumido en un solo número. Si pesa demasiado, el resultado depende mucho de g y del WACC. |
 | VaR diario | La pérdida que no se superó en el 95 % de los días. Es tu "día malo normal". |
 | Volatilidad | Cuánto sube y baja el precio de una acción. Mucha volatilidad es como una montaña rusa: emocionante pero mareadora. |
 | VPN | La ganancia de un proyecto en pesos de hoy, ya restando lo que cuesta. Si es positiva, el proyecto crea valor. |
+| VPN del inversionista | El valor de la empresa menos lo que cuesta comprarla entera en bolsa. Si es positivo, la acción está barata con esos supuestos. |
 | VPS | Valor por acción según el modelo: el equity dividido entre el número de acciones. Se compara con el precio de bolsa. |
 | WACC | El costo promedio del dinero de la empresa, mezclando lo que cobran los bancos y lo que exigen los dueños. Es la vara mínima que el negocio debe superar para crear valor. |
 
