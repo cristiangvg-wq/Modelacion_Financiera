@@ -28,11 +28,36 @@ import portfolio_engine as _portfolio_engine_mod
 _API_LOGICA_REQUERIDA = (
     "vincular_estado_sesion", "instantanea_precio_mercado",
     "metricas_valoracion_sesion", "limpiar_cache_mercado",
+    "calendario_valoracion", "bridge_con_fechas", "wacc_optimista", "datos_taller_modelo", "config_ronic_sesion",
 )
-if not all(hasattr(L, n) for n in _API_LOGICA_REQUERIDA):
-    L = importlib.reload(L)
-if not hasattr(_portfolio_engine_mod, "convertir_a_moneda_comun"):
-    importlib.reload(_portfolio_engine_mod)
+
+
+def _recargar_si_cambio(mod, api=()):
+    """Recarga `mod` si su archivo en disco cambió desde que se importó o si le falta la API esperada.
+
+    Antes solo se comprobaba una lista fija de funciones: tras el despliegue del PR #80 la lógica en memoria era
+    la anterior y la pestaña 10 fallaba con «no attribute 'datos_taller_modelo'». La fecha de modificación del
+    archivo detecta cualquier versión nueva, aunque nadie actualice la lista.
+    """
+    try:
+        mtime = os.path.getmtime(mod.__file__)
+    except (OSError, TypeError, AttributeError):
+        mtime = None
+    previo = getattr(mod, "_mtime_cargado", None)
+    if (previo is not None and mtime is not None and previo != mtime) or not all(hasattr(mod, n) for n in api):
+        mod = importlib.reload(mod)
+    try:
+        mod._mtime_cargado = mtime if mtime is not None else os.path.getmtime(mod.__file__)
+    except (OSError, TypeError, AttributeError):
+        pass
+    return mod
+
+
+import multiples_valuation as _multiples_mod  # noqa: E402
+
+L = _recargar_si_cambio(L, _API_LOGICA_REQUERIDA)
+_portfolio_engine_mod = _recargar_si_cambio(_portfolio_engine_mod, ("convertir_a_moneda_comun",))
+_multiples_mod = _recargar_si_cambio(_multiples_mod, ("valoracion_por_multiplo",))
 
 try:
     import matplotlib
@@ -3569,7 +3594,7 @@ def _modulo_desactualizado(mod) -> bool:
     """True si al módulo en memoria le falta la API que esta versión de la app usa."""
     requerida = {
         "scripts.taller_isa": ("inputs_from_app", "inputs_fingerprint", "validate_inputs", "calcular_modelo",
-                               "politicas_de"),
+                               "politicas_de", "modo_app", "ronic_spread", "refresh_snapshot_modelo"),
         "scripts.generar_informe_taller_isa": ("generar_informe", "DEFAULT_TEAM", "DEFAULT_DATE"),
     }.get(mod.__name__, ())
     return not all(hasattr(mod, n) for n in requerida)
