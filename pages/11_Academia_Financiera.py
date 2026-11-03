@@ -83,7 +83,7 @@ with tab2:
    tax=st.slider("Impuestos (%)",0.,45.,30.,.5); dw=st.slider("Peso de deuda (%)",0,90,30,1)
   ke=rf+beta*premium; wacc=(1-dw/100)*ke+(dw/100)*kd*(1-tax/100)
   x,y=st.columns(2); x.metric("Costo del patrimonio (Ke)",f"{ke:.2f}%"); y.metric("WACC ilustrativo",f"{wacc:.2f}%")
-  st.plotly_chart(go.Figure(go.Bar(x=["Ke","Kd después de impuestos","WACC"],y=[ke,kd*(1-tax/100),wacc],text=[f"{ke:.2f}%",f"{kd*(1-tax/100):.2f}%",f"{wacc:.2f}%"],textposition="outside")).update_layout(template="plotly_dark",height=320,margin=dict(l=10,r=10,t=25,b=10,yaxis_title="Porcentaje (%)"),showlegend=False),use_container_width=True)
+  st.plotly_chart(go.Figure(go.Bar(x=["Ke","Kd después de impuestos","WACC"],y=[ke,kd*(1-tax/100),wacc],text=[f"{ke:.2f}%",f"{kd*(1-tax/100):.2f}%",f"{wacc:.2f}%"],textposition="outside")).update_layout(template="plotly_dark",height=320,margin=dict(l=10,r=10,t=25,b=10),yaxis_title="Porcentaje (%)",showlegend=False),use_container_width=True)
   st.caption("Supone pesos de capital a valor de mercado. Justifica cada tasa, moneda y estructura en un caso real.")
  elif selected=="04 · DCF: cuánto vale hoy":
   c1,c2=st.columns(2)
