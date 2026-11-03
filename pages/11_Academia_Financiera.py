@@ -53,7 +53,7 @@ with st.sidebar:
  st.divider(); st.caption("RUTA RECOMENDADA")
  st.markdown("1. Lenguaje financiero\n2. Pronósticos\n3. WACC\n4. DCF\n5. Comparables y portafolios")
  st.caption("El progreso se conserva durante la sesión activa. La persistencia entre dispositivos requiere autenticación y base de datos.")
- st.page_link("streamlit_app.py",label="← Volver a Modelación Financiera",icon="🏠")
+ st.link_button("← Volver a Modelación Financiera","https://modelacionfinanciera-dc24z9cnmvc3u6znfwzyik.streamlit.app/")
 data=MODULES[selected]
 st.markdown(f"### {selected}"); st.caption(f"{data['level']} · {data['time']} · {data['goal']}")
 tab1,tab2,tab3=st.tabs(["📖 Aprende el concepto","🧪 Laboratorio","🎯 Comprueba lo aprendido"])
