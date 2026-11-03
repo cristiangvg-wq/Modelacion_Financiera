@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for entry in "streamlit_app.py:8501" "scripts/dashboard_taller_isa.py:8502"; do
+          for entry in "streamlit_app.py:8501" "scripts/dashboard_taller_isa.py:8502" "pages/11_Academia_Financiera.py:8503"; do
             app="${entry%%:*}"
             port="${entry##*:}"
             log_file="$(mktemp)"
