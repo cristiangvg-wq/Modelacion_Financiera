@@ -117,3 +117,30 @@ streamlit run scripts/dashboard_taller_isa.py     # dashboard interactivo
 ```
 
 Consulta `docs/ENTREGA_TALLER_ISA.md` para la lista de entregables y `docs/Informe_Taller_ISA_2026.pdf` para el informe. Los supuestos de escenarios, políticas y umbrales son hipótesis editables; el resultado es académico, no un precio objetivo profesional.
+
+
+## Academia Financiera interactiva
+
+El repositorio incluye una academia didáctica con diseño inmersivo, siete rutas de aprendizaje, laboratorios con controles interactivos y evaluaciones breves.
+
+### Integrada en la aplicación principal
+
+Ejecuta la aplicación habitual:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+En la barra lateral, dentro de **Experiencia**, abre **Academia financiera**.
+
+### Publicar como aplicación independiente
+
+Para disponer de un enlace separado y compartible en Streamlit Community Cloud:
+
+1. Entra a [share.streamlit.io](https://share.streamlit.io/) e inicia sesión con GitHub.
+2. Selecciona este repositorio y la rama `main`.
+3. En **Main file path**, escribe `pages/11_Academia_Financiera.py`.
+4. Pulsa **Deploy**. Streamlit creará una URL propia para compartir.
+5. Mantén las dependencias de `requirements.txt`; la academia usa Streamlit y Plotly, ya incluidos.
+
+La academia no requiere claves API. En esta primera entrega, el avance se conserva en la sesión del navegador; no hay cuentas, sincronización entre dispositivos ni base de datos de progreso. Los laboratorios son educativos y no alteran el motor de valoración de la aplicación principal.
