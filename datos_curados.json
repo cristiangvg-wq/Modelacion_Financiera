@@ -89,7 +89,14 @@
         "2024": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance.",
         "2025": "Ingresos, EBIT ex asociadas y D&A conciliados con EEFF consolidados oficiales; EBITDA derivado como EBIT + D&A; CAPEX es PP&E + intangibles pagados en caja; NWC preliminar derivado del balance."
       },
-      "fecha_cierre_fiscal": "2025-12-31"
+      "fecha_cierre_fiscal": "2025-12-31",
+      "inversion_reportada": {
+        "anio": 2025,
+        "valor": 6300,
+        "unidad": "miles de millones COP",
+        "fuente": "Resumen de resultados 4T25 de ISA (Quartr, https://quartr.com/events/interconexi-n-el-ctrica-sa-esp-isa-q4-2025_FMNEn0pg): «Investments totaled COP 6.3 trillion, up 31% from 2024»; EBITDA 8,7 billones (ajustado 9,6 billones, excluye eventos especiales). Consultado 3-nov-2026; fuente secundaria: confirmar con el informe anual.",
+        "nota": "Triplica el CAPEX del histórico (1.706 = PP&E + intangibles pagados). Parte puede ser activo de concesión (CINIIF 12) o adquisiciones; no se incorpora al FCFF hasta conciliar su perímetro con los ingresos."
+      }
     },
     "GEB — Grupo Energía Bogotá": {
       "ticker_bvc": "GEB",

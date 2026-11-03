@@ -2710,6 +2710,13 @@ def _serie_cop_por_usd(period="5y"):
 
 def _tasa_cop_usd_spot():
     """Última tasa COP/USD (misma que muestra la cinta) o None si no hay datos."""
+    # Hallazgo B-01: una sola fuente de FX para valoración y cinta: la del motor (manual o spot COP=X).
+    try:
+        fx, _ = L.tasa_cop_por_usd()
+        if fx:
+            return float(fx)
+    except Exception:
+        pass
     ser = _serie_cop_por_usd("1mo")
     try:
         return float(ser.iloc[-1]) if ser is not None and len(ser) else None
@@ -3424,25 +3431,20 @@ def _archivo_para_logic():
 
 
 def _wacc_quick(de_ratio, kd, tax, beta_u, rf, erp, crp):
-    """CAPM + WACC alineado con modelacion_logic (beta_apalancado, costo_equity_capm, calcular_wacc)."""
+    """CAPM + WACC con las funciones del motor (beta_apalancado, costo_equity_capm, calcular_wacc).
+
+    Hallazgo M-11: antes, si el motor rechazaba un insumo (p. ej. Ke ≤ 0 o tasa fiscal fuera de rango) se
+    recalculaba con fórmulas duplicadas y el error quedaba oculto. Ahora el error se devuelve para mostrarlo.
+    """
     de = max(float(de_ratio), 0.0)
     t = float(tax)
+    beta_l = float(L.beta_apalancado(float(beta_u), de, t))
     try:
-        beta_l = float(L.beta_apalancado(float(beta_u), de, t)) if hasattr(L, "beta_apalancado") else float(beta_u) * (1.0 + (1.0 - t) * de)
-    except Exception:
-        beta_l = float(beta_u) * (1.0 + (1.0 - t) * de)
-    try:
-        ke = float(L.costo_equity_capm(beta_l, rf=float(rf), erp=float(erp), crp=float(crp or 0))) if hasattr(L, "costo_equity_capm") else float(rf) + beta_l * float(erp) + float(crp or 0)
-    except Exception:
-        ke = float(rf) + beta_l * float(erp) + float(crp or 0)
-    try:
-        out = L.calcular_wacc(de, float(kd), ke, t)
-        wacc = float(out[0]) if isinstance(out, (tuple, list)) else float(out)
-    except Exception:
-        we = 1.0 / (1.0 + de)
-        wd = de / (1.0 + de)
-        wacc = we * ke + wd * float(kd) * (1.0 - t)
-    return {"wacc": wacc, "ke": ke, "beta_l": beta_l}
+        ke = float(L.costo_equity_capm(beta_l, rf=float(rf), erp=float(erp), crp=float(crp or 0)))
+        wacc = float(L.calcular_wacc(de, float(kd), ke, t)[0])
+        return {"wacc": wacc, "ke": ke, "beta_l": beta_l}
+    except ValueError as exc:
+        return {"wacc": float("nan"), "ke": float("nan"), "beta_l": beta_l, "error": str(exc)}
 
 
 # =============================================================================
@@ -4107,6 +4109,8 @@ def main():
         pass
 
     w = _wacc_quick(de_ratio, kd, tax, beta_u, rf, erp, crp)
+    if w.get("error"):
+        st.error(f"Los supuestos de costo de capital no son válidos: {w['error']} Corrige la barra lateral.")
     moneda = str((st.session_state.get("params") or {}).get("moneda") or "COP").upper()
     moneda_precio = str(
         st.session_state.get("moneda_precio_alineada")
@@ -5931,7 +5935,10 @@ def main():
             )
 
 
-    if False:  # Conserva el código para retomarlo en el futuro sin mostrar la pestaña.
+    # Valoración por múltiplos (hallazgo M-09): estaba oculta con «if False». Se muestra en la pestaña 6 (Sector),
+    # junto a los comparables, porque es el segundo método de valoración que exige el proyecto.
+    with tab6:
+        st.markdown("---")
         st.markdown("##### Valoración independiente por múltiplos comparables")
         st.caption(
             "Método de mercado complementario al DCF. La valoración usa la mediana de EV/EBITDA "
@@ -6117,6 +6124,45 @@ def main():
                 "El múltiplo automático solo se usa cuando la nota de fuente identifica datos de mercado; "
                 "los valores manuales dependen de la verificación del usuario."
             )
+
+        st.markdown("###### Otros múltiplos: EV/Ventas, P/E y P/VL")
+        st.caption(
+            "Ingresa solo múltiplos observados y verificados de comparables (misma moneda y base: LTM o año fiscal). "
+            "EV/Ventas pasa por el mismo puente que el DCF; P/E y P/VL valoran directamente el patrimonio atribuible."
+        )
+        _om_c1, _om_c2, _om_c3 = st.columns(3)
+        _om_specs = [
+            ("EV/Ventas", _om_c1, "Ingresos (mismo periodo)", "om_ev_ventas"),
+            ("P/E", _om_c2, "Utilidad neta atribuible", "om_pe"),
+            ("P/VL", _om_c3, "Patrimonio contable atribuible", "om_pvl"),
+        ]
+        _om_rows = []
+        for _om_tipo, _om_col, _om_lab, _om_key in _om_specs:
+            with _om_col:
+                _om_metric = st.number_input(f"{_om_lab} ({_om_tipo})", value=0.0, format="%.4f", key=f"{_om_key}_m")
+                _om_txt = st.text_input(f"Múltiplos {_om_tipo} de comparables", value="", key=f"{_om_key}_x",
+                                        placeholder="Ej.: 1.8, 2.1, 2.5")
+            if _om_metric and _om_txt.strip():
+                try:
+                    from multiples_valuation import valoracion_por_multiplo as _om_val
+                    _om_vals = [float(v.strip()) for v in _om_txt.split(",") if v.strip()]
+                    _om_r = _om_val(_om_tipo, _om_metric, _om_vals, deuda_neta=float(_mx_deuda_neta),
+                                    acciones_millones=float(_mx_acciones_millones) or None,
+                                    nci=float(_mx_nci), asociados=float(_mx_asociados))
+                    _om_rows.append({
+                        "Múltiplo": _om_tipo, "Mediana (x)": round(_om_r["multiple_mediano"], 2),
+                        "Comparables": _om_r["n_comparables"],
+                        "Patrimonio": round(_om_r["equity_value"], 2),
+                        "Valor por acción": (round(_om_r["valor_por_accion"], 2) if _om_r["valor_por_accion"] is not None else "N/D"),
+                        "Rango Q1–Q3 por acción": (f"{_om_r['valor_por_accion_q1']:,.0f} – {_om_r['valor_por_accion_q3']:,.0f}"
+                                                   if _om_r.get("valor_por_accion_q1") is not None else "N/D"),
+                    })
+                except ValueError as _om_exc:
+                    st.warning(f"{_om_tipo}: {_om_exc}")
+        if _om_rows:
+            st.dataframe(pd.DataFrame(_om_rows), hide_index=True, width="stretch")
+            st.caption("Compara estos valores con el DCF: si un método se aleja mucho, revisa diferencias de crecimiento, "
+                       "rentabilidad, riesgo y estructura de capital entre la empresa y sus comparables.")
 
 
     with tab10:

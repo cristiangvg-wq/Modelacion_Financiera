@@ -13,6 +13,15 @@ except ImportError:  # pragma: no cover
 ISA = "ISA — Interconexión Eléctrica"
 
 
+def _requiere_precio(test):
+    """Las secciones «Modelo frente al mercado» y la conciliación necesitan precio de Yahoo (red).
+
+    Sin red la prueba se omite con motivo explícito en lugar de fallar (hallazgo A-06); en la CI con red se ejecuta.
+    """
+    if L.resolver_precio_mercado(ISA) is None:
+        test.skipTest("Sin precio de mercado (Yahoo no accesible): prueba de red omitida")
+
+
 def _correr(nombre, capturar, antes_del_informe=None):
     import sys
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
@@ -39,6 +48,7 @@ class _Base(unittest.TestCase):
 
 class TestDatosInforme(_Base):
     def test_contenido_v3(self):
+        _requiere_precio(self)
         visto = {}
 
         def capturar(ruta, nombre, datos):
@@ -70,6 +80,7 @@ class TestDatosInforme(_Base):
 @unittest.skipIf(pypdf is None, "pypdf no instalado")
 class TestPdf(_Base):
     def test_pdf_completo_con_dictamen(self):
+        _requiere_precio(self)
         def dictamen():
             L.guardar_resultado_tab("comite_ia", ISA, {"texto": "x", "struct": {}, "dictamen": {
                 "recomendacion": "MANTENER", "precio_objetivo": 26500.0, "conviccion": 6,

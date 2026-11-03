@@ -371,7 +371,13 @@ def construir_frontera(
     """Construye una frontera aproximada, omitiendo objetivos inviables."""
     if n_puntos < 3:
         raise ValueError("Usa al menos tres puntos.")
-    targets = np.linspace(float(mu.min()), float(mu.max()), int(n_puntos))
+    # Desde la cartera de mínima volatilidad: por debajo de su retorno la frontera es ineficiente (hallazgo B-06).
+    try:
+        r_min = float(optimizar_portafolio(mu, cov, objetivo="min_volatility", tasa_libre_riesgo=tasa_libre_riesgo,
+                                           peso_maximo=peso_maximo)["retorno_esperado"])
+    except (ValueError, RuntimeError):
+        r_min = float(mu.min())
+    targets = np.linspace(r_min, float(mu.max()), int(n_puntos))
     rows = []
     for target in targets:
         try:

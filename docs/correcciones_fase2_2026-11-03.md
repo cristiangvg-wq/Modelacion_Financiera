@@ -47,3 +47,33 @@ Lectura: la brecha restante proviene de supuestos con limitaciones documentadas 
 - Nuevas: `tests/test_correcciones_fase2.py` (21 pruebas con cálculos independientes).
 - Ajustadas (comportamiento corregido): `test_comite_ia_v2.py` (par de escenarios), `tests/test_taller_isa.py` (estructura de la pestaña 10).
 - Suite completa: ver la descripción del PR. Las 2 pruebas de `test_informe_pdf.py` que fallan sin red fallaban igual antes de los cambios (necesitan precio de Yahoo).
+
+## Segunda tanda (mismo día): hallazgos medios y bajos
+
+| Hallazgo | Cambio | Archivo |
+|---|---|---|
+| M-08 Tasas de otros mercados | Bonos a 10 años con fuente y fecha: Brasil 15,4 % (29-oct), México 9,28 % (30-oct), Chile 6,00 % (2-nov), Reino Unido 5,29 % (29-oct), Trading Economics. Antes: 12 %, 9 %, 5,5 % y 4 % sin fecha. Mismo método de Damodaran que Colombia en los cinco mercados: rf = bono − spread de default; ERP = madura + riesgo país. | `modelacion_logic.py` |
+| M-03 Múltiplo de salida | Múltiplo de la industria (Damodaran, ajustado por país) en vez del EV/EBITDA actual de la propia empresa (circular); sin dato → N/D (antes 22x/10x fijos). El propio queda como `ev_ebitda_mercado`. | `modelacion_logic.py` |
+| M-09 Múltiplos | Nuevos EV/Ventas, P/E y P/VL (`valoracion_por_multiplo`). La sección de múltiplos estaba oculta (`if False`); ahora se ve en la pestaña 6. | `multiples_valuation.py`, `streamlit_app.py` |
+| M-02 g recortada | El puente informa «g pedida → g usada» cuando se aplica el techo. | `modelacion_logic.py` |
+| M-04 Asociadas | Se conserva el método validado con GEB (mayor entre libros y utilidad capitalizada), pero rotulado como estimado y con el valor en libros para contraste. | `modelacion_logic.py` |
+| M-06 ROIC | `capital_base_roic` solo usa capital contable (antes añadía patrimonio de mercado). | `modelacion_logic.py` |
+| M-11 Duplicados | La UI calcula WACC solo con el motor; si un insumo es inválido muestra el error (antes recalculaba con fórmulas propias y lo ocultaba). El asistente IA usa las anclas CAPM del mercado (antes rf 9 % y ERP 6 % fijos). | `streamlit_app.py`, `modelacion_logic.py` |
+| M-12 Pestaña 5 | Se aclara que el VPN/TIR es de un proyecto ilustrativo; para la acción, VPN del inversionista y TIR implícita (pestaña 10). | `modelacion_logic.py` |
+| A-05 Precio | La corrección de escala del precio contrasta precio × acciones con la capitalización (regla general; antes parche fijo para ISA). | `modelacion_logic.py` |
+| A-06 Dependencias y pruebas | Topes de versión mayor en `requirements.txt`; las 2 pruebas que necesitan precio de Yahoo se omiten con motivo cuando no hay red. | `requirements.txt`, `test_informe_pdf.py` |
+| A-07 Estado por sesión | Si la lógica corre en una sesión de Streamlit sin vínculo, se vincula a su `session_state` en vez de usar el diccionario global del proceso. | `modelacion_logic.py` |
+| B-01, B-03, B-04, B-05, B-06, B-07 | Una sola fuente de FX; sin import de Gradio; devcontainer con CORS/XSRF activos; escenarios sin `fillna(0)`; frontera desde la cartera de mínima volatilidad; «beta de mercado (apalancada)» en la ficha. | varios |
+| B-02 | Verificado: la UI ya cierra cada figura tras mostrarla; sin cambio. | — |
+
+### Evidencia nueva sobre ISA (no incorporada al FCFF)
+Según el resumen de resultados 4T25 ([Quartr](https://quartr.com/events/interconexi-n-el-ctrica-sa-esp-isa-q4-2025_FMNEn0pg)), ISA invirtió **COP 6,3 billones en 2025**, frente a 1,7 billones de CAPEX en el histórico del modelo. Se registró en `datos_curados.json` (`inversion_reportada`) y la pestaña 4 lo muestra como alerta. No se sumó al FCFF porque falta conciliar qué parte es activo de concesión, adquisiciones o expansión con ingresos futuros: hacerlo sin ese detalle bajaría el valor drásticamente sin sustento. El mismo resumen reporta EBITDA ajustado de 9,6 billones (excluye eventos especiales de 2025), lo que respalda tratar el margen de 2025 como atípico.
+
+### Pendiente (requiere decisión o datos)
+- **A-02 Tasa fiscal de ISA (22 %):** no se encontró la utilidad por método de participación de 2025 en fuentes verificables; se mantiene como provisional con sensibilidad a 35 %.
+- **A-03 RONIC:** el modo por defecto («roic», mitad del exceso del ROIC sobre el WACC) se conserva como supuesto documentado.
+- **B-08:** confirmar si el catálogo curado debe seguir como tercera fuente de datos.
+- **M-10:** dividir funciones largas y reemplazar `except Exception` genéricos exige una refactorización gradual aparte.
+
+### Pruebas
+`pytest -q` local sin red: **459 aprobadas, 2 omitidas (requieren Yahoo), 0 fallidas**. App ejecutada localmente: pestañas 6, 9 y 10 sin excepciones.

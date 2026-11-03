@@ -193,3 +193,48 @@ class TestTallerPestana10(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCorreccionesFase2b(unittest.TestCase):
+    """Hallazgos medios y bajos corregidos en la segunda tanda."""
+
+    def test_tasas_de_otros_mercados_fechadas_y_con_riesgo_pais(self):
+        for m in ("BR", "MX", "CL", "GB"):
+            c = L.CAPM_POR_MERCADO[m]
+            self.assertIn("rf_bruto_fuente", c)
+            rp = L.damodaran_riesgo_pais(m)
+            self.assertAlmostEqual(c["rf"], round(c["rf_bruto"] - rp["spread"], 4))
+            self.assertAlmostEqual(c["erp"], round(rp["erp_total"], 4))
+            self.assertEqual(c["crp"], 0.0)
+
+    def test_aviso_de_g_recortada(self):
+        v = L.valoracion_dcf([100.0, 110.0], 0.07, 0.09, mid_year=False)
+        self.assertIn("g terminal pedido 9.00 %", v["bridge"]["Nota TV"])
+
+    def test_capital_roic_solo_contable(self):
+        self.assertEqual(L.capital_base_roic(100, deuda_neta=50, equity_val=1000), 100.0)
+        with self.assertRaises(ValueError):
+            L.capital_base_roic(0, deuda_neta=50, equity_val=1000)
+
+    def test_multiplo_de_salida_no_es_el_propio(self):
+        info = {"country": "United States", "sector": "Technology", "industry": "Consumer Electronics",
+                "enterpriseToEbitda": 27.0, "currency": "USD", "financialCurrency": "USD"}
+        p = L.derivar_params_desde_cero(None, info, "AAPL")
+        self.assertEqual(p["ev_ebitda_mercado"], 27.0)
+        self.assertNotEqual(p["exit_multiple"], 27.0)
+        self.assertIn("industria", p["exit_multiple_fuente"])
+
+    def test_multiplos_de_patrimonio(self):
+        from multiples_valuation import valoracion_por_multiplo
+        r = valoracion_por_multiplo("P/E", 2000.0, [10.0, 12.0, 14.0], deuda_neta=99999.0, acciones_millones=1000.0)
+        self.assertAlmostEqual(r["equity_value"], 24000.0)          # sin restar deuda: P/E ya es de patrimonio
+        self.assertAlmostEqual(r["valor_por_accion"], 24000.0)
+        r2 = valoracion_por_multiplo("EV/Ventas", 1000.0, [2.0], deuda_neta=500.0, nci=100.0)
+        self.assertAlmostEqual(r2["equity_value"], 1400.0)
+        with self.assertRaises(ValueError):
+            valoracion_por_multiplo("P/E", -5.0, [10.0])
+
+    def test_isa_tiene_inversion_reportada_documentada(self):
+        inv = L.EMPRESAS[ISA]["params"]["inversion_reportada"]
+        self.assertEqual(inv["valor"], 6300)
+        self.assertIn("quartr.com", inv["fuente"])

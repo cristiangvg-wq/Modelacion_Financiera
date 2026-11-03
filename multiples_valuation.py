@@ -116,3 +116,64 @@ def _percentile(sorted_values, q: float) -> float:
         return float(sorted_values[lo])
     weight = pos - lo
     return float(sorted_values[lo] * (1 - weight) + sorted_values[hi] * weight)
+
+
+# ---------------------------------------------------------------------------
+# Otros múltiplos (hallazgo M-09): EV/Ventas, P/E y P/VL.
+# Cada múltiplo se aplica a su denominador coherente:
+#   EV/Ventas → valor de la EMPRESA (luego puente a patrimonio, igual que el DCF);
+#   P/E y P/VL → valor del PATRIMONIO directamente (utilidad neta atribuible / patrimonio contable atribuible),
+#   sin restar deuda (el precio ya es del patrimonio).
+# ---------------------------------------------------------------------------
+MULTIPLOS_SOPORTADOS = {
+    "EV/EBITDA": ("ev", "EBITDA normalizado"),
+    "EV/Ventas": ("ev", "Ingresos"),
+    "P/E": ("equity", "Utilidad neta atribuible a la controladora"),
+    "P/VL": ("equity", "Patrimonio contable atribuible a la controladora"),
+}
+
+
+def valoracion_por_multiplo(
+    tipo: str,
+    metrica_objetivo: float,
+    multiples_comparables,
+    deuda_neta: float = 0.0,
+    acciones_millones: float | None = None,
+    nci: float = 0.0,
+    asociados: float = 0.0,
+    otros_claims: float = 0.0,
+) -> dict:
+    """Valora con la mediana del múltiplo ``tipo`` (EV/EBITDA, EV/Ventas, P/E o P/VL) de comparables verificados."""
+    if tipo not in MULTIPLOS_SOPORTADOS:
+        raise ValueError(f"Múltiplo no soportado: {tipo}. Opciones: {', '.join(MULTIPLOS_SOPORTADOS)}.")
+    base, _ = MULTIPLOS_SOPORTADOS[tipo]
+    if base == "ev":
+        r = valoracion_por_multiplos(metrica_objetivo, multiples_comparables, deuda_neta=deuda_neta,
+                                     acciones_millones=acciones_millones, nci=nci, asociados=asociados,
+                                     otros_claims=otros_claims)
+        return {**r, "tipo": tipo}
+    # Múltiplos de patrimonio: sin puente de deuda.
+    try:
+        metrica = float(metrica_objetivo)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("La métrica de la empresa debe ser numérica.") from exc
+    if not math.isfinite(metrica) or metrica <= 0:
+        raise ValueError(f"{tipo} requiere {MULTIPLOS_SOPORTADOS[tipo][1].lower()} positiva: con valores ≤ 0 el múltiplo no aplica.")
+    valid = sorted(float(m) for m in (multiples_comparables or [])
+                   if isinstance(m, (int, float)) and math.isfinite(float(m)) and float(m) > 0)
+    if not valid:
+        raise ValueError(f"Se necesita al menos un múltiplo {tipo} válido y verificado.")
+    shares = None
+    if acciones_millones not in (None, "", 0, 0.0):
+        shares = float(acciones_millones)
+        if not math.isfinite(shares) or shares <= 0:
+            raise ValueError("Las acciones en circulación deben ser positivas.")
+    med = float(median(valid))
+    q1 = _percentile(valid, 0.25) if len(valid) >= 4 else float(valid[(len(valid) - 1) // 4])
+    q3 = _percentile(valid, 0.75) if len(valid) >= 4 else float(valid[(3 * (len(valid) - 1)) // 4])
+    eq = metrica * med
+    vps = (lambda m: metrica * m * 1000.0 / shares) if shares else (lambda m: None)
+    return {"tipo": tipo, "multiple_mediano": med, "enterprise_value": None, "equity_value": eq,
+            "valor_por_accion": vps(med), "valor_por_accion_q1": vps(q1), "valor_por_accion_q3": vps(q3),
+            "n_comparables": len(valid), "multiples_validos": valid, "multiple_min": valid[0],
+            "multiple_max": valid[-1], "q1": q1, "q3": q3, "puente": None}
