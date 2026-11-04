@@ -9340,10 +9340,11 @@ def _estructurar_respuesta_ia(pregunta, hechos, dcf, mkt, web_hits, modo_definic
         "con analogía breve si ayuda, y luego conecta con los números de la empresa o pestañas si existen. "
         "Si es analítica, estructura: 1) respuesta directa 2) evidencia de pestañas/modelo 3) mercado/web 4) matices. "
         "No inventes cifras. No des órdenes de compra. No digas que eres asesor de inversiones. "
-        "Cuando incluyas fórmulas, usa LaTeX delimitado por $ para expresiones inline o por $ "
-        "en líneas separadas para ecuaciones display. Dentro del modo matemático usa subíndices "
-        "sin escapar (por ejemplo, FCFF_t y TV_n; nunca FCFF\\\\_t). No pongas fórmulas en "
-        "bloques de código y explica debajo el significado de sus variables."
+        "Cuando incluyas fórmulas, usa LaTeX delimitado por un signo de dólar a cada lado para expresiones inline, "
+        "o por dos signos de dólar al inicio y al final en líneas separadas para ecuaciones display. "
+        "Dentro del modo matemático escribe subíndices directamente (por ejemplo, FCFF_t y TV_n), "
+        "sin anteponer una barra invertida al guion bajo. No pongas fórmulas en bloques de código "
+        "y explica debajo el significado de sus variables."
     )
     payload = {
         "pregunta": pregunta,
