@@ -9250,14 +9250,16 @@ def _normalizar_latex_markdown(texto):
     """Normaliza subíndices escapados solo dentro de fórmulas Markdown/LaTeX."""
     import re as _re
 
-    # No modificar ejemplos de código: el contenido entre fences se conserva intacto.
-    segmentos = _re.split(r"(```[\\s\\S]*?```)", str(texto or ""))
+    # Mantener intactos los bloques de código.
+    segmentos = _re.split(r"(```.*?```)", str(texto or ""), flags=_re.DOTALL)
+    dollar = _re.escape(chr(36))
+    patron_matematico = "(" + dollar * 2 + ".*?" + dollar * 2 + "|" + dollar + "(?!" + dollar + ").*?" + dollar + ")"
+    slash = chr(92)
     for i in range(0, len(segmentos), 2):
-        partes = _re.split(r"(\\$\\$[\\s\\S]*?\\$\\$|(?<!\\$)\\$(?!\\$)[\\s\\S]*?(?<!\\$)\\$)", segmentos[i])
+        partes = _re.split(patron_matematico, segmentos[i], flags=_re.DOTALL)
         for j in range(1, len(partes), 2):
-            # En modo matemático, el guion bajo debe actuar como subíndice.
-            partes[j] = _re.sub(r"\\\\_([A-Za-z0-9]+)", r"_\\1", partes[j])
-            partes[j] = _re.sub(r"\\\\\\\\_([A-Za-z0-9]+)", r"_\\1", partes[j])
+            # Dentro de math mode, \_t debe ser _t; también cubre barras duplicadas.
+            partes[j] = partes[j].replace(slash * 2 + "_", "_").replace(slash + "_", "_")
         segmentos[i] = "".join(partes)
     return "".join(segmentos)
 
