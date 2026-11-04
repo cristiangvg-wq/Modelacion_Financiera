@@ -9246,6 +9246,27 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
 _set_ia_error(None)
 
 
+def _normalizar_latex_markdown(texto):
+    """Normaliza subíndices escapados solo dentro de fórmulas Markdown/LaTeX."""
+    import re as _re
+
+    # Mantener intactos los bloques de código.
+    segmentos = _re.split(r"(```.*?```)", str(texto or ""), flags=_re.DOTALL)
+    dollar = _re.escape(chr(36))
+    patron_matematico = "(" + dollar * 2 + ".*?" + dollar * 2 + "|" + dollar + "(?!" + dollar + ").*?" + dollar + ")"
+    slash = chr(92)
+    for i in range(0, len(segmentos), 2):
+        partes = _re.split(patron_matematico, segmentos[i], flags=_re.DOTALL)
+        for j in range(1, len(partes), 2):
+            # Dentro de math mode, \_t debe ser _t; también cubre barras duplicadas.
+            partes[j] = partes[j].replace(slash * 2 + "_", "_").replace(slash + "_", "_")
+            # Streamlit requiere que $ y $ estén en líneas independientes.
+            if partes[j].startswith(chr(36) * 2) and partes[j].endswith(chr(36) * 2):
+                formula = partes[j][2:-2].strip()
+                partes[j] = chr(36) * 2 + "\n" + formula + "\n" + chr(36) * 2
+        segmentos[i] = "".join(partes)
+    return "".join(segmentos)
+
 def _texto_a_html(texto):
     """Convierte markdown simple a HTML legible."""
     import html as _html
@@ -9322,7 +9343,12 @@ def _estructurar_respuesta_ia(pregunta, hechos, dcf, mkt, web_hits, modo_definic
         "Si la pregunta es conceptual (qué es EBITDA, WACC, etc.), explica el término en lenguaje sencillo, "
         "con analogía breve si ayuda, y luego conecta con los números de la empresa o pestañas si existen. "
         "Si es analítica, estructura: 1) respuesta directa 2) evidencia de pestañas/modelo 3) mercado/web 4) matices. "
-        "No inventes cifras. No des órdenes de compra. No digas que eres asesor de inversiones."
+        "No inventes cifras. No des órdenes de compra. No digas que eres asesor de inversiones. "
+        "Cuando incluyas fórmulas, usa LaTeX delimitado por un signo de dólar a cada lado para expresiones inline, "
+        "o por dos signos de dólar al inicio y al final en líneas separadas para ecuaciones display. "
+        "Dentro del modo matemático escribe subíndices directamente (por ejemplo, FCFF_t y TV_n), "
+        "sin anteponer una barra invertida al guion bajo. No pongas fórmulas en bloques de código "
+        "y explica debajo el significado de sus variables."
     )
     payload = {
         "pregunta": pregunta,
@@ -9457,15 +9483,9 @@ def _estructurar_respuesta_ia(pregunta, hechos, dcf, mkt, web_hits, modo_definic
 
 def asistente_consulta_financiera(pregunta, nombre_empresa, api_key=None, proveedor="xai"):
     """Asistente didáctico: glosario + modelo + mercado/web + redacción IA si hay API key."""
-    import html as _html
-
     pregunta = (pregunta or "").strip()
     if not pregunta:
-        return (
-            '<div class="result-note">Escribe una pregunta. Puedes pedir <b>definiciones</b> '
-            "(«¿Qué es EBITDA?», «¿Qué es el WACC?») o <b>análisis de la empresa</b> "
-            "(precio, upside, deuda, FCFF, resumen para el comité).</div>"
-        )
+        return "Escribe una pregunta. Puedes pedir definiciones (¿Qué es EBITDA? o ¿Qué es el WACC?) o análisis de la empresa (precio, upside, deuda, FCFF o resumen para el comité)."
 
     termino = _detectar_termino_glosario(pregunta)
     ctx = _contexto_empresa_modelo(nombre_empresa) if nombre_empresa else {
@@ -9510,7 +9530,8 @@ def asistente_consulta_financiera(pregunta, nombre_empresa, api_key=None, provee
         pregunta, hechos, dcf, mkt, web_hits,
         modo_definicion=modo_def, api_key=api_key, proveedor=proveedor or "xai",
     )
-    cuerpo = _texto_a_html(texto)
+    # Mantener Markdown y LaTeX como texto fuente; la UI lo renderiza con st.markdown.
+    cuerpo = _normalizar_latex_markdown(texto)
 
     if modo == "ia":
         badge = "Redacción con IA · datos del modelo + mercado/web"
@@ -9523,21 +9544,15 @@ def asistente_consulta_financiera(pregunta, nombre_empresa, api_key=None, provee
         else:
             badge = "Respuesta estructurada · modelo + mercado/web (sin API de IA)"
 
-    empresa_txt = _html.escape(nombre_empresa or "(sin empresa — solo concepto)")
-    return f"""
-<div class="section-card">
-  <b>Consulta:</b> {empresa_txt} — <i>{_html.escape(pregunta)}</i><br>
-  <span style="font-size:0.78rem;color:#64748B">{badge}</span>
-</div>
-<div class="tip-box">
-  <div class="tip-body" style="color:#064E3B !important">{cuerpo}</div>
-</div>
-<div class="help-chip">
-  Puede explicar términos (EBITDA, WACC, FCFF, VPN, etc.) y analizar la empresa seleccionada.
-  Para redacción con IA: variable de entorno <code>XAI_API_KEY</code> o <code>OPENAI_API_KEY</code>.
-  No constituye asesoría de inversión.
-</div>
-"""
+    empresa_txt = nombre_empresa or "(sin empresa — solo concepto)"
+    return f"""**Consulta:** {empresa_txt} — *{pregunta}*
+
+{badge}
+
+{cuerpo}
+
+---
+_Puede explicar términos (EBITDA, WACC, FCFF, VPN, etc.) y analizar la empresa seleccionada. Para redacción con IA: configura XAI_API_KEY u OPENAI_API_KEY. No constituye asesoría de inversión._"""
 
 
 

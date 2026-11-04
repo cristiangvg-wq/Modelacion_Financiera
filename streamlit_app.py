@@ -4319,13 +4319,15 @@ def main():
                     key_eff = _resolve_gemini_key(ckey) if (cprov or "gemini") == "gemini" else ((ckey or "").strip() or None)
                     if cprov == "gemini" and not key_eff:
                         key_eff = _resolve_gemini_key(None)
-                    _html(
+                    # Renderizado Markdown nativo: permite que Streamlit procese LaTeX/KaTeX.
+                    st.markdown(
                         L.asistente_consulta_financiera(
                             pregunta,
                             empresa,
                             api_key=key_eff,
                             proveedor=cprov or "gemini",
-                        )
+                        ),
+                        unsafe_allow_html=False,
                     )
                 except Exception as e:
                     st.error(str(e))
