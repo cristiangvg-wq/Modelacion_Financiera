@@ -9479,15 +9479,9 @@ def _estructurar_respuesta_ia(pregunta, hechos, dcf, mkt, web_hits, modo_definic
 
 def asistente_consulta_financiera(pregunta, nombre_empresa, api_key=None, proveedor="xai"):
     """Asistente didáctico: glosario + modelo + mercado/web + redacción IA si hay API key."""
-    import html as _html
-
     pregunta = (pregunta or "").strip()
     if not pregunta:
-        return (
-            '<div class="result-note">Escribe una pregunta. Puedes pedir <b>definiciones</b> '
-            "(«¿Qué es EBITDA?», «¿Qué es el WACC?») o <b>análisis de la empresa</b> "
-            "(precio, upside, deuda, FCFF, resumen para el comité).</div>"
-        )
+        return "Escribe una pregunta. Puedes pedir definiciones (¿Qué es EBITDA? o ¿Qué es el WACC?) o análisis de la empresa (precio, upside, deuda, FCFF o resumen para el comité)."
 
     termino = _detectar_termino_glosario(pregunta)
     ctx = _contexto_empresa_modelo(nombre_empresa) if nombre_empresa else {
