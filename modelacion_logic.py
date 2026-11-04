@@ -9263,7 +9263,7 @@ def _normalizar_latex_markdown(texto):
             # Streamlit requiere que $ y $ estén en líneas independientes.
             if partes[j].startswith(chr(36) * 2) and partes[j].endswith(chr(36) * 2):
                 formula = partes[j][2:-2].strip()
-                partes[j] = chr(36) * 2 + "\\n" + formula + "\\n" + chr(36) * 2
+                partes[j] = chr(36) * 2 + "\n" + formula + "\n" + chr(36) * 2
         segmentos[i] = "".join(partes)
     return "".join(segmentos)
 
