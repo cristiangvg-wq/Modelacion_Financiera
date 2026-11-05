@@ -9258,7 +9258,7 @@ def _normalizar_latex_markdown(texto):
     patron_matematico = "(" + dollar * 2 + ".*?" + dollar * 2 + "|" + dollar + "(?!" + dollar + ").*?" + dollar + ")"
     slash = chr(92)
     for i in range(0, len(segmentos), 2):
-        texto_plano = segmentos[i].replace("\\u2217", "*").replace("\\uFE0F", "")
+        texto_plano = segmentos[i].replace(chr(0x2217), "*").replace(chr(0xFE0F), "")
         lineas = [ln for ln in texto_plano.splitlines() if ln.strip().lower() != "undefined"]
         for k, linea in enumerate(lineas):
             limpia = linea.strip()
