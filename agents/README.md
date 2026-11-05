@@ -63,3 +63,6 @@ El agente no modifica el contexto ni el estado de Streamlit, no ejecuta código 
 python -m pytest tests/agents -q
 python -m compileall -q agents pages/12_Centro_Agentes.py
 ```
+
+
+Implementación incorporada en la rama de trabajo; ejecutar las pruebas anteriores antes de fusionar. La integración automática con el estado de la sesión principal queda pendiente de una siguiente iteración.
