@@ -9039,6 +9039,9 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
         last_err = None
         errores_auth = []
         codigos_http = []
+        # Reintentos acotados por modelo ante indisponibilidad transitoria.
+        # Evita abandonar Gemini por un pico temporal (HTTP 500/502/503/504).
+        reintentos_transitorios = {}
         t0 = _time.monotonic()
         for model in models:
             if _time.monotonic() - t0 > GEMINI_PRESUPUESTO_SEG:
@@ -9115,6 +9118,22 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                 last_err = f"HTTP {e.code} Gemini modelo={model}. Detalle: {detail}"
                 codigos_http.append(e.code)
                 _diag(modelo=model, http=e.code, finish=None, seg=round(_time.monotonic() - _t_ini, 1), error=detail[:300])
+                if e.code in (500, 502, 503, 504):
+                    # Dos reintentos adicionales (tres intentos totales por modelo),
+                    # con backoff exponencial y respeto limitado a Retry-After.
+                    usados = reintentos_transitorios.get(model, 0)
+                    if usados < 2 and _time.monotonic() - t0 < GEMINI_PRESUPUESTO_SEG:
+                        reintentos_transitorios[model] = usados + 1
+                        try:
+                            retry_after = float(e.headers.get("Retry-After", ""))
+                        except (TypeError, ValueError, AttributeError):
+                            retry_after = 0.0
+                        espera = min(max(retry_after, 2 ** (usados + 1)), 8.0)
+                        _diag(modelo=model, accion="reintento_transitorio",
+                              reintento=usados + 1, espera_seg=espera)
+                        _time.sleep(espera)
+                        models.insert(models.index(model) + 1, model)
+                        continue
                 if e.code == 400 and usar_esquema and "API_KEY" not in detail.upper():
                     _almacen_estado().setdefault("_ia_esquema_no_soportado", {})[model] = True
                     models.insert(models.index(model) + 1, model)
