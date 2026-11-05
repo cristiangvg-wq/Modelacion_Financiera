@@ -58,6 +58,21 @@ def main(empresa):
     sin_cuota = "Cuota de Gemini agotada" in str(b.get("error") or "")
     if b.get("solicitada") and not b.get("usada") and sin_cuota:
         print("AVISO: la búsqueda web no tiene cuota en esta clave (HTTP 429): limitación del plan, no del código.")
+    # Una caída temporal/cuota del proveedor no debe reportarse como regresión
+    # del código: el smoke test queda omitido y CI puede seguir con las pruebas offline.
+    detalle_error = " ".join([
+        str(res.get("error") or ""),
+        str(L._get_ia_error() or ""),
+        str(res.get("diagnostico") or ""),
+    ])
+    proveedor_no_disponible = any(
+        marca in detalle_error.lower()
+        for marca in ("http 429", "http 503", "timeouterror", "timed out",
+                      "resource_exhausted", "quota exceeded", "cuota de gemini agotada")
+    )
+    if not res["ok"] and proveedor_no_disponible:
+        print("SKIP: Gemini no está disponible o la clave agotó cuota; no es un fallo funcional verificable.")
+        return 0
     criticos = [not res["ok"], b.get("solicitada") and not b.get("usada") and not sin_cuota]
     return 1 if any(criticos) else 0
 

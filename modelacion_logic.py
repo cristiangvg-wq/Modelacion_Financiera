@@ -9247,25 +9247,33 @@ _set_ia_error(None)
 
 
 def _normalizar_latex_markdown(texto):
-    """Normaliza subíndices escapados solo dentro de fórmulas Markdown/LaTeX."""
+    """Limpia artefactos de formato fuera del código y conserva bloques literales."""
     import re as _re
 
-    # Mantener intactos los bloques de código.
-    segmentos = _re.split(r"(```.*?```)", str(texto or ""), flags=_re.DOTALL)
+    fuente = str(texto or "")
+    fence = chr(96) * 3
+    # Separar primero los bloques de código: nunca normalizar su contenido.
+    segmentos = _re.split("(" + _re.escape(fence) + ".*?" + _re.escape(fence) + ")", fuente, flags=_re.DOTALL)
     dollar = _re.escape(chr(36))
     patron_matematico = "(" + dollar * 2 + ".*?" + dollar * 2 + "|" + dollar + "(?!" + dollar + ").*?" + dollar + ")"
     slash = chr(92)
     for i in range(0, len(segmentos), 2):
-        partes = _re.split(patron_matematico, segmentos[i], flags=_re.DOTALL)
+        texto_plano = segmentos[i].replace(chr(0x2217), "*").replace(chr(0xFE0F), "")
+        lineas = [ln for ln in texto_plano.splitlines() if ln.strip().lower() != "undefined"]
+        for k, linea in enumerate(lineas):
+            limpia = linea.strip()
+            es_latex = any(comando in limpia for comando in (slash + "text{", slash + "frac{", slash + "sum_", slash + "begin{"))
+            if es_latex and "$" not in limpia and not limpia.startswith(fence):
+                lineas[k] = "$$\n" + limpia + "\n$$"
+        texto_plano = "\n".join(lineas)
+        partes = _re.split(patron_matematico, texto_plano, flags=_re.DOTALL)
         for j in range(1, len(partes), 2):
-            # Dentro de math mode, \_t debe ser _t; también cubre barras duplicadas.
             partes[j] = partes[j].replace(slash * 2 + "_", "_").replace(slash + "_", "_")
-            # Streamlit requiere que $ y $ estén en líneas independientes.
             if partes[j].startswith(chr(36) * 2) and partes[j].endswith(chr(36) * 2):
                 formula = partes[j][2:-2].strip()
                 partes[j] = chr(36) * 2 + "\n" + formula + "\n" + chr(36) * 2
         segmentos[i] = "".join(partes)
-    return "".join(segmentos)
+    return "".join(segmentos).strip()
 
 def _texto_a_html(texto):
     """Convierte markdown simple a HTML legible."""
@@ -9348,7 +9356,7 @@ def _estructurar_respuesta_ia(pregunta, hechos, dcf, mkt, web_hits, modo_definic
         "o por dos signos de dólar al inicio y al final en líneas separadas para ecuaciones display. "
         "Dentro del modo matemático escribe subíndices directamente (por ejemplo, FCFF_t y TV_n), "
         "sin anteponer una barra invertida al guion bajo. No pongas fórmulas en bloques de código "
-        "y explica debajo el significado de sus variables."
+        "y explica debajo el significado de sus variables. " "Escribe siempre con espacios normales entre todas las palabras; no unas palabras, no elimines espacios ni conviertas Markdown en texto compacto. " "Usa únicamente asteriscos ASCII (*) para negritas; no uses el símbolo ∗. No devuelvas la palabra undefined ni marcadores de formato sueltos."
     )
     payload = {
         "pregunta": pregunta,
