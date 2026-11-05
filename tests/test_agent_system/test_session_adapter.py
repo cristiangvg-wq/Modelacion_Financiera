@@ -11,7 +11,8 @@ class LogicStub:
         return {
             "empresa": "ISA", "ticker": "ISA.CL", "moneda": "COP",
             "wacc_calc": 0.10, "ke_calc": 0.13, "g_usada": 0.035,
-            "fcff_terminal_n1": 103.5, "tv_gordon": 1592.3076923076924,\n            "tv_metodo": "Gordon-Shapiro · FCFF normalizado",
+            "fcff_terminal_n1": 103.5, "tv_gordon": 1592.3076923076924,
+            "tv_metodo": "Gordon-Shapiro · FCFF normalizado",
             "nivel_calidad": "MEDIA", "fuente_financiera": "Yahoo Finance",
             "fuente_mercado": "Yahoo Finance", "vetos_calidad": [],
             "alertas_modelo": [],
@@ -46,6 +47,7 @@ def test_adapter_builds_snapshot_from_current_session_without_mutating_it():
     assert payload["model_outputs"]["fcff"] == 80.0
     assert payload["model_outputs"]["wacc"] == 0.10
     assert payload["model_inputs"]["fcff_next"] == 103.5
+    assert payload["model_inputs"]["terminal_method"] == "Gordon-Shapiro · FCFF normalizado"
     assert payload["model_outputs"]["terminal_value"] == pytest.approx(103.5 / (0.10 - 0.035))
     assert session == before
 
