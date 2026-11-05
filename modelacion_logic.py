@@ -9247,32 +9247,33 @@ _set_ia_error(None)
 
 
 def _normalizar_latex_markdown(texto):
-    """Limpia artefactos de formato de la IA y conserva Markdown/LaTeX válido."""
+    """Limpia artefactos de formato fuera del código y conserva bloques literales."""
     import re as _re
 
-    fuente = str(texto or "").replace("\u2217", "*").replace("\uFE0F", "")
-    fuente = "\n".join(ln for ln in fuente.splitlines() if ln.strip().lower() != "undefined")
+    fuente = str(texto or "")
     fence = chr(96) * 3
+    # Separar primero los bloques de código: nunca normalizar su contenido.
     segmentos = _re.split("(" + _re.escape(fence) + ".*?" + _re.escape(fence) + ")", fuente, flags=_re.DOTALL)
     dollar = _re.escape(chr(36))
     patron_matematico = "(" + dollar * 2 + ".*?" + dollar * 2 + "|" + dollar + "(?!" + dollar + ").*?" + dollar + ")"
     slash = chr(92)
     for i in range(0, len(segmentos), 2):
-        lineas = segmentos[i].splitlines()
+        texto_plano = segmentos[i].replace("\\u2217", "*").replace("\\uFE0F", "")
+        lineas = [ln for ln in texto_plano.splitlines() if ln.strip().lower() != "undefined"]
         for k, linea in enumerate(lineas):
             limpia = linea.strip()
             es_latex = any(comando in limpia for comando in (slash + "text{", slash + "frac{", slash + "sum_", slash + "begin{"))
             if es_latex and "$" not in limpia and not limpia.startswith(fence):
                 lineas[k] = "$$\n" + limpia + "\n$$"
-        segmentos[i] = "\n".join(lineas)
-        partes = _re.split(patron_matematico, segmentos[i], flags=_re.DOTALL)
+        texto_plano = "\n".join(lineas)
+        partes = _re.split(patron_matematico, texto_plano, flags=_re.DOTALL)
         for j in range(1, len(partes), 2):
             partes[j] = partes[j].replace(slash * 2 + "_", "_").replace(slash + "_", "_")
             if partes[j].startswith(chr(36) * 2) and partes[j].endswith(chr(36) * 2):
                 formula = partes[j][2:-2].strip()
                 partes[j] = chr(36) * 2 + "\n" + formula + "\n" + chr(36) * 2
         segmentos[i] = "".join(partes)
-    return "\n".join(segmentos).strip()
+    return "".join(segmentos).strip()
 
 def _texto_a_html(texto):
     """Convierte markdown simple a HTML legible."""
