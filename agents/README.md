@@ -4,7 +4,7 @@ La primera fase incorpora una auditoría financiera determinista y de solo lectu
 
 ## Uso desde Streamlit
 
-La página `pages/12_Centro_Agentes.py` permite pegar un snapshot JSON y ejecutar las verificaciones. Es una interfaz inicial manual: todavía no lee automáticamente el estado de la empresa seleccionada en las otras pestañas.
+La página `pages/12_Centro_Agentes.py` utiliza `agents/session_adapter.py` para leer, en modo de solo lectura, la empresa seleccionada, los supuestos vigentes, la proyección FCFF de la pestaña 1 y las métricas guardadas por la pestaña 4. No recalcula ni descarga datos. Si el modelo está marcado como modificado (`modelo_dirty`), si faltan resultados o si las métricas pertenecen a otra empresa, bloquea la auditoría y solicita ejecutar «Generar todo».
 
 ## Uso desde Python
 
@@ -65,4 +65,4 @@ python -m compileall -q agents pages/12_Centro_Agentes.py
 ```
 
 
-Implementación incorporada en la rama de trabajo; ejecutar las pruebas anteriores antes de fusionar. La integración automática con el estado de la sesión principal queda pendiente de una siguiente iteración.
+Implementación incorporada en la rama de trabajo; ejecutar las pruebas anteriores antes de fusionar. La integración con el estado de la sesión principal está implementada mediante el adaptador de solo lectura. La página exige resultados vigentes y descarta visualmente informes de auditoría asociados a snapshots anteriores.
