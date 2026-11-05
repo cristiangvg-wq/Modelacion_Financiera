@@ -89,9 +89,11 @@ def build_session_snapshot(
     erp = current("erp", "erp", session_state.get("erp"))
     crp = current("crp", "crp", session_state.get("crp"))
     capex_extra = current("cx", "capex_extra", 0.0)
-    # TV real de la corrida de pestaña 4: FCFF terminal normalizado y valor Gordon.
+    # Se conservan el método y los insumos exactos del TV de la pestaña 4.
+    # fcff_terminal_n1 representa el FCFF normalizado que el motor usó en Gordon.
     fcff_next = _finite(metrics.get("fcff_terminal_n1"))
     terminal_value = _finite(metrics.get("tv_gordon"))
+    terminal_method = metrics.get("tv_metodo")
 
     model_inputs: dict[str, Any] = {}
     if de_ratio is not None and de_ratio >= 0:
@@ -106,6 +108,8 @@ def build_session_snapshot(
     ):
         if value is not None:
             model_inputs[key] = value
+    if terminal_method is not None:
+        model_inputs["terminal_method"] = str(terminal_method)
 
     # Las cifras se extraen de la misma proyección calculada por la pestaña 1.
     nopat = _row_value(last_row, "NOPAT")
