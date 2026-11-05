@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from agents.session_adapter import build_session_snapshot
 
@@ -10,6 +11,7 @@ class LogicStub:
         return {
             "empresa": "ISA", "ticker": "ISA.CL", "moneda": "COP",
             "wacc_calc": 0.10, "ke_calc": 0.13, "g_usada": 0.035,
+            "fcff_terminal_n1": 103.5, "tv_gordon": 1592.3076923076924,
             "nivel_calidad": "MEDIA", "fuente_financiera": "Yahoo Finance",
             "fuente_mercado": "Yahoo Finance", "vetos_calidad": [],
             "alertas_modelo": [],
@@ -43,6 +45,8 @@ def test_adapter_builds_snapshot_from_current_session_without_mutating_it():
     assert payload["model_inputs"]["depreciation"] == 20.0
     assert payload["model_outputs"]["fcff"] == 80.0
     assert payload["model_outputs"]["wacc"] == 0.10
+    assert payload["model_inputs"]["fcff_next"] == 103.5
+    assert payload["model_outputs"]["terminal_value"] == pytest.approx(103.5 / (0.10 - 0.035))
     assert session == before
 
 
@@ -76,3 +80,23 @@ def test_adapter_handles_missing_fcff_components_as_limitations():
     assert reason is None
     assert "capex" not in payload["model_inputs"]
     assert payload["model_outputs"]["fcff"] == 80.0
+
+
+
+def test_adapter_reads_metrics_from_real_model_session_store():
+    import modelacion_logic as logic
+
+    session = valid_session()
+    store = {}
+    logic.vincular_estado_sesion(store)
+    try:
+        logic.reset_resultados_sesion("ISA")
+        logic.guardar_resultado_tab("4", "ISA", {"metricas": LogicStub().metricas_valoracion_sesion("ISA")})
+        payload, reason = build_session_snapshot(session, logic)
+    finally:
+        logic.desvincular_estado_sesion()
+
+    assert reason is None
+    assert payload["company"] == "ISA"
+    assert payload["model_inputs"]["fcff_next"] == 103.5
+    assert payload["model_outputs"]["terminal_value"] == pytest.approx(1592.3076923076924)
