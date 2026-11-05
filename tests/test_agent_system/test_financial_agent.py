@@ -98,3 +98,22 @@ def test_terminal_value_formula_passes_with_matching_gordon_value():
     )
     result = audit_financial_context(context)
     assert not any(item["id"] == "FIN-TV-002" for item in result.findings)
+
+
+
+def test_terminal_audit_evidence_preserves_model_method():
+    context = build_context(
+        task="audit",
+        model_inputs={
+            "wacc": 0.10,
+            "terminal_growth": 0.035,
+            "fcff_next": 103.5,
+            "terminal_method": "Gordon-Shapiro · FCFF normalizado",
+        },
+        model_outputs={"terminal_value": 103.5 / (0.10 - 0.035)},
+    )
+    result = audit_financial_context(context)
+    terminal_check = next(item for item in result.evidence if item["check"] == "terminal_value")
+    assert terminal_check["method"] == "Gordon-Shapiro · FCFF normalizado"
+    assert terminal_check["fcff_next"] == pytest.approx(103.5)
+    assert terminal_check["expected"] == pytest.approx(terminal_check["reported"])
