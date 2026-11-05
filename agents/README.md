@@ -43,7 +43,7 @@ report = audit_snapshot({
 - `model_outputs`: resultados producidos por el motor financiero que se quieren contrastar.
 - Las tasas son decimales: 10% = `0.10`.
 - Para FCFF se utiliza la convención `NOPAT + D&A - CAPEX - variación de NWC`; verifica que la definición y el signo de capital de trabajo coincidan con los datos que entregas.
-- Para valor terminal se utiliza `FCFF_next / (WACC - g)`. El adaptador lee de la corrida de la pestaña 4 el FCFF terminal normalizado que el motor usó y el `TV_Gordon` efectivamente calculado; no aproxima el terminal con el último FCFF de la proyección.
+- Para valor terminal se contrasta `FCFF_next / (WACC - g)`. El adaptador conserva el método (`tv_metodo`), el FCFF normalizado realmente utilizado por el motor (`fcff_terminal_n1`) y el `TV_Gordon` calculado. El método y los insumos quedan registrados en la evidencia del agente para que la revisión humana pueda rastrear la convención aplicada; no se sustituye el FCFF normalizado por el último FCFF de la proyección. Si el método no está informado, el informe lo identifica expresamente y no inventa una convención.
 
 ## Verificaciones
 
