@@ -43,7 +43,7 @@ report = audit_snapshot({
 - `model_outputs`: resultados producidos por el motor financiero que se quieren contrastar.
 - Las tasas son decimales: 10% = `0.10`.
 - Para FCFF se utiliza la convención `NOPAT + D&A - CAPEX - variación de NWC`; verifica que la definición y el signo de capital de trabajo coincidan con los datos que entregas.
-- Para valor terminal se utiliza `FCFF_next / (WACC - g)`.
+- Para valor terminal se utiliza `FCFF_next / (WACC - g)`. El adaptador lee de la corrida de la pestaña 4 el FCFF terminal normalizado que el motor usó y el `TV_Gordon` efectivamente calculado; no aproxima el terminal con el último FCFF de la proyección.
 
 ## Verificaciones
 
@@ -65,4 +65,4 @@ python -m compileall -q agents pages/12_Centro_Agentes.py
 ```
 
 
-Implementación incorporada en la rama de trabajo; ejecutar las pruebas anteriores antes de fusionar. La integración con el estado de la sesión principal está implementada mediante el adaptador de solo lectura. La página exige resultados vigentes y descarta visualmente informes de auditoría asociados a snapshots anteriores.
+Implementación incorporada en la rama de trabajo; ejecutar las pruebas anteriores antes de fusionar. La integración con el estado de la sesión principal está implementada mediante el adaptador de solo lectura. La página exige resultados vigentes y descarta visualmente informes de auditoría asociados a snapshots anteriores. La pestaña 4 conserva los insumos exactos del valor terminal para comprobar Gordon-Shapiro. CI ejecuta además AppTest de la página 12 y un smoke test de arranque de esa página.
