@@ -39,6 +39,15 @@ jobs:
       - name: Prueba de humo (búsqueda web + dictamen)
         if: steps.clave.outputs.hay == 'si'
         run: python scripts/smoke_gemini_comite.py "${{ github.event.inputs.empresa || 'ISA — Interconexión Eléctrica' }}"
-      - name: Banco de evaluación con el proveedor real
+      - name: Banco de evaluación con el proveedor real (bloqueos = inconcluso)
         if: always() && steps.clave.outputs.hay == 'si'
-        run: python scripts/evaluar_comite_ia.py --vivo gemini
+        run: |
+          set +e
+          python scripts/evaluar_comite_ia.py --vivo gemini
+          resultado=$?
+          if [ "$resultado" -eq 2 ]; then
+            echo "### INCONCLUSO: Gemini bloqueó uno o más casos por cuota o indisponibilidad." >> "$GITHUB_STEP_SUMMARY"
+            echo "Los casos bloqueados no se contabilizan como aprobados. Repetir cuando el proveedor esté disponible." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          exit "$resultado"
