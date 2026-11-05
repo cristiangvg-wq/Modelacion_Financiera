@@ -1,83 +1,68 @@
-"""Centro de Agentes IA — auditoría financiera inicial (snapshot JSON)."""
+"""Centro de Agentes IA conectado a la valoración vigente de la sesión."""
 from __future__ import annotations
 
-import json
 import streamlit as st
 
+import modelacion_logic as L
+from agents.session_adapter import build_session_snapshot
 from agents.service import audit_snapshot
 
 st.set_page_config(page_title="Centro de Agentes IA", page_icon="🧠", layout="wide")
+if hasattr(L, "vincular_estado_sesion"):
+    L.vincular_estado_sesion(st.session_state.setdefault("_estado_logica", {}))
+
 st.title("🧠 Centro de Agentes IA")
-st.caption("Versión inicial · auditoría financiera de solo lectura · no modifica el modelo")
+st.caption("Auditoría financiera conectada · solo lectura · requiere aprobación humana")
 
 st.info(
-    "Esta primera versión audita un snapshot JSON que tú proporcionas. "
-    "Todavía no extrae automáticamente los parámetros de la sesión de valoración. "
-    "Las tasas deben expresarse como decimales: 0.10 equivale a 10%."
+    "El Centro toma la empresa, los supuestos y la proyección de la sesión actual. "
+    "No vuelve a calcular ni modifica el modelo, no consulta proveedores externos y no aplica cambios."
 )
 
-example = {
-    "task": "Auditoría financiera de ejemplo",
-    "company": "ISA",
-    "ticker": "ISA",
-    "currency": "COP",
-    "repository_ref": "main",
-    "model_inputs": {
-        "debt_weight": 0.4,
-        "equity_weight": 0.6,
-        "kd": 0.08,
-        "ke": 0.12,
-        "tax_rate": 0.25,
-        "nopat": 100.0,
-        "depreciation": 20.0,
-        "capex": 30.0,
-        "change_nwc": 10.0,
-        "wacc": 0.096,
-        "terminal_growth": 0.035,
-        "fcff_next": 80.0
-    },
-    "model_outputs": {"wacc": 0.096, "fcff": 80.0, "terminal_value": 1311.475409836},
-    "data_provenance": [],
-    "quality_flags": []
-}
+snapshot, reason = build_session_snapshot(
+    st.session_state,
+    L,
+    repository_ref="feat/arquitectura-multiagente-v1",
+)
 
-left, right = st.columns([1.15, 0.85], gap="large")
-with left:
-    st.subheader("Snapshot del modelo")
-    raw = st.text_area(
-        "Pega o edita el JSON con los datos que quieres auditar",
-        value=json.dumps(example, ensure_ascii=False, indent=2),
-        height=540,
-        help="No incluyas claves API, credenciales ni información personal sensible.",
-    )
-    run = st.button("Ejecutar auditoría", type="primary", use_container_width=True)
-with right:
-    st.subheader("Comprobaciones disponibles")
+if snapshot is None:
+    st.warning(reason or "No hay una valoración disponible para auditar.")
     st.markdown(
-        "- Pesos de deuda y patrimonio en WACC.\n"
-        "- Reconciliación de WACC con kd, ke e impuestos.\n"
-        "- Identidad FCFF = NOPAT + D&A − CAPEX − variación de NWC.\n"
-        "- Condición WACC > g y fórmula de Gordon-Shapiro.\n"
-        "- Alertas de calidad entregadas en el snapshot."
+        "**Para habilitar la auditoría:** vuelve a la página principal, selecciona la empresa, "
+        "revisa los supuestos y pulsa **Generar todo**. Después abre nuevamente el Centro de Agentes."
     )
-    st.warning("No cambia supuestos, fórmulas, archivos ni datos del modelo. No reemplaza una revisión profesional.")
+    st.stop()
 
-if run:
+company_col, ticker_col, currency_col = st.columns(3)
+company_col.metric("Empresa", snapshot.get("company") or "—")
+ticker_col.metric("Ticker", snapshot.get("ticker") or "—")
+currency_col.metric("Moneda", snapshot.get("currency") or "—")
+
+st.subheader("Snapshot de la valoración actual")
+inputs = snapshot.get("model_inputs") or {}
+outputs = snapshot.get("model_outputs") or {}
+c1, c2, c3 = st.columns(3)
+c1.metric("WACC", f"{outputs['wacc']:.2%}" if outputs.get("wacc") is not None else "N/D")
+c2.metric("g terminal", f"{inputs['terminal_growth']:.2%}" if inputs.get("terminal_growth") is not None else "N/D")
+c3.metric("FCFF último año proyectado", f"{outputs['fcff']:,.2f}" if outputs.get("fcff") is not None else "N/D")
+with st.expander("Ver datos y procedencia que recibirán los agentes"):
+    st.json(snapshot)
+
+st.subheader("Auditoría")
+st.caption("Las comprobaciones se ejecutan sobre una copia serializable de los datos de esta sesión.")
+if st.button("Ejecutar auditoría de la valoración", type="primary", use_container_width=True):
     try:
-        payload = json.loads(raw)
-        if not isinstance(payload, dict):
-            raise ValueError("El JSON debe contener un objeto en el nivel superior.")
-        report = audit_snapshot(payload)
+        report = audit_snapshot(snapshot)
         st.session_state["agent_audit_last_report"] = report
-    except json.JSONDecodeError as exc:
-        st.error(f"JSON inválido: {exc}")
+        st.session_state["agent_audit_last_company"] = snapshot.get("company")
+        st.session_state["agent_audit_last_hash"] = report.get("snapshot_hash")
     except (TypeError, ValueError) as exc:
         st.error(str(exc))
-    except Exception as exc:  # la interfaz no debe ocultar fallos inesperados
+    except Exception as exc:
         st.exception(exc)
 
 report = st.session_state.get("agent_audit_last_report")
-if report:
+if report and st.session_state.get("agent_audit_last_company") == snapshot.get("company"):
     st.divider()
     st.subheader("Resultado de la auditoría")
     status = report.get("status", "SIN ESTADO")
@@ -88,7 +73,6 @@ if report:
     else:
         st.success(status)
     st.caption(
-        f"Empresa: {report.get('company') or 'No especificada'} · "
         f"Ejecución: {report.get('run_id')} · Snapshot SHA-256: {report.get('snapshot_hash')}"
     )
     st.write("Aprobación humana requerida: **Sí** · Cambios aplicados: **No**")
