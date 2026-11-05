@@ -241,7 +241,7 @@ docs/
 | Archivo actual | Integración propuesta | Restricción |
 |---|---|---|
 | `streamlit_app.py` | Punto de entrada y navegación; delegar el nuevo centro a un módulo independiente. | Evitar insertar prompts, lógica de agentes y herramientas dentro del archivo monolítico. |
-| `modelacion_logic.py` | Adaptadores de lectura para métricas, contexto de mercado, validaciones y resultados de sesión. | No editar fórmulas ni mutar estado desde agentes. |
+| `modelacion_logic.py` | Fuente de métricas canónicas de la pestaña 4 y de la proyección devuelta por la pestaña 1. | El adaptador solo consume resultados existentes; no ejecuta cálculos ni muta estado. |\n| `agents/session_adapter.py` | Convierte la sesión Streamlit vigente en un snapshot serializable; bloquea si `modelo_dirty` o faltan resultados. | Lectura aislada por empresa, sin llamadas externas ni escrituras. |
 | `comite_ia.py` | Reutilizar generación/validación de dictamen y hechos con fuentes. | No duplicar el flujo de hechos y dictamen. |
 | `financial_scenarios.py` | Proveer resultados de proyección y escenarios. | Sin cálculo LLM. |
 | `multiples_valuation.py` | Proveer valoración por comparables/múltiplos. | Respetar datos ausentes y trazabilidad. |
