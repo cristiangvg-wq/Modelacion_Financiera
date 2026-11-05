@@ -9251,7 +9251,7 @@ def _normalizar_latex_markdown(texto):
     import re as _re
 
     fuente = str(texto or "").replace("\u2217", "*").replace("\uFE0F", "")
-    fuente = "\\n".join(ln for ln in fuente.splitlines() if ln.strip().lower() != "undefined")
+    fuente = "\n".join(ln for ln in fuente.splitlines() if ln.strip().lower() != "undefined")
     fence = chr(96) * 3
     segmentos = _re.split("(" + _re.escape(fence) + ".*?" + _re.escape(fence) + ")", fuente, flags=_re.DOTALL)
     dollar = _re.escape(chr(36))
@@ -9263,16 +9263,16 @@ def _normalizar_latex_markdown(texto):
             limpia = linea.strip()
             es_latex = any(comando in limpia for comando in (slash + "text{", slash + "frac{", slash + "sum_", slash + "begin{"))
             if es_latex and "$" not in limpia and not limpia.startswith(fence):
-                lineas[k] = "$$\\n" + limpia + "\\n$$"
-        segmentos[i] = "\\n".join(lineas)
+                lineas[k] = "$$\n" + limpia + "\n$$"
+        segmentos[i] = "\n".join(lineas)
         partes = _re.split(patron_matematico, segmentos[i], flags=_re.DOTALL)
         for j in range(1, len(partes), 2):
             partes[j] = partes[j].replace(slash * 2 + "_", "_").replace(slash + "_", "_")
             if partes[j].startswith(chr(36) * 2) and partes[j].endswith(chr(36) * 2):
                 formula = partes[j][2:-2].strip()
-                partes[j] = chr(36) * 2 + "\\n" + formula + "\\n" + chr(36) * 2
+                partes[j] = chr(36) * 2 + "\n" + formula + "\n" + chr(36) * 2
         segmentos[i] = "".join(partes)
-    return "\\n".join(segmentos).strip()
+    return "\n".join(segmentos).strip()
 
 def _texto_a_html(texto):
     """Convierte markdown simple a HTML legible."""
