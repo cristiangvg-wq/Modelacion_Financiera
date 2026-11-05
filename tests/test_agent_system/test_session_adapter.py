@@ -11,7 +11,7 @@ class LogicStub:
         return {
             "empresa": "ISA", "ticker": "ISA.CL", "moneda": "COP",
             "wacc_calc": 0.10, "ke_calc": 0.13, "g_usada": 0.035,
-            "fcff_terminal_n1": 103.5, "tv_gordon": 1592.3076923076924,
+            "fcff_terminal_n1": 103.5, "tv_gordon": 1592.3076923076924,\n            "tv_metodo": "Gordon-Shapiro · FCFF normalizado",
             "nivel_calidad": "MEDIA", "fuente_financiera": "Yahoo Finance",
             "fuente_mercado": "Yahoo Finance", "vetos_calidad": [],
             "alertas_modelo": [],
