@@ -226,7 +226,7 @@ services/
   run_store.py
 pages/
   12_Centro_Agentes.py
-tests/agents/
+tests/test_agent_system/
   test_contracts.py
   test_coordinator.py
   test_financial_agent.py
