@@ -53,29 +53,60 @@ def evaluar_offline(banco):
     return 1 if fallos else 0
 
 
+def _fallo_transitorio_o_cuota(error):
+    """Identifica bloqueos del proveedor que impiden evaluar el caso."""
+    texto = str(error or "").lower()
+    return any(token in texto for token in (
+        "http 429", "resource_exhausted", "quota exceeded", "quota de gemini",
+        "http 500", "http 502", "http 503", "http 504",
+        "service unavailable", "high demand",
+    ))
+
+
 def evaluar_vivo(banco, proveedor, api_key=None):
     L.vincular_estado_sesion({})
-    filas, puntos = [], 0
+    filas, puntos, total, inconclusos = [], 0, 0, 0
     for c in banco["casos"]:
         t0 = time.monotonic()
         r = CI.razonar_dictamen(c["metricas"], _anclas(c), c["hechos"], api_key=api_key, proveedor=proveedor)
-        d, aud = r["dictamen"] or {}, r["auditoria"] or {"ok": False, "errors": [r["error"]], "warnings": []}
+        d = r.get("dictamen") or {}
+        aud = r.get("auditoria") or {"ok": False, "errors": [r.get("error")], "warnings": []}
+        errores = aud.get("errors") or []
+        detalle_error = " | ".join([str(r.get("error") or ""), *(str(x) for x in errores)])
+        seg = time.monotonic() - t0
+        if _fallo_transitorio_o_cuota(detalle_error):
+            inconclusos += 1
+            filas.append((c["id"], None, None, 0, 0, seg, errores or [r.get("error")], "INCONCLUSO"))
+            continue
+
         rec = d.get("recomendacion")
         checks = {
-            "json_valido": isinstance(r["dictamen"], dict),
+            "json_valido": isinstance(r.get("dictamen"), dict),
             "auditoria_ok": bool(aud.get("ok")),
             "recomendacion_permitida": rec in CI.VOCAB and rec not in c.get("prohibidas", []),
-            "sin_reintento": r["intentos"] == 1,
+            "sin_reintento": r.get("intentos") == 1,
             "cita_hechos": len((d.get("contexto_mercado") or {}).get("hechos_usados") or []) >= min(2, len(c["hechos"])),
         }
         p = sum(checks.values())
         puntos += p
-        filas.append((c["id"], rec, d.get("precio_objetivo"), p, len(checks), time.monotonic() - t0, aud.get("errors")))
-    print(f"{'caso':24s} {'rec':9s} {'objetivo':>12s} puntaje  seg  errores")
-    for cid, rec, po, p, n, seg, errs in filas:
-        print(f"{cid:24s} {str(rec):9s} {str(po):>12s} {p}/{n}    {seg:4.1f} {'; '.join(errs or [])[:80]}")
-    total = sum(f[4] for f in filas)
-    print(f"\nPuntaje total: {puntos}/{total} ({puntos / total * 100:.0f} %) · proveedor {proveedor} · {CI.VERSION_COMITE}")
+        total += len(checks)
+        filas.append((c["id"], rec, d.get("precio_objetivo"), p, len(checks), seg, errores, "EVALUADO"))
+
+    print(f"{'caso':24s} {'estado':12s} {'rec':9s} {'objetivo':>12s} puntaje  seg  errores")
+    for cid, rec, po, p, n, seg, errs, estado in filas:
+        puntaje = f"{p}/{n}" if n else "N/A"
+        print(f"{cid:24s} {estado:12s} {str(rec):9s} {str(po):>12s} {puntaje:>7s} {seg:4.1f} {'; '.join(errs or [])[:80]}")
+
+    if total:
+        print(f"\nPuntaje de casos evaluados: {puntos}/{total} ({puntos / total * 100:.0f} %) · proveedor {proveedor} · {CI.VERSION_COMITE}")
+    else:
+        print(f"\nNo hubo casos evaluables · proveedor {proveedor} · {CI.VERSION_COMITE}")
+    if inconclusos:
+        print(f"INCONCLUSO: {inconclusos}/{len(filas)} casos bloqueados por cuota o indisponibilidad del proveedor. No se contabilizan como aprobados.")
+        return 2
+    if puntos != total:
+        print("FALLA: el proveedor respondió, pero uno o más criterios de evaluación no se cumplieron.")
+        return 1
     return 0
 
 
