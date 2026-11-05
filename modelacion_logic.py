@@ -9043,7 +9043,12 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
         # Evita abandonar Gemini por un pico temporal (HTTP 500/502/503/504).
         reintentos_transitorios = {}
         t0 = _time.monotonic()
-        for model in models:
+        # Cola explícita: permite reinsertar el mismo modelo para reintentos sin
+        # modificar una lista mientras un iterador for la recorre.
+        model_idx = 0
+        while model_idx < len(models):
+            model = models[model_idx]
+            model_idx += 1
             if _time.monotonic() - t0 > GEMINI_PRESUPUESTO_SEG:
                 last_err = (last_err or "") + " · presupuesto de tiempo agotado."
                 break
@@ -9132,16 +9137,16 @@ def _llamar_ia_redaccion(sistema, user_content, temperature=0.25, api_key=None, 
                         _diag(modelo=model, accion="reintento_transitorio",
                               reintento=usados + 1, espera_seg=espera)
                         _time.sleep(espera)
-                        models.insert(models.index(model) + 1, model)
+                        models.insert(model_idx, model)
                         continue
                 if e.code == 400 and usar_esquema and "API_KEY" not in detail.upper():
                     _almacen_estado().setdefault("_ia_esquema_no_soportado", {})[model] = True
-                    models.insert(models.index(model) + 1, model)
+                    models.insert(model_idx, model)
                     continue
                 if e.code == 400 and usar_busqueda and "API_KEY" not in detail.upper():
                     # Modelo sin soporte de google_search: recordar y reintentar el MISMO modelo sin herramienta.
                     _almacen_estado().setdefault("_ia_busqueda_no_soportada", {})[model] = True
-                    models.insert(models.index(model) + 1, model)
+                    models.insert(model_idx, model)
                     continue
                 if "API_KEY_INVALID" in detail.upper() or (e.code == 400 and "API_KEY" in detail.upper()):
                     _set_ia_error(last_err + " — la API key no es válida.")
