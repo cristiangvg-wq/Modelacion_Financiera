@@ -60,7 +60,7 @@ El agente no modifica el contexto ni el estado de Streamlit, no ejecuta código 
 ## Pruebas
 
 ```bash
-python -m pytest tests/agents -q
+python -m pytest tests/test_agent_system -q
 python -m compileall -q agents pages/12_Centro_Agentes.py
 ```
 
