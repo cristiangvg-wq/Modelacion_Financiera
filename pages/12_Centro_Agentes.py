@@ -5,6 +5,7 @@ import streamlit as st
 
 import modelacion_logic as L
 from agents.session_adapter import build_session_snapshot
+from agents.contracts import build_context
 from agents.service import audit_snapshot
 
 st.set_page_config(page_title="Centro de Agentes IA", page_icon="🧠", layout="wide")
@@ -62,9 +63,23 @@ if st.button("Ejecutar auditoría de la valoración", type="primary", use_contai
         st.exception(exc)
 
 report = st.session_state.get("agent_audit_last_report")
-if (report and st.session_state.get("agent_audit_last_company") == snapshot.get("company")
-        and st.session_state.get("agent_audit_last_hash") == report.get("snapshot_hash"))
-        and report.get("snapshot_hash") == st.session_state.get("agent_audit_last_hash"):
+current_hash = build_context(
+    task=snapshot["task"],
+    company=snapshot.get("company"),
+    ticker=snapshot.get("ticker"),
+    currency=snapshot.get("currency"),
+    model_inputs=snapshot.get("model_inputs"),
+    model_outputs=snapshot.get("model_outputs"),
+    data_provenance=snapshot.get("data_provenance"),
+    quality_flags=snapshot.get("quality_flags"),
+    repository_ref=snapshot.get("repository_ref", ""),
+).snapshot_hash
+if (
+    report
+    and st.session_state.get("agent_audit_last_company") == snapshot.get("company")
+    and report.get("snapshot_hash") == current_hash
+    and st.session_state.get("agent_audit_last_hash") == current_hash
+):
     st.divider()
     st.subheader("Resultado de la auditoría")
     status = report.get("status", "SIN ESTADO")
