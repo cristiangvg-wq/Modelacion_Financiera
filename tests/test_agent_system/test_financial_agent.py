@@ -78,3 +78,23 @@ def test_service_rejects_invalid_payload():
         audit_snapshot(["not", "an", "object"])
     with pytest.raises(TypeError):
         audit_snapshot({"model_inputs": []})
+
+
+def test_terminal_value_formula_flags_mismatch_using_model_terminal_inputs():
+    context = build_context(
+        task="audit",
+        model_inputs={"wacc": 0.10, "terminal_growth": 0.035, "fcff_next": 103.5},
+        model_outputs={"terminal_value": 1500.0},
+    )
+    result = audit_financial_context(context)
+    assert any(item["id"] == "FIN-TV-002" for item in result.findings)
+
+
+def test_terminal_value_formula_passes_with_matching_gordon_value():
+    context = build_context(
+        task="audit",
+        model_inputs={"wacc": 0.10, "terminal_growth": 0.035, "fcff_next": 103.5},
+        model_outputs={"terminal_value": 103.5 / (0.10 - 0.035)},
+    )
+    result = audit_financial_context(context)
+    assert not any(item["id"] == "FIN-TV-002" for item in result.findings)
