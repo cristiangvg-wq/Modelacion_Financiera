@@ -115,12 +115,21 @@ def audit_financial_context(context: AgentContext, tolerance: float = 1e-6) -> A
         elif fcff_next is not None and tv is not None:
             checks_run += 1
             expected_tv = fcff_next / (wacc - g)
-            evidence.append({"check": "terminal_value", "expected": expected_tv, "reported": tv})
+            terminal_method = inputs.get("terminal_method")
+            evidence.append({
+                "check": "terminal_value",
+                "method": str(terminal_method) if terminal_method is not None else "Gordon-Shapiro (método no informado)",
+                "fcff_next": fcff_next,
+                "wacc": wacc,
+                "terminal_growth": g,
+                "expected": expected_tv,
+                "reported": tv,
+            })
             if abs(expected_tv - tv) > max(tolerance, abs(expected_tv) * 1e-4):
                 findings.append(_finding(
                     "FIN-TV-002", "high", "El valor terminal no coincide con Gordon-Shapiro",
                     f"Valor terminal calculado {expected_tv:.6g}; reportado {tv:.6g}.",
-                    {"fields": ["fcff_next", "wacc", "terminal_growth", "model_outputs.terminal_value"]},
+                    {"fields": ["fcff_next", "terminal_method", "wacc", "terminal_growth", "model_outputs.terminal_value"]},
                     "Verificar FCFF del periodo siguiente, unidades y consistencia de tasas.",
                 ))
     elif tv is not None:
