@@ -9355,7 +9355,7 @@ def _estructurar_respuesta_ia(pregunta, hechos, dcf, mkt, web_hits, modo_definic
         "o por dos signos de dólar al inicio y al final en líneas separadas para ecuaciones display. "
         "Dentro del modo matemático escribe subíndices directamente (por ejemplo, FCFF_t y TV_n), "
         "sin anteponer una barra invertida al guion bajo. No pongas fórmulas en bloques de código "
-        "y explica debajo el significado de sus variables."
+        "y explica debajo el significado de sus variables. " "Escribe siempre con espacios normales entre todas las palabras; no unas palabras, no elimines espacios ni conviertas Markdown en texto compacto. " "Usa únicamente asteriscos ASCII (*) para negritas; no uses el símbolo ∗. No devuelvas la palabra undefined ni marcadores de formato sueltos."
     )
     payload = {
         "pregunta": pregunta,
