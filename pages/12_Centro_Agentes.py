@@ -42,10 +42,11 @@ currency_col.metric("Moneda", snapshot.get("currency") or "—")
 st.subheader("Snapshot de la valoración actual")
 inputs = snapshot.get("model_inputs") or {}
 outputs = snapshot.get("model_outputs") or {}
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 c1.metric("WACC", f"{outputs['wacc']:.2%}" if outputs.get("wacc") is not None else "N/D")
 c2.metric("g terminal", f"{inputs['terminal_growth']:.2%}" if inputs.get("terminal_growth") is not None else "N/D")
 c3.metric("FCFF último año proyectado", f"{outputs['fcff']:,.2f}" if outputs.get("fcff") is not None else "N/D")
+c4.metric("Valor terminal Gordon", f"{outputs['terminal_value']:,.2f}" if outputs.get("terminal_value") is not None else "N/D")
 with st.expander("Ver datos y procedencia que recibirán los agentes"):
     st.json(snapshot)
 
