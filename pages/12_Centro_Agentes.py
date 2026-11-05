@@ -62,7 +62,9 @@ if st.button("Ejecutar auditoría de la valoración", type="primary", use_contai
         st.exception(exc)
 
 report = st.session_state.get("agent_audit_last_report")
-if report and st.session_state.get("agent_audit_last_company") == snapshot.get("company"):
+if (report and st.session_state.get("agent_audit_last_company") == snapshot.get("company")
+        and st.session_state.get("agent_audit_last_hash") == report.get("snapshot_hash"))
+        and report.get("snapshot_hash") == st.session_state.get("agent_audit_last_hash"):
     st.divider()
     st.subheader("Resultado de la auditoría")
     status = report.get("status", "SIN ESTADO")
