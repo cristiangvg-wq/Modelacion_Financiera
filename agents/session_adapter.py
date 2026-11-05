@@ -89,6 +89,9 @@ def build_session_snapshot(
     erp = current("erp", "erp", session_state.get("erp"))
     crp = current("crp", "crp", session_state.get("crp"))
     capex_extra = current("cx", "capex_extra", 0.0)
+    # TV real de la corrida de pestaña 4: FCFF terminal normalizado y valor Gordon.
+    fcff_next = _finite(metrics.get("fcff_terminal_n1"))
+    terminal_value = _finite(metrics.get("tv_gordon"))
 
     model_inputs: dict[str, Any] = {}
     if de_ratio is not None and de_ratio >= 0:
@@ -99,7 +102,7 @@ def build_session_snapshot(
         ("terminal_growth", _finite(metrics.get("g_usada", metrics.get("g")))),
         ("ke", _finite(metrics.get("ke_calc"))), ("de_ratio", de_ratio),
         ("beta_unlevered", beta_u), ("rf", rf), ("erp", erp), ("crp", crp),
-        ("capex_extra", capex_extra),
+        ("capex_extra", capex_extra), ("fcff_next", fcff_next),
     ):
         if value is not None:
             model_inputs[key] = value
@@ -123,6 +126,8 @@ def build_session_snapshot(
         model_outputs["wacc"] = reported_wacc
     if fcff is not None:
         model_outputs["fcff"] = fcff
+    if terminal_value is not None:
+        model_outputs["terminal_value"] = terminal_value
 
     company_name = str(company)
     provenance = [{
