@@ -164,7 +164,8 @@ def test_motor_sin_division_por_cero_con_valor_cero():
 
 
 def test_beta_para_capm():
-    assert L.beta_para_capm({"beta": 1.2})[0] == 1.2
+    # Ajuste de Blume, misma regla que la valoración (auditoría nov-2026, M4)
+    assert L.beta_para_capm({"beta": 1.2})[0] == pytest.approx(0.67 * 1.2 + 0.33)
     b, f = L.beta_para_capm({"beta": 0.15, "country": "Colombia", "sector": "Utilities",
                              "industry": "Utilities - Regulated Electric", "totalDebt": 1.0, "marketCap": 1.0})
     assert "bottom-up" in f and b > 0.46
