@@ -3,9 +3,35 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import math
 import requests
 
 TIMEOUT_SECONDS = 12
+
+
+def _json_safe(value):
+    """Convierte escalares NumPy/fechas y valores no finitos a JSON válido."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "item"):
+        try:
+            return _json_safe(value.item())
+        except Exception:
+            pass
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return str(value)
+
+
 TABLE_ENDPOINT = "/rest/v1/isa_valuation_snapshots"
 RPC_ENDPOINT = "/rest/v1/rpc/get_isa_latest_snapshot"
 
@@ -34,10 +60,10 @@ def publish_snapshot(
     payload = {
         "schema_version": 1,
         "published_at_client": datetime.now(timezone.utc).isoformat(),
-        "metrics": metrics,
+        "metrics": _json_safe(metrics),
         "decision_text": str(decision_text or ""),
         "memo": str(memo or ""),
-        "kpis": kpis if isinstance(kpis, (list, dict)) else None,
+        "kpis": _json_safe(kpis) if isinstance(kpis, (list, dict)) else None,
     }
     row = {
         "ticker": "ISA",
