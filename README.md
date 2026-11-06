@@ -144,3 +144,31 @@ Para disponer de un enlace separado y compartible en Streamlit Community Cloud:
 5. Mantén las dependencias de `requirements.txt`; la academia usa Streamlit y Plotly, ya incluidos.
 
 La academia no requiere claves API. En esta primera entrega, el avance se conserva en la sesión del navegador; no hay cuentas, sincronización entre dispositivos ni base de datos de progreso. Los laboratorios son educativos y no alteran el motor de valoración de la aplicación principal.
+
+
+## Presentación ejecutiva interactiva — ISA
+
+La **Investment Intelligence Room** incorpora una experiencia ejecutiva para exponer la valoración de ISA ante un comité. Se integra como página multipágina en Streamlit y reutiliza el motor existente; no crea un cálculo DCF paralelo.
+
+### Acceso
+
+Ejecuta la aplicación habitual:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+En la barra lateral, dentro de **Experiencia**, selecciona **Presentación ejecutiva ISA**.
+
+### Contenido
+
+- Tesis de inversión y comparación entre valor intrínseco y precio de referencia.
+- Evolución histórica y contexto sectorial global (IEA Electricity 2026).
+- Flujos de caja, WACC, crecimiento terminal y puente EV–patrimonio.
+- Escenarios, tornado, matriz WACC × g y simulación Monte Carlo.
+- Regla de decisión del motor, hoja de ruta de 90 días y preguntas de comité.
+- Data Room con trazabilidad y advertencias sobre calidad de datos.
+
+Los controles del laboratorio modifican supuestos de escenario, no el histórico. La cotización utiliza la fecha de referencia de la instantánea y no es intradía. La presentación es académica y no constituye asesoría financiera.
+
+La página utiliza dependencias ya declaradas en `requirements.txt` y los archivos `datos_taller_isa_2026.json` y `scripts/taller_isa.py`.
