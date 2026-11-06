@@ -195,9 +195,9 @@ elif chapter==chapters[4]:
     st.warning("La valoración relativa debe completarse con comparables, múltiplos observados y fecha de mercado verificada. No se inventan peers.")
     st.subheader("Hoja de ruta de 90 días")
     a,b,c=st.columns(3)
-    a.markdown("**DÍAS 1–30**\\n\\nValidar EEFF, deuda neta, NCI, asociadas, acciones y cotización. Conciliar CAPEX y capital de trabajo.")
-    b.markdown("**DÍAS 31–60**\\n\\nActualizar WACC, tasa fiscal, comparables, escenarios y sensibilidad. Contrastar supuestos con guía corporativa.")
-    c.markdown("**DÍAS 61–90**\\n\\nRecalibrar DCF, definir precio de entrada y documentar decisión, límites de riesgo y señales de revisión.")
+    a.markdown("**DÍAS 1–30**\n\nValidar EEFF, deuda neta, NCI, asociadas, acciones y cotización. Conciliar CAPEX y capital de trabajo.")
+    b.markdown("**DÍAS 31–60**\n\nActualizar WACC, tasa fiscal, comparables, escenarios y sensibilidad. Contrastar supuestos con guía corporativa.")
+    c.markdown("**DÍAS 61–90**\n\nRecalibrar DCF, definir precio de entrada y documentar decisión, límites de riesgo y señales de revisión.")
 
 elif chapter==chapters[5]:
     st.title("05 / Del análisis a la decisión")
@@ -221,10 +221,10 @@ else:
     st.subheader("Calidad y limitaciones"); st.warning(isa.get("verificacion","Revisar la verificación de datos en la instantánea.")); st.write(isa.get("fuente_historico",""))
     for warning in isa.get("advertencias",[]): st.markdown("- "+warning)
     st.subheader("Contexto global · IEA Electricity 2026")
-    st.markdown("- Demanda eléctrica mundial: crecimiento medio previsto de 3,6 % anual en 2026–2030.\\n- Más de 2.500 GW de proyectos renovables, almacenamiento y grandes cargas esperan conexión.\\n- La inversión anual en redes debería crecer aproximadamente 50 % hacia 2030.\\n- Tecnologías de mejora de redes podrían liberar capacidad de conexión de 450–700 GW.")
+    st.markdown("- Demanda eléctrica mundial: crecimiento medio previsto de 3,6 % anual en 2026–2030.\n- Más de 2.500 GW de proyectos renovables, almacenamiento y grandes cargas esperan conexión.\n- La inversión anual en redes debería crecer aproximadamente 50 % hacia 2030.\n- Tecnologías de mejora de redes podrían liberar capacidad de conexión de 450–700 GW.")
     st.markdown("Fuentes: [IEA Electricity 2026](https://www.iea.org/reports/electricity-2026/executive-summary) · [IEA Grids 2026](https://www.iea.org/reports/electricity-2026/grids)")
     st.subheader("Tendencias de presentación ejecutiva")
-    st.markdown("- Micrositios digitales e informes interactivos como complemento del PDF.\\n- Narrativa orientada a decisión: tesis → evidencia → riesgo → acción.\\n- Complejidad progresiva: resumen primero; detalle y trazabilidad bajo demanda.\\n- Gobernanza visible: cada métrica con fecha, unidad, fuente y limitación.")
+    st.markdown("- Micrositios digitales e informes interactivos como complemento del PDF.\n- Narrativa orientada a decisión: tesis → evidencia → riesgo → acción.\n- Complejidad progresiva: resumen primero; detalle y trazabilidad bajo demanda.\n- Gobernanza visible: cada métrica con fecha, unidad, fuente y limitación.")
     st.write("Empresa: {} · Corte: {} · Precio: {}".format(isa["empresa"],cut,price_date))
     st.download_button("Descargar instantánea ISA (JSON)",data=(ROOT/"datos_taller_isa_2026.json").read_bytes(),file_name="datos_taller_isa_2026.json",mime="application/json")
 
