@@ -146,29 +146,20 @@ Para disponer de un enlace separado y compartible en Streamlit Community Cloud:
 La academia no requiere claves API. En esta primera entrega, el avance se conserva en la sesión del navegador; no hay cuentas, sincronización entre dispositivos ni base de datos de progreso. Los laboratorios son educativos y no alteran el motor de valoración de la aplicación principal.
 
 
-## Presentación ejecutiva interactiva — ISA
 
-La **Investment Intelligence Room** incorpora una experiencia ejecutiva para exponer la valoración de ISA ante un comité. Se integra como página multipágina en Streamlit y reutiliza el motor existente; no crea un cálculo DCF paralelo.
 
-### Acceso
+## ISA Investment Intelligence Room — aplicación independiente
 
-Ejecuta la aplicación habitual:
+La presentación ejecutiva de ISA se ejecuta como una **aplicación Streamlit independiente**, con URL, pantalla, navegación y estilo propios. No se incorpora como una página del dashboard financiero.
 
-```bash
-streamlit run streamlit_app.py
-```
+### Despliegue
 
-En la barra lateral, dentro de **Experiencia**, selecciona **Presentación ejecutiva ISA**.
+1. Abre [Streamlit Community Cloud](https://share.streamlit.io/) e inicia sesión con GitHub.
+2. Selecciona este repositorio y la rama `main` después de fusionar el PR.
+3. En **Main file path**, indica `presentacion_isa.py`.
+4. Pulsa **Deploy**. Streamlit generará una URL independiente para compartir la presentación.
+5. Conserva las dependencias de `requirements.txt`.
 
-### Contenido
+La experiencia incluye tesis, datos históricos, contexto eléctrico global, DCF, puente EV–patrimonio, escenarios, sensibilidad, Monte Carlo, decisión indicativa, guion de exposición y Data Room. Reutiliza `scripts/taller_isa.py` y `datos_taller_isa_2026.json`; no modifica ni duplica el motor de valoración.
 
-- Tesis de inversión y comparación entre valor intrínseco y precio de referencia.
-- Evolución histórica y contexto sectorial global (IEA Electricity 2026).
-- Flujos de caja, WACC, crecimiento terminal y puente EV–patrimonio.
-- Escenarios, tornado, matriz WACC × g y simulación Monte Carlo.
-- Regla de decisión del motor, hoja de ruta de 90 días y preguntas de comité.
-- Data Room con trazabilidad y advertencias sobre calidad de datos.
-
-Los controles del laboratorio modifican supuestos de escenario, no el histórico. La cotización utiliza la fecha de referencia de la instantánea y no es intradía. La presentación es académica y no constituye asesoría financiera.
-
-La página utiliza dependencias ya declaradas en `requirements.txt` y los archivos `datos_taller_isa_2026.json` y `scripts/taller_isa.py`.
+El precio es una referencia fechada y no una cotización intradía. Los resultados son académicos y dependen de los supuestos seleccionados.

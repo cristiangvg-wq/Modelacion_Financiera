@@ -4061,7 +4061,7 @@ def main():
         # (st.markdown no corre JavaScript) y no existía CSS claro, así que no hacía nada.
         st.markdown('<p class="tf-sidebar-label">Experiencia</p>', unsafe_allow_html=True)
         st.page_link("pages/11_Academia_Financiera.py", label="🎓 Academia financiera", icon="🎓", help="Aprende finanzas con lecciones y laboratorios interactivos")
-        st.page_link("pages/12_Presentacion_Ejecutiva_ISA.py", label="◈ Presentación ejecutiva ISA", icon="📊", help="Investment Intelligence Room: valoración interactiva para comité")
+        
         _pdf_manual = _manual_usuario_pdf()
         if _pdf_manual:
             st.download_button(

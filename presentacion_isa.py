@@ -1,4 +1,4 @@
-"""Presentación ejecutiva interactiva de ISA."""
+"""ISA Investment Intelligence Room: aplicación ejecutiva independiente."""
 from __future__ import annotations
 import math, sys
 from pathlib import Path
@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
 from scripts.taller_isa import load_isa,historical_drivers,scenario_params,cost_of_capital,evaluate,monte_carlo,tornado,investment_decision,SCENARIO_ORDER,DECISION_THRESHOLDS
 
@@ -17,13 +17,13 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
 html,body,[data-testid="stAppViewContainer"]{background:radial-gradient(ellipse at 12% 0%,#10313a 0%,transparent 32%),radial-gradient(ellipse at 95% 5%,#172747 0%,transparent 30%),#070B14;color:#F3F7FC;font-family:'Manrope',sans-serif}
 [data-testid="stSidebar"]{background:linear-gradient(180deg,#0d1726,#080e18);border-right:1px solid #263b51}
-.block-container{max-width:1480px;padding-top:1.5rem;padding-bottom:4rem}
-h1,h2,h3{font-family:'Manrope',sans-serif;letter-spacing:-.04em;color:#F5F8FC}
+.block-container{max-width:1500px;padding-top:1.5rem;padding-bottom:4rem}
+h1,h2,h3{font-family:'Manrope',sans-serif;letter-spacing:-.04em;color:#F5F8FC}\nh1{font-size:2.35rem!important;font-weight:800!important}\nh2{font-size:1.55rem!important;font-weight:750!important}
 [data-testid="stMetric"]{background:linear-gradient(145deg,rgba(22,37,55,.9),rgba(12,22,36,.8));border:1px solid #2b4058;border-radius:16px;padding:15px}
 [data-testid="stMetricLabel"]{color:#9FB0C5!important;text-transform:uppercase;letter-spacing:.09em;font-size:.68rem!important}
 [data-testid="stMetricValue"]{font-family:'DM Mono',monospace;color:#F7FAFF!important}
 .hero{padding:32px 36px;border:1px solid #31546a;border-radius:22px;background:linear-gradient(120deg,rgba(10,35,49,.96),rgba(18,37,64,.88) 58%,rgba(10,91,84,.45));box-shadow:0 22px 65px #0007}
-.hero p{max-width:780px;color:#b8d5df;font-size:1.02rem}
+.hero p{max-width:760px;color:#b8d5df;font-size:1.02rem}\n.hero h1{font-size:2.65rem!important;margin:.45rem 0}\n.hero:after{content:'';position:absolute;width:360px;height:360px;border:1px solid #5be9ce33;border-radius:50%;right:-90px;top:-190px;box-shadow:0 0 0 35px #5be9ce0a,0 0 0 75px #5be9ce08}\n.pill{display:inline-block;padding:5px 11px;border:1px solid #3a6b72;border-radius:99px;color:#7ef0d3;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}\n.panel{background:linear-gradient(145deg,rgba(18,31,48,.92),rgba(10,19,31,.92));border:1px solid #263b51;border-radius:16px;padding:18px 20px;margin:8px 0}\n.panel-title{color:#8da6bc;text-transform:uppercase;letter-spacing:.1em;font-size:.7rem;font-weight:800}\n.big-number{font-family:'DM Mono',monospace;font-size:2rem;font-weight:600;color:#f5fbff}\n.source{color:#8da0b4;font-size:.75rem}
 .eyebrow{color:#57e3c4;font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;font-weight:800}
 .callout{border-left:3px solid #42e3c1;padding:10px 15px;background:#0e292b;border-radius:0 10px 10px 0;color:#d9fff5}
 hr{border-color:#23364b}
