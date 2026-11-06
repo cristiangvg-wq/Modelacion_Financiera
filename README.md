@@ -160,6 +160,15 @@ La presentación ejecutiva de ISA se ejecuta como una **aplicación Streamlit in
 4. Pulsa **Deploy**. Streamlit generará una URL independiente para compartir la presentación.
 5. Conserva las dependencias de `requirements.txt`.
 
-La experiencia incluye tesis, datos históricos, contexto eléctrico global, DCF, puente EV–patrimonio, escenarios, sensibilidad, Monte Carlo, decisión indicativa, guion de exposición y Data Room. Reutiliza `scripts/taller_isa.py` y `datos_taller_isa_2026.json`; no modifica ni duplica el motor de valoración.
+La experiencia ejecutiva presenta la última valoración ISA publicada por la pestaña 4 de la aplicación principal. No vuelve a ejecutar `scripts/taller_isa.py`, no mantiene un DCF paralelo ni recalcula escenarios con supuestos distintos. El precio y los resultados corresponden a la fecha y supuestos de la corrida publicada.
 
-El precio es una referencia fechada y no una cotización intradía. Los resultados son académicos y dependen de los supuestos seleccionados.
+
+## Presentación ISA conectada a la valoración principal
+
+La presentación ejecutiva independiente usa el snapshot de la pestaña 4 de la aplicación principal. Ya no ejecuta un DCF paralelo ni presenta escenarios calculados con supuestos distintos. Para conectar ambas apps se requiere un proyecto Supabase; la creación y configuración paso a paso está en [docs/CONFIGURAR_PRESENTACION_ISA_SUPABASE.md](docs/CONFIGURAR_PRESENTACION_ISA_SUPABASE.md).
+
+- App principal: secrets SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
+- App independiente: secrets SUPABASE_URL, SUPABASE_ANON_KEY e ISA_PRESENTATION_TOKEN.
+- Ejecuta supabase/isa_presentation.sql en SQL Editor de Supabase.
+- La tabla no permite lectura directa a usuarios anónimos; la presentación consulta mediante RPC con token.
+- Sin credenciales o sin snapshot publicado, la presentación informa que no hay datos y no sustituye cifras.
