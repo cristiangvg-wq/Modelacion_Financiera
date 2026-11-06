@@ -177,7 +177,7 @@ export default function Home() {
                     <CartesianGrid strokeDasharray="3 5" className="chart-grid" vertical={false}/>
                     <XAxis dataKey="year" tick={{ fill: "#91a59f", fontSize: 11 }} axisLine={false} tickLine={false}/>
                     <YAxis tick={{ fill: "#91a59f", fontSize: 10 }} axisLine={false} tickLine={false} width={58}/>
-                    <Tooltip contentStyle={{ background: "#0c1d26", border: "1px solid #31534c", borderRadius: 4, color: "#edf2ec" }} formatter={(v: number) => [v.toLocaleString("es-CO"), "FCFF"]}/>
+                    <Tooltip contentStyle={{ background: "#0c1d26", border: "1px solid #31534c", borderRadius: 4, color: "#edf2ec" }} formatter={(v) => [Number(v).toLocaleString("es-CO"), "FCFF"]}/>
                     <Area type="monotone" dataKey="fcff" stroke="#76e2bd" strokeWidth={2} fill="url(#fcffFill)" connectNulls={false}/>
                   </AreaChart>
                 </ResponsiveContainer>
