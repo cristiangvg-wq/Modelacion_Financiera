@@ -75,6 +75,20 @@ st.set_page_config(
     },
 )
 
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _refrescar_rf_us(_id_modulo: int):
+    """Una vez al día por proceso: rf de EE. UU. del Tesoro si es más reciente que el cargado (auditoría M1).
+    Timeout corto (8 s): si el Tesoro no responde, la app sigue con el dato fechado del repositorio."""
+    try:
+        from mercado.tasas import refrescar_rf_us_en_proceso
+        return refrescar_rf_us_en_proceso()
+    except Exception as e:  # nunca bloquear el arranque por una tasa
+        return {"cambio": False, "motivo": f"error: {e}"}
+
+
+_RF_US_REFRESCO = _refrescar_rf_us(id(L))
+
 # =============================================================================
 # DESIGN SYSTEM — Dark Slate FinTech
 # =============================================================================
@@ -5372,7 +5386,9 @@ def main():
         _prf = st.number_input(
             f"Tasa libre de riesgo anual en {_pbase} (decimal)", min_value=0.0, max_value=0.50,
             value=_rf_def, step=0.005, format="%.3f", key=f"portfolio_rf_{_pbase}",
-            help="Por defecto: bono soberano a 10 años de la moneda de análisis (UST en USD, TES en COP).",
+            help="Por defecto: tasa libre de riesgo del CAPM en la moneda de análisis (USD: Tesoro de EE. UU. a 10 años; "
+                 "COP: TES a 10 años menos el spread de default de Colombia de Damodaran, porque el TES incluye riesgo "
+                 "de impago).",
         )
 
         def _norm_tk_portafolio(x):
@@ -5390,10 +5406,22 @@ def main():
         if _portfolio_incluir_empresa and _portfolio_ticker_actual:
             if _portfolio_ticker_actual not in _portfolio_tickers_final:
                 _portfolio_tickers_final.insert(0, _portfolio_ticker_actual)
+        # Frecuencia de rendimientos (auditoría nov-2026, M3): con acciones de la BVC los rendimientos
+        # diarios en fechas comunes subestiman correlaciones y volatilidades (negociación no sincrónica).
+        # Por defecto semanal si la cartera tiene algún nemotécnico .CL; diaria en otro caso (comportamiento previo).
+        _pfreq_opciones = ["Semanal (cierre del viernes)", "Diaria"]
+        _pfreq_def = 0 if any(str(t).upper().endswith(".CL") for t in _portfolio_tickers_final) else 1
+        _pfreq = st.selectbox(
+            "Frecuencia de rendimientos", _pfreq_opciones, index=_pfreq_def, key=f"portfolio_freq_{_pfreq_def}",
+            help="Semanal: recomendada con acciones colombianas o bolsas con festivos distintos; evita que los días "
+                 "sin negociación reduzcan artificialmente la volatilidad y las correlaciones. Diaria: más "
+                 "observaciones, adecuada para acciones muy líquidas de un mismo mercado.",
+        )
+        _psemanal = _pfreq.startswith("Semanal")
         _portfolio_request = (
             tuple(_portfolio_tickers_final), float(_prf), float(_pmax),
             _pobjective, _pperiod, _pbase, bool(_portfolio_incluir_empresa),
-            _portfolio_empresa_actual, _portfolio_ticker_actual,
+            _portfolio_empresa_actual, _portfolio_ticker_actual, _psemanal,
         )
         if st.button("Optimizar portafolio", key="portfolio_run", type="primary"):
             try:
@@ -5408,6 +5436,8 @@ def main():
                     retornos_esperados_anclados as _anclar_portfolio,
                     retorno_en_moneda as _fisher_portfolio,
                     evaluar_fuera_de_muestra as _oos_portfolio,
+                    a_cierres_semanales as _semanal_portfolio,
+                    minimos_por_frecuencia as _minimos_portfolio,
                 )
                 _ptickers = list(_portfolio_tickers_final)
                 if len(_ptickers) < 2:
@@ -5450,10 +5480,15 @@ def main():
                 if any(str(v).upper() != _pbase for v in _meta.values()):
                     _fx_series = _serie_cop_por_usd("10y" if _pperiod == "10y" else "5y")
                 _prices = _fx_portfolio(_prices, _meta, _fx_series, moneda_base=_pbase)
-                _mu, _cov = _prep_portfolio(_prices)
+                _ultima_fecha_precios = str(_prices.dropna().index[-1])
+                _per_anual = 52 if _psemanal else 252
+                if _psemanal:
+                    _prices = _semanal_portfolio(_prices)
+                _min_obs = _minimos_portfolio(_per_anual)[0]
+                _mu, _cov = _prep_portfolio(_prices, periodos_anuales=_per_anual, min_observaciones=_min_obs)
                 _mu_tabla = None
                 if _pmodo_ret.startswith("Anclado"):
-                    _anios_ventana = len(_rets_portfolio(_prices)) / 252.0
+                    _anios_ventana = len(_rets_portfolio(_prices, _min_obs)) / float(_per_anual)
                     _merc_base = L.MERCADO_POR_MONEDA.get(_pbase, "US")
                     _anclas, _fuentes_ancla = {}, {}
                     for _tk in _mu.index:
@@ -5500,13 +5535,14 @@ def main():
                     tasa_libre_riesgo=float(_prf), peso_maximo=float(_pmax),
                 )
                 try:
-                    _riesgo = _riesgo_portfolio(_rets_portfolio(_prices), _res["pesos"])
+                    _riesgo = _riesgo_portfolio(_rets_portfolio(_prices, _min_obs), _res["pesos"],
+                                                periodos_anuales=_per_anual)
                 except Exception as _e_riesgo:
                     _riesgo = {"error": str(_e_riesgo)}
                 _riesgo["contraccion_alpha"] = float(getattr(_cov, "attrs", {}).get("contraccion_alpha", 0.0))
                 try:
                     _oos = _oos_portfolio(_prices, 0.7, mu_fijo=(_mu if _mu_tabla is not None else None),
-                                          objetivo=_pobjective, tasa_libre_riesgo=float(_prf), peso_maximo=float(_pmax))
+                                          periodos_anuales=_per_anual, objetivo=_pobjective, tasa_libre_riesgo=float(_prf), peso_maximo=float(_pmax))
                     _oos = {"corte": _oos["corte"], "dentro": _oos["dentro"], "fuera": _oos["fuera"]}
                 except Exception as _e_oos:
                     _oos = {"error": str(_e_oos)}
@@ -5528,7 +5564,8 @@ def main():
                     "monedas_origen": dict(_meta),
                     "period": _pperiod,
                     "frontier": _frontier.to_dict(orient="records"),
-                    "prices_last_date": str(_prices.dropna().index[-1]),
+                    "prices_last_date": _ultima_fecha_precios,
+                    "frecuencia": "semanal" if _psemanal else "diaria",
                     "request": _portfolio_request,
                     "focal_company": _portfolio_empresa_actual if _portfolio_incluir_empresa else None,
                     "focal_ticker": _portfolio_ticker_actual if _portfolio_incluir_empresa else None,
@@ -5547,6 +5584,7 @@ def main():
                 f"Moneda de análisis: {_portfolio_saved['currency']} "
                 f"(origen: {', '.join(f'{k} {v}' for k, v in (_portfolio_saved.get('monedas_origen') or {}).items())}) · "
                 f"Ventana: {_portfolio_saved['period']} · "
+                f"Rendimientos: {_portfolio_saved.get('frecuencia', 'diaria')} · "
                 f"Última fecha de datos: {_portfolio_saved['prices_last_date']}"
             )
             _pc1, _pc2, _pc3 = st.columns(3)
@@ -5555,15 +5593,17 @@ def main():
             _psharpe = _portfolio_saved["sharpe"]
             _pc3.metric("Sharpe estimado", f"{_psharpe:.2f}" if _psharpe is not None else "N/D")
             _rz = _portfolio_saved.get("riesgo") or {}
+            _pfr_txt = "semanal" if _portfolio_saved.get("frecuencia") == "semanal" else "diario"
+            _pfr_dias = "semanas" if _pfr_txt == "semanal" else "días"
             if _rz and not _rz.get("error"):
                 _rc1, _rc2, _rc3, _rc4 = st.columns(4)
                 _rc1.metric("Caída máxima histórica", f"{_rz['max_drawdown']:.1%}",
                             help="Mayor caída del capital desde un pico, con estos pesos en la ventana elegida.")
-                _rc2.metric(f"VaR diario {_rz['confianza']:.0%}", f"{_rz['var_diario']:.2%}",
-                            help="En el 95 % de los días históricos la pérdida diaria no superó este valor.")
-                _rc3.metric(f"CVaR diario {_rz['confianza']:.0%}",
+                _rc2.metric(f"VaR {_pfr_txt} {_rz['confianza']:.0%}", f"{_rz['var_diario']:.2%}",
+                            help=f"En el 95 % de los {_pfr_dias} históricos la pérdida {_pfr_txt} no superó este valor.")
+                _rc3.metric(f"CVaR {_pfr_txt} {_rz['confianza']:.0%}",
                             f"{_rz['cvar_diario']:.2%}" if _rz.get("cvar_diario") is not None else "N/D",
-                            help="Pérdida diaria promedio en el 5 % de los peores días (pérdida de cola).")
+                            help=f"Pérdida {_pfr_txt} promedio en el 5 % de los peores {_pfr_dias} (pérdida de cola).")
                 _rc4.metric("Rendimiento compuesto anual",
                             f"{_rz['retorno_compuesto_anual']:.2%}" if _rz.get("retorno_compuesto_anual") is not None else "N/D",
                             help="Lo que creció el capital por año con estos pesos. El «retorno esperado» de arriba es la "
@@ -5591,7 +5631,8 @@ def main():
                                      f"{d['cvar_diario']:.2%}" if d.get("cvar_diario") is not None else "N/D"]
                     st.dataframe(pd.DataFrame([_fm(_oos["dentro"]), _fm(_oos["fuera"])],
                                               index=["Dentro de la muestra", "Fuera de la muestra"],
-                                              columns=["Rend. compuesto anual", "Caída máxima", "VaR diario 95 %", "CVaR diario 95 %"]),
+                                              columns=["Rend. compuesto anual", "Caída máxima", f"VaR {_pfr_txt} 95 %",
+                                                       f"CVaR {_pfr_txt} 95 %"]),
                                  width="stretch")
                 elif _oos.get("error"):
                     st.caption(f"Prueba fuera de muestra no disponible: {_oos['error']}")

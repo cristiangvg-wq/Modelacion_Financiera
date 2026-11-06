@@ -1048,6 +1048,23 @@ def _scale_yf_to_miles_millones(value, currency="USD"):
     return v / 1e9
 
 
+def _yf_con_reintento(fn, intentos=3, espera_base=1.0):
+    """Ejecuta una llamada a Yahoo y reintenta SOLO errores transitorios (límite de tasa, timeout, red).
+
+    En Streamlit Cloud la IP es compartida y Yahoo responde a menudo con 429 / YFRateLimitError; antes el
+    primer fallo se traducía en «No se encontró» (auditoría nov-2026, A2). Un error permanente (ticker
+    inexistente) se propaga de inmediato.
+    """
+    from mercado.yahoo_cliente import _es_transitorio
+    for i in range(int(intentos)):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001
+            if not _es_transitorio(exc) or i == int(intentos) - 1:
+                raise
+            _time.sleep(espera_base * (2 ** i))
+
+
 def buscar_y_descargar_empresa(query, peers_tickers="", nombre_display=None):
     """
     Busca una empresa por ticker Yahoo Finance (ej. AAPL, MSFT, EC, ISA.CL, PFE)
@@ -1070,10 +1087,11 @@ def buscar_y_descargar_empresa(query, peers_tickers="", nombre_display=None):
     info = None
     used_ticker = None
     t_obj = None
+    error_transitorio = None
     for cand in ticker_candidates:
         try:
             t_obj = yf.Ticker(cand)
-            info = t_obj.info or {}
+            info = _yf_con_reintento(lambda: t_obj.info or {})
             if not _es_candidato_bvc_valido(cand, info):
                 continue
             # Validar que haya algo útil
@@ -1085,14 +1103,25 @@ def buscar_y_descargar_empresa(query, peers_tickers="", nombre_display=None):
             if fin is not None and not fin.empty:
                 used_ticker = cand
                 break
-        except Exception:
+        except Exception as exc:
+            try:
+                from mercado.yahoo_cliente import _es_transitorio
+                if _es_transitorio(exc):
+                    error_transitorio = exc
+            except Exception:
+                pass
             continue
 
+    if not used_ticker and error_transitorio is not None:
+        return False, (f"<div class='result-note'><b>Yahoo Finance no respondió</b> (límite de consultas o red: "
+                       f"{escape(type(error_transitorio).__name__)}). No es que el ticker no exista: "
+                       "espera un minuto e inténtalo de nuevo.</div>"), None, None
     if not used_ticker:
         return False, f"<div class='result-note'><b>No se encontró</b> «{escape(q)}» en Yahoo Finance. Prueba el ticker exacto (ej. EC para Ecopetrol, ISA.CL, AAPL).</div>", None, None
 
-    # Descargar financieros
-    df_fin, msg_fin = descargar_financieros_yfinance(used_ticker)
+    # Descargar financieros reutilizando el MISMO objeto Ticker (antes se creaba otro y se volvía a pedir
+    # info a Yahoo: más consultas y más límites de tasa).
+    df_fin, msg_fin = descargar_financieros_yfinance(used_ticker, ticker_obj=t_obj)
     if df_fin is None or len(df_fin) < 2:
         # Intentar con balance/cashflow mínimos
         msg_extra = msg_fin or "sin serie suficiente"
@@ -2095,7 +2124,7 @@ def _series_from_yf_row(row, factor=None):
     return out
 
 
-def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
+def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None, ticker_obj=None):
     """
     Arma Ingresos, EBITDA, EBIT, CAPEX, NWC y FCFF desde yfinance.
     Descarta años incompletos o en cero y el año calendario en curso.
@@ -2105,12 +2134,17 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
       - CAPEX proxy 4 % de ingresos (antes 12 %); NWC proxy 5 % (antes 8 %).
       - Preferir CAPEX real del cashflow cuando exista.
     Retorna DataFrame indexado por año o None, y mensaje de procedencia.
+
+    ticker_obj (opcional): objeto con la interfaz de yfinance.Ticker (info, financials,
+    cashflow, balance_sheet). Permite reproducir una valoración desde una instantánea
+    guardada (mercado.yahoo_cliente.TickerReplay) sin volver a consultar Yahoo.
+    Sin él, el comportamiento es idéntico al anterior.
     """
     ticker_yf = asegurar_sufijo_cl_bvc(ticker_yf)
-    if not HAS_YF or not ticker_yf:
+    if ticker_obj is None and (not HAS_YF or not ticker_yf):
         return None, "yfinance no disponible o sin ticker"
     try:
-        t = yf.Ticker(ticker_yf)
+        t = ticker_obj if ticker_obj is not None else yf.Ticker(ticker_yf)
         fin = getattr(t, "financials", None)
         cf = getattr(t, "cashflow", None)
         info = t.info or {}
@@ -2308,6 +2342,10 @@ def descargar_financieros_yfinance(ticker_yf, tax_efectiva=None):
                 nwc = abs(ing) * (nwc_real[y_ref] / ing_ref) if ing_ref else abs(ing) * 0.05
             else:
                 nwc = abs(ing) * 0.05
+            if prev_nwc is None and (y - 1) in nwc_real:
+                # Primer año de la serie: el balance suele traer el cierre anterior. Antes ΔNWC = 0 inflaba
+                # el FCFF histórico del primer año (auditoría nov-2026, B1).
+                prev_nwc = float(nwc_real[y - 1])
             delta = 0.0 if prev_nwc is None else nwc - prev_nwc
             # Unificar la política fiscal con el motor de proyección: sin escudo fiscal automático por pérdidas.
             nopat = float(calcular_nopat(eb, tax_efectiva))
@@ -3117,7 +3155,10 @@ def beta_para_capm(info):
         if tk and str(emp.get("ticker_yf") or "").upper() == tk:
             explicita = (emp.get("params") or {}).get("industria_damodaran")
     if b is not None and BETA_REGRESION_MIN <= b <= 3.0:
-        return float(b), f"β {b:.2f} (Yahoo)"
+        # Ajuste de Blume (0,67·β + 0,33), igual que derivar_params_desde_cero: antes el portafolio usaba la beta
+        # bruta y la valoración la ajustada, de modo que un mismo activo tenía dos costos del patrimonio.
+        bb = 0.67 * float(np.clip(b, 0.2, 2.5)) + 0.33
+        return float(bb), f"β {bb:.2f} (Yahoo {b:.2f}, ajuste Blume)"
     pais = _mercado_desde_pais(info.get("country")) or ("CO" if str(info.get("symbol") or "").upper().endswith(".CL") else "US")
     bd = damodaran_beta(info.get("sector") or "", info.get("industry") or "", pais, explicita=explicita)
     if bd:
@@ -4535,12 +4576,22 @@ def derivar_params_desde_cero(df_hist, info=None, ticker_yf=None):
         p["calificacion_sintetica"] = _sint["calificacion"]
     elif ir is not None and 0 < ir < 0.4:
         p["kd"] = round(float(ir), 4)
+        p["kd_fuente"] = "yahoo: interestRate"
     else:
         ie = _safe_float(info.get("interestExpense"))
         if ie is not None and total_debt and total_debt > 0:
             p["kd"] = round(float(np.clip(abs(ie) / total_debt, 0.01, 0.25)), 4)
         else:
             p["kd"] = round(float(capm.get("rf_bruto", capm["rf"]) + capm["kd_spread"] + capm.get("crp_deuda", 0.0)), 4)
+    # Piso: en la moneda de los flujos ninguna empresa se financia más barato que el Estado. Un Kd histórico
+    # (interés contable / deuda) por debajo del bono soberano subestima el WACC (auditoría nov-2026, B3).
+    # La calificación sintética ya parte del rf bruto, así que el piso solo actúa en los respaldos.
+    _rf_piso = float(capm.get("rf_bruto", capm["rf"]))
+    if not _sint and p.get("kd") is not None and float(p["kd"]) < _rf_piso:
+        p["kd_sin_piso"] = float(p["kd"])
+        p["kd"] = round(_rf_piso, 4)
+        p["kd_fuente"] = (f"{p.get('kd_fuente') or 'interés contable / deuda'} {p['kd_sin_piso']:.2%} < rf bruto "
+                          f"{_rf_piso:.2%}: se usa el rf bruto como piso")
 
     # Beta unlevered de ESTA acción; si Yahoo no trae beta, 1.0 (mercado) con marca
     tax = p["tax"]

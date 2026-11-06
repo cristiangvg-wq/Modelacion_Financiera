@@ -334,20 +334,31 @@ def retorno_en_moneda(r_local: float, inflacion_local: float, inflacion_base: fl
     return (1.0 + float(r_local)) * (1.0 + float(inflacion_base)) / (1.0 + float(inflacion_local)) - 1.0
 
 
+def minimos_por_frecuencia(periodos_anuales: int = 252) -> tuple[int, int]:
+    """(mínimo de la muestra, mínimo del tramo de prueba) en observaciones.
+    Diario: 120 y 60 días (valores históricos del motor). Semanal: un año y medio año."""
+    per = int(periodos_anuales)
+    return (120, 60) if per >= 252 else (max(per, 26), max(per // 2, 13))
+
+
 def evaluar_fuera_de_muestra(precios: pd.DataFrame, fraccion: float = 0.7, mu_fijo: pd.Series | None = None,
-                             **kw) -> dict:
+                             periodos_anuales: int = 252, **kw) -> dict:
     """Optimiza con la primera parte de la ventana y mide la cartera en la parte que no vio.
 
     `mu_fijo` (p. ej. retornos anclados) reemplaza la media de la submuestra; la covarianza sale
     siempre de la submuestra. Devuelve pesos y métricas dentro y fuera de muestra.
+    `periodos_anuales` = 252 con precios diarios (por defecto) o 52 con cierres semanales.
     """
     if not 0.3 <= float(fraccion) <= 0.9:
         raise ValueError("La fracción de entrenamiento debe estar entre 30 % y 90 %.")
-    r = rendimientos_comunes(precios)
+    min_ent, min_prueba = minimos_por_frecuencia(periodos_anuales)
+    r = rendimientos_comunes(precios, min_observaciones=min_ent)
     corte = int(len(r) * float(fraccion))
-    if corte < 120 or len(r) - corte < 60:
-        raise ValueError("Ventana demasiado corta para separar muestra y prueba (≥ 120 y ≥ 60 días).")
-    mu, cov = preparar_estadisticas(precios.loc[: r.index[corte - 1]])
+    if corte < min_ent or len(r) - corte < min_prueba:
+        raise ValueError(f"Ventana demasiado corta para separar muestra y prueba (≥ {min_ent} y ≥ {min_prueba} "
+                         "observaciones).")
+    mu, cov = preparar_estadisticas(precios.loc[: r.index[corte - 1]], periodos_anuales=periodos_anuales,
+                                    min_observaciones=min_ent)
     if mu_fijo is not None:
         mu = pd.Series(mu_fijo, dtype=float).reindex(mu.index)
         if mu.isna().any():
@@ -355,10 +366,25 @@ def evaluar_fuera_de_muestra(precios: pd.DataFrame, fraccion: float = 0.7, mu_fi
     res = optimizar_portafolio(mu, cov, **kw)
     return {
         "pesos": res["pesos"],
-        "dentro": metricas_riesgo_historicas(r.iloc[:corte], res["pesos"]),
-        "fuera": metricas_riesgo_historicas(r.iloc[corte:], res["pesos"]),
+        "dentro": metricas_riesgo_historicas(r.iloc[:corte], res["pesos"], periodos_anuales=periodos_anuales),
+        "fuera": metricas_riesgo_historicas(r.iloc[corte:], res["pesos"], periodos_anuales=periodos_anuales),
         "corte": str(r.index[corte - 1])[:10],
     }
+
+
+def a_cierres_semanales(precios: pd.DataFrame) -> pd.DataFrame:
+    """Último cierre de cada semana (viernes) por activo.
+
+    Con acciones de baja liquidez (BVC) o bolsas con festivos distintos, los rendimientos diarios en
+    fechas comunes subestiman correlaciones y volatilidades (negociación no sincrónica, efecto Epps).
+    El cierre semanal absorbe los días sin cotización sin inventar precios.
+    """
+    if precios is None or precios.empty:
+        raise ValueError("No hay precios para construir el portafolio.")
+    p = precios.copy().sort_index()
+    if getattr(p.index, "tz", None) is not None:
+        p.index = p.index.tz_localize(None)
+    return p.resample("W-FRI").last().dropna(how="all")
 
 
 def construir_frontera(
