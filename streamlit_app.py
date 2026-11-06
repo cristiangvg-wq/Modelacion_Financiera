@@ -46,6 +46,41 @@ except ImportError:
 # API key Gemini: UI → Streamlit Secrets → variable de entorno.
 # Nunca incluir secretos en el repositorio. Si antes se versionó una clave,
 # revocarla/rotarla en el proveedor aunque ya se haya quitado del código.
+
+
+def _publicar_snapshot_isa(empresa):
+    """Publica en Supabase la misma corrida calculada por la pestaña 4; nunca bloquea el DCF."""
+    try:
+        metrics = L.metricas_valoracion_sesion(empresa)
+        if not isinstance(metrics, dict) or str(metrics.get("ticker", "")).upper() not in {"ISA", "ISA.CL", "ISA.CO"}:
+            return
+        try:
+            url = str(st.secrets.get("SUPABASE_URL", "")).strip()
+            service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+        except Exception:
+            url = (os.environ.get("SUPABASE_URL") or "").strip()
+            service_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+        # Sin credenciales, la aplicación principal opera normalmente y no publica.
+        if not url or not service_key:
+            return
+        from isa_snapshot_store import publish_snapshot
+        tabs = (getattr(L, "RESULTADOS_SESION", {}) or {}).get("tabs", {}) or {}
+        tab4 = tabs.get("4", {}) or {}
+        ok, message = publish_snapshot(
+            supabase_url=url,
+            service_role_key=service_key,
+            metrics=metrics,
+            decision_text=tab4.get("decision", ""),
+            memo=tab4.get("memo", ""),
+            kpis=tab4.get("kpis"),
+        )
+        if not ok:
+            st.warning("No se publicó la presentación ISA: " + str(message))
+    except Exception as exc:
+        # La persistencia es secundaria: jamás debe interrumpir la valoración principal.
+        st.warning("La valoración terminó, pero no se pudo publicar la instantánea ISA: " + str(exc)[:300])
+
+
 def _resolve_gemini_key(ui_key=None):
     """Orden: input UI → st.secrets → env; no hay clave embebida de respaldo."""
     if ui_key and str(ui_key).strip():
@@ -4464,6 +4499,7 @@ def main():
                     capital_invertido, deuda_neta, rf, erp, crp, usar_publicos,
                     caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
                 )
+                _publicar_snapshot_isa(empresa)
             except Exception as e:
                 errores.append(f"Pestaña 4: {e}")
 
@@ -4562,6 +4598,7 @@ def main():
                                 capital_invertido, deuda_neta, rf, erp, crp, usar_publicos,
                                 caja, nci, otros_claims, asociados, acciones, exit_multiple, mid_year, g_max_macro,
                             )
+                            _publicar_snapshot_isa(empresa)
                             try:
                                 ok_c, msg_c = _ejecutar_comite_ia_sesion(
                                     empresa, w=w, de_ratio=de_ratio, g=g, moneda=moneda,
