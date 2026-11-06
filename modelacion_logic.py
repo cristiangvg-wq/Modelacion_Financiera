@@ -10824,6 +10824,13 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     "ronic_modo": modo_ronic_sesion(),
                     "roic_observado": _finite_or_none(roic_referencia_sesion()),
                     "tv_pct_ev": _finite_or_none(val_base.get("tv_pct_ev")),
+                    # Insumos exactos del TV del caso base para auditoría independiente Gordon-Shapiro.
+                    "tv_gordon": _finite_or_none(val_base.get("TV_Gordon")),
+                    "tv_metodo": val_base.get("tv_metodo"),
+                    "fcff_terminal_n1": _finite_or_none(next(
+                        (v for k, v in (val_base.get("bridge") or {}).items()
+                         if str(k).startswith("FCFF usado en TV")), None
+                    )),
                     "ev_ebitda_salida_modelo": _finite_or_none(val_base.get("mult_terminal")),
                     "margen_ebitda_proy": _finite_or_none(meta_proj.get("margen_ebitda")),
                     "g_ingresos_historico": _finite_or_none(meta_proj.get("g_ingresos_historico")),
