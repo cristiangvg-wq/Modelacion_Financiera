@@ -160,9 +160,7 @@ La presentación ejecutiva de ISA se ejecuta como una **aplicación Streamlit in
 4. Pulsa **Deploy**. Streamlit generará una URL independiente para compartir la presentación.
 5. Conserva las dependencias de `requirements.txt`.
 
-La experiencia incluye tesis, datos históricos, contexto eléctrico global, DCF, puente EV–patrimonio, escenarios, sensibilidad, Monte Carlo, decisión indicativa, guion de exposición y Data Room. Reutiliza `scripts/taller_isa.py` y `datos_taller_isa_2026.json`; no modifica ni duplica el motor de valoración.
-
-El precio es una referencia fechada y no una cotización intradía. Los resultados son académicos y dependen de los supuestos seleccionados.
+La experiencia ejecutiva presenta la última valoración ISA publicada por la pestaña 4 de la aplicación principal. No vuelve a ejecutar `scripts/taller_isa.py`, no mantiene un DCF paralelo ni recalcula escenarios con supuestos distintos. El precio y los resultados corresponden a la fecha y supuestos de la corrida publicada.
 
 
 ## Presentación ISA conectada a la valoración principal
