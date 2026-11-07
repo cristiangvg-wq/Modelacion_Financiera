@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Presentación de comité</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,700&family=Public+Sans:wght@400;500;600;700&display=swap">
+<!--
+  Plantilla de la presentación de comité (presentacion_comite.py).
+  Solo LEE el snapshot incrustado: no calcula valores financieros, solo los formatea y dibuja.
+  Funciona sin conexión; si las fuentes de Google no cargan, usa fuentes del sistema.
+-->
+<style>
+:root{
+  --bg:#F2F4F1; --panel:#FFFFFF; --ink:#16231D; --muted:#5B6A62; --line:#D5DCD6;
+  --accent:#A32638; --accent-soft:#F4DDE0;
+  --sup:#9A6A12; --sup-soft:#F5E9CF; --proy:#1F5F7A; --proy-soft:#DCEBF1;
+  --good:#2D7A4B; --good-soft:#DCEFE3; --bad:#B23B2A; --bad-soft:#F6DCD7; --warn:#A8700B; --warn-soft:#F5EAD2;
+  --bar:#33483E; --bar2:#9FB2A7;
+  --f-display:"Bodoni Moda","Didot","Bodoni 72",Georgia,serif;
+  --f-body:"Public Sans","Segoe UI",system-ui,sans-serif;
+  --step:clamp(12px,1.05vw,15px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1512; --panel:#16201B; --ink:#E4EBE6; --muted:#9AAAA1; --line:#2A3832;
+  --accent:#E46476; --accent-soft:#3A1C22; --sup:#E0B25A; --sup-soft:#3A2E14; --proy:#6FB4D2; --proy-soft:#16303B;
+  --good:#5BBE84; --good-soft:#173525; --bad:#E77A68; --bad-soft:#3E1D18; --warn:#E0AA45; --warn-soft:#3A2E14;
+  --bar:#B7C9BF; --bar2:#52675C; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1512; --panel:#16201B; --ink:#E4EBE6; --muted:#9AAAA1; --line:#2A3832;
+  --accent:#E46476; --accent-soft:#3A1C22; --sup:#E0B25A; --sup-soft:#3A2E14; --proy:#6FB4D2; --proy-soft:#16303B;
+  --good:#5BBE84; --good-soft:#173525; --bad:#E77A68; --bad-soft:#3E1D18; --warn:#E0AA45; --warn-soft:#3A2E14;
+  --bar:#B7C9BF; --bar2:#52675C; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:var(--step);line-height:1.5;margin:0;overflow:hidden}
+*{box-sizing:border-box}
+.num,td,.tab{font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{height:100%;display:flex;flex-direction:column}
+.stage{flex:1;min-height:0;position:relative}
+.slide{position:absolute;inset:0;overflow-y:auto;padding-block:clamp(18px,3.2vh,40px);padding-left:max(16px,env(safe-area-inset-left,0px),4vw);padding-right:max(16px,env(safe-area-inset-right,0px),4vw);display:flex;flex-direction:column;gap:18px}
+.slide[hidden]{display:none!important}
+.slide.enter{animation:in .35s ease-out}
+@keyframes in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.slide.enter{animation:none}.wf-bar{transition:none!important}}
+.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+h1,h2{font-family:var(--f-display);font-weight:500;margin:0;text-wrap:balance;line-height:1.08}
+h1{font-size:clamp(34px,5.2vw,72px)}
+h2{font-size:clamp(26px,3.2vw,44px);max-width:30ch}
+.lead{color:var(--muted);max-width:72ch;margin:0}
+.grid{display:grid;gap:18px;grid-template-columns:repeat(12,minmax(0,1fr));align-items:start}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+@media (max-width:860px){.c4,.c5,.c6,.c7,.c8{grid-column:span 12}}
+.grid>*{min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px 18px}
+.panel h3{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:99px;text-transform:none;white-space:nowrap}
+.tag::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.t-real{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+.t-sup{background:var(--sup-soft);color:var(--sup)}
+.t-proy{background:var(--proy-soft);color:var(--proy)}
+.t-res{background:var(--accent-soft);color:var(--accent)}
+.cover{justify-content:center}
+.cover h1{max-width:18ch}
+.meta-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 24px;max-width:1000px;margin:10px 0 0}
+.meta-list div{border-top:1px solid var(--line);padding-top:8px;min-width:0}
+.meta-list dt{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.meta-list dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}
+.verdict{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:28px;align-items:end}
+@media (max-width:860px){.verdict{grid-template-columns:1fr}}
+.big{font-family:var(--f-display);font-size:clamp(52px,8.4vw,120px);line-height:.95;letter-spacing:-.01em}
+.big small{font-family:var(--f-body);font-size:max(13px,.17em);color:var(--muted);letter-spacing:0;display:block;margin-top:8px}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.kpi{background:var(--panel);padding:12px 14px;min-width:0}
+.kpi span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.kpi b{font-size:clamp(18px,1.9vw,26px);font-weight:600}
+.up{color:var(--good)}.down{color:var(--bad)}
+.rangebar{position:relative;height:64px;margin:26px 8px 0}
+.rangebar .track{position:absolute;left:0;right:0;top:24px;height:8px;background:var(--line);border-radius:4px}
+.rangebar .fill{position:absolute;top:24px;height:8px;background:var(--bar);border-radius:4px}
+.rangebar .mk{position:absolute;top:12px;width:2px;height:32px;transform:translateX(-1px)}
+.rangebar .mk i{position:absolute;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:11px;font-style:normal;font-weight:600}
+.rangebar .mk.top i{top:-22px}.rangebar .mk.bot i{top:36px}
+.mk.base{background:var(--ink)}.mk.px{background:var(--accent)}.mk.px i{color:var(--accent)}.mk.pes{background:var(--bad)}.mk.pes i{color:var(--bad)}
+.disclaimer{font-size:12px;color:var(--muted);border-left:3px solid var(--accent);padding-left:10px;max-width:75ch;margin:0}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+tr.total td{font-weight:700;border-top:2px solid var(--ink)}
+.wf{display:flex;align-items:stretch;gap:6px;height:270px;padding-top:22px;position:relative}
+.wf-col{flex:1;min-width:0;display:flex;flex-direction:column;cursor:pointer;background:none;border:0;padding:0}
+.wf-plot{flex:1;position:relative}
+.wf-zero{position:absolute;left:0;right:0;border-top:1px solid var(--muted)}
+.wf-bar{position:absolute;left:8%;right:8%;border-radius:2px;transition:top .4s,height .4s}
+.wf-bar.total{background:var(--bar)}.wf-bar.add{background:var(--good)}.wf-bar.sub{background:var(--bad)}
+.wf-val{position:absolute;left:-20%;right:-20%;text-align:center;font-size:11px;font-weight:600;transform:translateY(-100%);padding-bottom:2px;white-space:nowrap}
+.wf-scroll{overflow-x:auto}
+.wf-lab{font-size:11px;color:var(--muted);text-align:center;line-height:1.2;padding-top:6px;height:44px;overflow:hidden;hyphens:auto}
+.wf-col[aria-pressed="true"] .wf-lab{color:var(--ink);font-weight:700}
+.wf-col[aria-pressed="true"] .wf-bar{outline:2px solid var(--accent);outline-offset:2px}
+.detail{border-left:3px solid var(--accent);padding:4px 0 4px 12px;min-height:110px}
+.detail h4{margin:0 0 4px;font-size:15px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.detail code{display:block;background:var(--bg);border:1px solid var(--line);padding:8px 10px;border-radius:4px;font-size:12px;margin:8px 0;white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace}
+.detail p{margin:4px 0;font-size:13px;color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-wrap:wrap}
+.seg button{background:var(--panel);border:0;border-right:1px solid var(--line);padding:6px 12px;cursor:pointer;font-size:13px}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.hm td{cursor:pointer;text-align:center;font-weight:600;border:2px solid var(--panel)}
+.hm td.sel{outline:2px solid var(--ink);outline-offset:-2px}
+.hm td.base-cell{text-decoration:underline;text-underline-offset:3px}
+.hm th{text-align:center}
+.readout{display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;margin-top:10px}
+.readout b{font-family:var(--f-display);font-size:clamp(30px,3.4vw,46px);font-weight:500}
+.split{display:flex;height:44px;border-radius:4px;overflow:hidden;font-size:12px;font-weight:600}
+.split div{display:flex;align-items:center;padding:0 10px;white-space:nowrap;overflow:hidden}
+.gauge{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--good) 0 60%,var(--warn) 60% 75%,var(--bad) 75%);position:relative;margin:24px 0 8px}
+.gauge b{position:absolute;top:-8px;width:3px;height:26px;background:var(--ink);transform:translateX(-1px)}
+.gauge-ax{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.checks li{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:10px;align-items:start;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.checks li span:last-child{overflow-wrap:anywhere}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.pill.ok{background:var(--good-soft);color:var(--good)}.pill.fail{background:var(--bad-soft);color:var(--bad)}.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.lvl{font-size:11px;color:var(--muted);font-weight:600;min-width:58px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:0;border-top:2px solid var(--ink);vertical-align:middle;margin-right:5px}
+svg text{fill:var(--muted);font-size:11px;font-family:var(--f-body)}
+.pre{white-space:pre-wrap;margin:0;font-size:13px;color:var(--muted);max-height:260px;overflow:auto}
+.bar{display:flex;align-items:center;gap:12px;border-top:1px solid var(--line);background:var(--panel);padding-block:8px calc(8px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));font-size:12px;flex-wrap:wrap}
+.bar .prog{flex:1;min-width:120px;height:3px;background:var(--line);border-radius:2px;position:relative}
+.bar .prog i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:2px;transition:width .3s}
+.bar button{background:none;border:1px solid var(--line);border-radius:4px;padding:4px 10px;cursor:pointer}
+.bar button:hover{border-color:var(--ink)}
+.bar .info{color:var(--muted);white-space:nowrap}
+@media (max-width:640px){.bar .info.hide-sm,#btn-fs{display:none}}
+.notes{border-top:1px dashed var(--line);background:var(--bg);padding:10px max(16px,env(safe-area-inset-left,0px));font-size:13px;max-height:28vh;overflow:auto}
+.notes b{color:var(--accent)}
+.index{position:absolute;inset:0;background:var(--bg);z-index:5;overflow:auto;padding:24px max(16px,env(safe-area-inset-left,0px),4vw)}
+.index ol{columns:2 280px;padding-left:22px}
+.index li{margin:6px 0;break-inside:avoid}
+.index button{background:none;border:0;padding:2px 0;cursor:pointer;text-align:left;font-size:15px}
+.index button:hover{color:var(--accent)}
+.nd{color:var(--muted);font-style:italic}
+</style>
+</head>
+<body>
+<script id="snapshot" type="application/json">__SNAPSHOT__</script>
+<div class="app">
+  <main class="stage" id="stage"></main>
+  <div class="notes" id="notes" hidden></div>
+  <nav class="bar" aria-label="Navegación de la presentación">
+    <button id="prev" aria-label="Diapositiva anterior">←</button>
+    <span class="info num" id="counter">1 / 1</span>
+    <button id="next" aria-label="Diapositiva siguiente">→</button>
+    <div class="prog" aria-hidden="true"><i id="progfill"></i></div>
+    <span class="info hide-sm num" id="snapinfo"></span>
+    <button id="btn-index" aria-expanded="false">Índice</button>
+    <button id="btn-notes" aria-pressed="false">Notas</button>
+    <button id="btn-fs">Pantalla completa</button>
+  </nav>
+</div>
+<script>
+"use strict";
+const S = JSON.parse(document.getElementById('snapshot').textContent);
+const M = S.meta, T = S.tesis, W = S.wacc || {}, TV = S.terminal || {}, PU = S.puente, SE = S.sensibilidad, P = S.proyeccion || [];
+const MON = (M.moneda || '').toUpperCase();
+const UNI = M.unidad_modelo || ('cifras en ' + (MON || 'moneda del modelo'));
+const isNum = x => typeof x === 'number' && isFinite(x);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ND = '<span class="nd">N/D</span>';
+const nf = d => new Intl.NumberFormat('es-CO', {minimumFractionDigits:d, maximumFractionDigits:d});
+const n0 = nf(0), n1 = nf(1), n2 = nf(2);
+const f0 = x => isNum(x) ? n0.format(x) : ND;
+const f1 = x => isNum(x) ? n1.format(x) : ND;
+const pct = (x, d=1) => isNum(x) ? (d === 2 ? n2 : d === 0 ? n0 : n1).format(x*100) + ' %' : ND;
+const sgn = (x, d=1) => isNum(x) ? (x >= 0 ? '+' : '−') + pct(Math.abs(x), d) : ND;
+const pxf = x => isNum(x) ? (MON + ' ' + (MON === 'COP' ? n0 : n2).format(x)) : ND;
+const TAG = {
+  real:'<span class="tag t-real">Dato de entrada</span>', sup:'<span class="tag t-sup">Supuesto</span>',
+  proy:'<span class="tag t-proy">Proyección</span>', res:'<span class="tag t-res">Resultado del motor</span>'
+};
+const el = h => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstElementChild; };
+const fails = (S.controles || []).filter(c => c.ok === false);
+const warns = (S.controles || []).filter(c => c.ok === null);
+
+/* Waterfall: solo geometría. Admite totales negativos; los pasos vienen con signo. */
+function waterfall(container, steps, onPick, fmt){
+  fmt = fmt || f0;
+  if (!container.parentElement.classList.contains('wf-scroll')) { const w = document.createElement('div'); w.className = 'wf-scroll'; container.replaceWith(w); w.appendChild(container); }
+  container.style.minWidth = (steps.length * 66) + 'px';
+  let run = 0; const geo = [];
+  steps.forEach(s => {
+    if (s.kind === 'total') { geo.push([Math.min(0, s.v), Math.max(0, s.v)]); run = s.v; }
+    else { const nxt = run + s.v; geo.push([Math.min(run, nxt), Math.max(run, nxt)]); run = nxt; }
+  });
+  const hi = Math.max(0, ...geo.map(g => g[1])), lo = Math.min(0, ...geo.map(g => g[0]));
+  const span = (hi - lo) * 1.1 || 1, y = v => (hi * 1.05 - v) / span * 100;
+  container.innerHTML = '';
+  steps.forEach((s, i) => {
+    const kind = s.kind === 'total' ? 'total' : (s.v >= 0 ? 'add' : 'sub');
+    const b = el(`<button class="wf-col" aria-pressed="false" type="button"><div class="wf-plot"><div class="wf-zero"></div><div class="wf-bar ${kind}"></div><div class="wf-val num"></div></div><div class="wf-lab">${esc(s.label)}</div></button>`);
+    const bar = b.querySelector('.wf-bar'), val = b.querySelector('.wf-val');
+    const top = y(geo[i][1]), h = Math.max(y(geo[i][0]) - top, .6);
+    bar.style.top = top + '%'; bar.style.height = h + '%'; val.style.top = top + '%';
+    b.querySelector('.wf-zero').style.top = y(0) + '%';
+    val.innerHTML = (kind === 'add' && s.kind !== 'total' ? '+' : kind === 'sub' && s.kind !== 'total' ? '−' : '') + fmt(s.kind === 'total' ? s.v : Math.abs(s.v));
+    b.addEventListener('click', () => { container.querySelectorAll('.wf-col').forEach(c => c.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); onPick && onPick(s); });
+    container.appendChild(b);
+  });
+}
+const detailHTML = d => `<h4>${esc(d.label)} ${d.tag || ''}</h4><div class="num" style="font-size:20px;font-weight:600">${d.valor}</div>${d.formula ? `<code>${esc(d.formula)}</code>` : ''}<p>${esc(d.fuente || '')}</p>`;
+
+const slides = [];
+const add = (id, title, html, notes, init) => slides.push({id, title, html, notes, init});
+
+/* 0 Portada */
+add('portada', 'Portada', `
+<section class="slide cover">
+  <div class="eyebrow">Comité de valoración · ${esc(M.ticker || '')}</div>
+  <h1>${esc(M.empresa)}</h1>
+  <p class="lead">Valoración por flujo de caja descontado (FCFF). Todas las cifras provienen de una corrida del motor congelada en este archivo.</p>
+  <dl class="meta-list">
+    <div><dt>Unidades</dt><dd>${esc(UNI)} · valor por acción en ${esc(MON)}</dd></div>
+    <div><dt>Corrida exportada</dt><dd class="num">${esc(M.generado)}</dd></div>
+    <div><dt>Huella del snapshot</dt><dd class="num">${esc(M.hash)}</dd></div>
+    <div><dt>Fuente financiera</dt><dd>${esc(M.fuente_financiera || 'N/D')}</dd></div>
+    <div><dt>Precio de mercado</dt><dd>${esc(M.fuente_precio || 'N/D')}${M.fecha_precio ? ' · ' + esc(M.fecha_precio) : ''}</dd></div>
+    <div><dt>Calidad de datos</dt><dd>${esc(M.nivel_calidad || 'N/D')}</dd></div>
+  </dl>
+</section>`,
+`La huella <b>${esc(M.hash)}</b> identifica esta corrida: dos exportaciones con la misma huella tienen exactamente los mismos datos y supuestos. ${esc(M.calendario || '')}`);
+
+/* 1 Tesis */
+const ups = T.upside;
+const titTesis = !isNum(ups) ? 'Valor intrínseco estimado por acción' :
+  ups >= 0 ? `El valor estimado supera el precio de mercado en ${pct(ups)}` : `El precio de mercado supera el valor estimado en ${pct(-ups)}`;
+add('tesis', 'Tesis de valor', `
+<section class="slide">
+  <div class="eyebrow">01 · Tesis ${TAG.res}</div>
+  <h2>${titTesis}</h2>
+  <div class="verdict">
+    <div class="big num">${pxf(T.vps)}<small>valor intrínseco estimado por acción · DCF escenario base</small></div>
+    <div class="kpis">
+      <div class="kpi"><span>Precio de mercado</span><b class="num">${pxf(T.precio)}</b></div>
+      <div class="kpi"><span>Upside / downside</span><b class="num ${isNum(ups) ? (ups >= 0 ? 'up' : 'down') : ''}">${sgn(ups)}</b></div>
+      <div class="kpi"><span>Enterprise Value</span><b class="num">${f0(T.ev)}</b></div>
+      <div class="kpi"><span>Equity Value</span><b class="num">${f0(T.equity)}</b></div>
+    </div>
+  </div>
+  <div class="panel"><h3>Dónde queda el precio frente al modelo <span>valor por acción</span></h3><div class="rangebar" id="tesis-range"></div>
+    <p class="lead" style="font-size:12px;margin-top:6px">Barra: rango de la matriz de sensibilidad WACC × g. Pesimista: escenario pesimista del motor (WACC + 1,5 pp y flujos estresados).</p></div>
+  <p class="disclaimer">${esc(UNI)}. El valor intrínseco es una estimación que depende de los supuestos de esta presentación; no es un precio objetivo garantizado ni una orden de compra o venta.${T.nota_precio ? ' ' + esc(T.nota_precio) + '.' : ''}</p>
+</section>`,
+`Decisión del marco del motor: <b>${esc(T.decision_modelo || 'N/D')}</b>. Valor por acción ${pxf(T.vps)} frente a precio ${pxf(T.precio)}.`,
+() => {
+  const c = document.getElementById('tesis-range');
+  const flat = SE ? SE.vps.flat().filter(isNum) : [];
+  const pts = [T.vps, T.precio, T.vps_pesimista, ...flat].filter(isNum);
+  if (!pts.length) { c.innerHTML = ND; return; }
+  const lo = Math.min(...pts), hi = Math.max(...pts), pad = (hi - lo) * .06 || Math.abs(hi) * .1 || 1;
+  const x = v => (v - (lo - pad)) / ((hi + pad) - (lo - pad)) * 100;
+  let h = '<div class="track"></div>';
+  if (flat.length) h += `<div class="fill" style="left:${x(Math.min(...flat))}%;width:${x(Math.max(...flat)) - x(Math.min(...flat))}%"></div>`;
+  if (isNum(T.vps)) h += `<div class="mk base top" style="left:${x(T.vps)}%"><i>Base ${pxf(T.vps)}</i></div>`;
+  if (isNum(T.precio)) h += `<div class="mk px bot" style="left:${x(T.precio)}%"><i>Precio ${pxf(T.precio)}</i></div>`;
+  if (isNum(T.vps_pesimista)) h += `<div class="mk pes bot" style="left:${x(T.vps_pesimista)}%"><i>Pesimista ${pxf(T.vps_pesimista)}</i></div>`;
+  c.innerHTML = h;
+});
+
+/* 2 Proyección */
+add('proyeccion', 'Proyección', `
+<section class="slide">
+  <div class="eyebrow">02 · Proyección ${TAG.proy}</div>
+  <h2>Ingresos y margen EBITDA proyectados a ${P.length} años</h2>
+  <div class="grid">
+    <div class="panel c7"><h3>Ingresos y margen EBITDA</h3><div id="proy-chart"></div></div>
+    <div class="panel c5"><h3>Supuestos de la corrida ${TAG.sup}</h3><div class="tbl-wrap"><table><tbody>
+      <tr><td>Horizonte explícito</td><td>${esc(M.horizonte ?? 'N/D')} años</td></tr>
+      <tr><td>Tasa de impuestos</td><td>${pct(W.tax)}</td></tr>
+      <tr><td>Crecimiento perpetuo ingresado · usado</td><td>${pct(TV.g, 2)} · ${pct(TV.g_usada, 2)}</td></tr>
+      <tr><td>Beta desapalancada</td><td>${isNum(W.beta_u) ? n2.format(W.beta_u) : ND}</td></tr>
+      <tr><td>D/E objetivo</td><td>${isNum(W.de_ratio) ? n2.format(W.de_ratio) : ND}</td></tr>
+    </tbody></table></div><p class="lead" style="font-size:12px;margin-top:8px">Fuente financiera: ${esc(M.fuente_financiera || 'N/D')}.</p></div>
+  </div>
+</section>`,
+'Los ingresos, márgenes y flujos son proyecciones del motor a partir del histórico y los supuestos de la corrida; no son datos reportados.',
+() => {
+  const box = document.getElementById('proy-chart');
+  const rows = P.filter(r => isNum(r.ingresos));
+  if (!rows.length) { box.innerHTML = ND; return; }
+  const Wd = 520, Hh = 240, p = {l:8, r:8, t:28, b:28}, bw = (Wd - p.l - p.r) / rows.length;
+  const vmax = Math.max(...rows.map(r => r.ingresos)) * 1.15, y = v => p.t + (1 - v / vmax) * (Hh - p.t - p.b);
+  const ms = rows.map(r => r.margen_ebitda).filter(isNum), mlo = Math.min(...ms) - .02, mhi = Math.max(...ms) + .02;
+  const ym = v => p.t + (1 - (v - mlo) / ((mhi - mlo) || 1)) * (Hh - p.t - p.b) * .6;
+  let s = `<svg viewBox="0 0 ${Wd} ${Hh}" width="100%" role="img" aria-label="Ingresos y margen EBITDA proyectados">`;
+  rows.forEach((r, i) => { const x = p.l + i * bw + bw * .2;
+    s += `<rect x="${x}" y="${y(r.ingresos)}" width="${bw*.6}" height="${Hh - p.b - y(r.ingresos)}" fill="var(--bar2)" rx="2"/><text x="${x + bw*.3}" y="${Hh - 10}" text-anchor="middle">${esc(r.anio)}</text><text x="${x + bw*.3}" y="${Hh - p.b - 8}" text-anchor="middle" style="fill:var(--ink);font-weight:600">${n0.format(r.ingresos)}</text>`; });
+  const pts = rows.map((r, i) => isNum(r.margen_ebitda) ? [p.l + i * bw + bw / 2, ym(r.margen_ebitda), r.margen_ebitda] : null).filter(Boolean);
+  if (pts.length) {
+    s += `<polyline points="${pts.map(q => q[0] + ',' + q[1]).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>`;
+    pts.forEach(q => { s += `<circle cx="${q[0]}" cy="${q[1]}" r="4" fill="var(--accent)"/><text x="${q[0]}" y="${q[1] - 9}" text-anchor="middle" style="fill:var(--accent);font-weight:700">${n1.format(q[2]*100)} %</text>`; });
+  }
+  box.innerHTML = s + `</svg><div class="legend"><span><i style="border-top:8px solid var(--bar2)"></i>Ingresos (${esc(UNI)})</span><span><i style="border-top-color:var(--accent)"></i>Margen EBITDA</span></div>`;
+});
+
+/* 3 FCFF */
+const conv = P.map(r => r.conversion_caja).filter(isNum);
+add('fcff', 'Flujo de caja libre', `
+<section class="slide">
+  <div class="eyebrow">03 · Flujo de caja libre ${TAG.proy}</div>
+  <h2>${conv.length ? `Entre ${pct(Math.min(...conv), 0)} y ${pct(Math.max(...conv), 0)} del EBITDA se convierte en caja para todos los financiadores` : 'Construcción del flujo de caja libre'}</h2>
+  <div class="grid">
+    <div class="panel c8"><h3><span>Cascada EBITDA → FCFF</span><span class="seg" id="fcff-years" role="group" aria-label="Año"></span></h3><div class="wf" id="fcff-wf"></div></div>
+    <div class="panel c4"><h3>Detalle de la partida</h3><div class="detail" id="fcff-detail"><p>Seleccione una barra.</p></div></div>
+    <div class="panel c12"><h3>FCFF proyectado <span>${esc(UNI)}</span></h3><div class="tbl-wrap"><table>
+      <thead><tr><th>Concepto</th>${P.map(r => `<th>${esc(r.anio)}</th>`).join('')}</tr></thead>
+      <tbody>${[['Ingresos','ingresos'],['EBITDA','ebitda'],['EBIT','ebit'],['NOPAT','nopat'],['D&A','da'],['CAPEX','capex'],['Δ KTNO','delta_ktno']].map(([l,k]) => `<tr><td>${l}</td>${P.map(r => `<td>${f0(r[k])}</td>`).join('')}</tr>`).join('')}
+      <tr class="total"><td>FCFF</td>${P.map(r => `<td>${f0(r.fcff)}</td>`).join('')}</tr>
+      <tr><td>FCFF / EBITDA</td>${P.map(r => `<td>${pct(r.conversion_caja)}</td>`).join('')}</tr></tbody></table></div></div>
+  </div>
+</section>`,
+'Δ KTNO positivo es inversión en capital de trabajo (resta caja); negativo es liberación (suma). Si hay "otras partidas" entre EBITDA y EBIT, el motor las reporta así y no se reclasifican.',
+() => {
+  const seg = document.getElementById('fcff-years'), wf = document.getElementById('fcff-wf'), det = document.getElementById('fcff-detail');
+  if (!P.length) { wf.innerHTML = ND; return; }
+  const draw = i => {
+    const r = P[i], st = [];
+    const pick = (label, v, kind, f, t) => { if (isNum(v)) st.push({label, v, kind, f, t}); };
+    pick('EBITDA', r.ebitda, 'total', 'EBITDA proyectado por el motor', TAG.proy);
+    pick('D&A', isNum(r.da) ? -r.da : null, 'step', 'Depreciación y amortización proyectadas', TAG.proy);
+    if (isNum(r.otros_ebitda_ebit) && Math.abs(r.otros_ebitda_ebit) > 1e-6) pick('Otras partidas', -r.otros_ebitda_ebit, 'step', 'EBITDA − D&A − EBIT (diferencia reportada por el motor)', TAG.proy);
+    pick('EBIT', r.ebit, 'total', 'Utilidad operativa', TAG.proy);
+    pick('Impuestos operativos', isNum(r.impuestos_op) ? -r.impuestos_op : null, 'step', `EBIT − NOPAT; NOPAT = EBIT − t × máx(EBIT, 0), t = ${isNum(W.tax) ? n1.format(W.tax*100) + ' %' : 'N/D'}`, TAG.sup);
+    pick('NOPAT', r.nopat, 'total', 'Utilidad operativa después de impuestos', TAG.proy);
+    pick('+ D&A', r.da, 'step', 'Se suma porque no es salida de caja', TAG.proy);
+    pick('Δ KTNO', isNum(r.delta_ktno) ? -r.delta_ktno : null, 'step', 'Variación del capital de trabajo neto operativo', TAG.proy);
+    pick('CAPEX', isNum(r.capex) ? -r.capex : null, 'step', 'Inversión en activos (incluye CAPEX adicional de la corrida)', TAG.proy);
+    pick('FCFF', r.fcff, 'total', 'NOPAT + D&A − Δ KTNO − CAPEX', TAG.res);
+    waterfall(wf, st, s => { det.innerHTML = detailHTML({label: s.label, tag: s.t, valor: f0(s.v) + ` <span style="font-size:12px;color:var(--muted);font-weight:400">${esc(UNI)} · ${esc(r.anio)}</span>`, formula: s.f, fuente: 'Cifra de la corrida del motor.'}); });
+    wf.lastElementChild && wf.lastElementChild.click();
+  };
+  P.forEach((r, i) => { const b = el(`<button type="button" aria-pressed="${i === 0}">${esc(r.anio)}</button>`); b.onclick = () => { seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); draw(i); }; seg.appendChild(b); });
+  draw(0);
+});
+
+/* 4 WACC */
+add('wacc', 'Costo de capital', `
+<section class="slide">
+  <div class="eyebrow">04 · Costo de capital ${TAG.sup} ${TAG.res}</div>
+  <h2>WACC de ${pct(W.wacc, 2)} con Ke de ${pct(W.ke, 2)}</h2>
+  <div class="grid">
+    <div class="panel c6"><h3>Ke por CAPM <span>puntos porcentuales</span></h3><div class="wf" id="ke-wf"></div></div>
+    <div class="panel c6"><h3>Ponderación hasta el WACC</h3><div class="wf" id="wacc-wf"></div></div>
+    <div class="panel c12"><div class="detail" id="wacc-detail"><p>Seleccione una barra para ver el dato y su fórmula.</p></div></div>
+  </div>
+  <p class="disclaimer">Parámetros CAPM vigentes a ${esc(W.capm_as_of || 'N/D')}. Beta: ${esc(W.beta_fuente || 'N/D')}. Si rf es un bono local (TES), ya incluye riesgo país y CRP debería ser 0.</p>
+</section>`,
+'Verificar con el comité que el WACC esté en la misma moneda y términos (nominales) que el FCFF.',
+() => {
+  const det = document.getElementById('wacc-detail'), show = s => { det.innerHTML = detailHTML({label: s.label, tag: s.t, valor: pct(s.v / 100, 2), formula: s.f, fuente: s.src}); };
+  const pp = x => isNum(x) ? x * 100 : null, ppf = x => isNum(x) ? n2.format(x) : ND;
+  const ke = document.getElementById('ke-wf'), wc = document.getElementById('wacc-wf');
+  if (![W.rf, W.beta_erp, W.crp, W.ke].every(isNum)) { ke.innerHTML = ND; } else waterfall(ke, [
+    {label:'Tasa libre de riesgo', v:pp(W.rf), kind:'total', f:'rf', src:'Supuesto de mercado de la corrida.', t:TAG.sup},
+    {label:'βL × ERP', v:pp(W.beta_erp), kind:'step', f:`βL = βU × (1 + (1 − t) × D/E) = ${n2.format(W.beta_u)} × (1 + ${n2.format(1 - W.tax)} × ${n2.format(W.de_ratio)}) = ${n2.format(W.beta_l)}\nERP = ${n2.format(W.erp*100)} %`, src:'Beta desapalancada y prima de mercado de la corrida.', t:TAG.sup},
+    {label:'Prima país (CRP)', v:pp(W.crp), kind:'step', f:'CRP', src:'Supuesto de la corrida.', t:TAG.sup},
+    {label:'Ke', v:pp(W.ke), kind:'total', f:'Ke = rf + βL × ERP + CRP', src:'Resultado del motor (verificado en el snapshot).', t:TAG.res},
+  ], show, ppf);
+  if (![W.pond_ke, W.pond_kd, W.wacc].every(isNum)) { wc.innerHTML = ND; } else waterfall(wc, [
+    {label:`Ke × E/V (${n0.format(W.we*100)} %)`, v:pp(W.pond_ke), kind:'total', f:`${n2.format(W.ke*100)} % × ${n1.format(W.we*100)} %`, src:'E/V = 1 / (1 + D/E).', t:TAG.res},
+    {label:`Kd(1 − t) × D/V (${n0.format(W.wd*100)} %)`, v:pp(W.pond_kd), kind:'step', f:`Kd ${n2.format(W.kd*100)} % × (1 − ${n1.format(W.tax*100)} %) = ${n2.format(W.kd_at*100)} %\n× ${n1.format(W.wd*100)} %`, src:'D/V = D/E / (1 + D/E).', t:TAG.sup},
+    {label:'WACC', v:pp(W.wacc), kind:'total', f:'E/V × Ke + D/V × Kd × (1 − t)', src:'Tasa con la que se descuenta el FCFF.', t:TAG.res},
+  ], show, ppf);
+  const last = wc.querySelector('.wf-col:last-child') || ke.querySelector('.wf-col:last-child'); last && last.click();
+});
+
+/* 5 Valor terminal */
+const tvp = TV.tv_pct_ev;
+add('terminal', 'Valor terminal', `
+<section class="slide">
+  <div class="eyebrow">05 · Valor terminal ${TAG.res}</div>
+  <h2>${isNum(tvp) ? `El valor terminal pesa ${pct(tvp)} del EV, ${tvp > .75 ? 'por encima del umbral de 75 %' : tvp > .6 ? 'en zona de vigilancia' : 'en zona cómoda'}` : 'Valor terminal'}</h2>
+  <div class="grid">
+    <div class="panel c7"><h3>Supuestos de perpetuidad</h3><div class="tbl-wrap"><table><tbody>
+      <tr><td>g ingresada</td><td>${pct(TV.g, 2)}</td></tr>
+      <tr><td>g usada por el motor</td><td>${pct(TV.g_usada, 2)}</td></tr>
+      <tr><td>WACC</td><td>${pct(TV.wacc, 2)}</td></tr>
+      <tr><td>Múltiplo EV/EBITDA de salida implícito</td><td>${isNum(TV.ev_ebitda_salida) ? n1.format(TV.ev_ebitda_salida) + 'x' : ND}</td></tr>
+      <tr><td>Valor terminal (no descontado)</td><td>${f0(PU && PU.tv)}</td></tr>
+    </tbody></table></div></div>
+    <div class="panel c5"><h3>Composición del EV</h3>
+      ${isNum(tvp) ? `<div class="split"><div style="width:${(1 - tvp) * 100}%;background:var(--bar2)">Explícito ${pct(1 - tvp)}</div><div style="width:${tvp * 100}%;background:var(--bar);color:var(--bg)">Terminal ${pct(tvp)}</div></div>
+      <div class="gauge"><b style="left:${Math.min(Math.max(tvp, 0), 1) * 100}%"></b></div><div class="gauge-ax"><span>0 %</span><span>60 %</span><span>75 % umbral</span><span>100 %</span></div>` : ND}
+    </div>
+  </div>
+</section>`,
+'Si el valor terminal pesa mucho, la valoración depende sobre todo de g y del WACC: llevar al comité a la matriz de sensibilidad.');
+
+/* 6 Puente */
+add('puente', 'De EV a Equity', `
+<section class="slide">
+  <div class="eyebrow">06 · Puente EV → Equity ${TAG.res}</div>
+  <h2>De ${f0(T.ev)} de valor empresarial a ${pxf(T.vps)} por acción</h2>
+  <div class="grid">
+    <div class="panel c8"><h3>${esc(UNI)} · clic en cada barra</h3><div class="wf" id="br-wf" style="height:290px"></div></div>
+    <div class="panel c4"><h3>Trazabilidad</h3><div class="detail" id="br-detail"></div>
+      <p class="lead" style="font-size:12px;margin-top:10px">Acciones: ${f1(T.acciones)} millones. ${PU ? PU.notas.map(esc).join(' ') : ''}</p></div>
+  </div>
+</section>`,
+'Control de doble contabilización: caja, deuda, minoritarios y asociadas aparecen solo en este puente, nunca dentro del FCFF.',
+() => {
+  const box = document.getElementById('br-wf'), det = document.getElementById('br-detail');
+  if (!PU || !PU.partidas.length) { box.innerHTML = '<p>' + ND + ': el recálculo del puente no concilió con la corrida.</p>'; return; }
+  const st = PU.partidas.filter(p => isNum(p.valor) && (Math.abs(p.valor) > 1e-9 || !p.concepto.startsWith('('))).map(p => ({
+    label: p.concepto.replace(/^\([+-]\)\s*/, ''), v: p.valor, kind: p.concepto.startsWith('(') ? 'step' : 'total',
+    f: p.concepto === 'Equity atribuible' ? `Valor por acción = Equity / acciones = ${pxf(T.vps)}` : p.concepto,
+  }));
+  waterfall(box, st, s => { det.innerHTML = detailHTML({label: s.label, tag: TAG.res, valor: f0(s.v), formula: s.f, fuente: 'Puente de valoracion_dcf con los insumos de la corrida.'}); });
+  box.lastElementChild && box.lastElementChild.click();
+});
+
+/* 7 Sensibilidad */
+add('sensibilidad', 'Sensibilidad', `
+<section class="slide">
+  <div class="eyebrow">07 · Sensibilidad ${TAG.res}</div>
+  <h2>Valor por acción ante cambios de WACC y crecimiento perpetuo</h2>
+  <div class="panel"><h3><span>WACC × g · ${esc(MON)} por acción</span><span>clic en una celda</span></h3>
+    <div class="tbl-wrap"><table class="hm" id="hm"></table></div><div class="readout" id="hm-read"></div></div>
+  <p class="disclaimer">Rejilla del motor (matriz_sensibilidad_wacc_g), expresada por acción con el mismo puente. ${isNum(T.precio) ? 'Verde: por encima del precio de mercado; rojo: por debajo.' : 'Sin precio comparable: el color indica distancia al caso base.'}</p>
+</section>`,
+'Usar la matriz para responder en vivo preguntas del tipo "¿y si el WACC sube un punto?". Los valores están precalculados por el motor.',
+() => {
+  const t = document.getElementById('hm'), rd = document.getElementById('hm-read');
+  if (!SE) { t.innerHTML = '<tr><td>' + ND + '</td></tr>'; return; }
+  const ref = isNum(T.precio) ? T.precio : T.vps;
+  const dev = SE.vps.map(r => r.map(v => isNum(v) && isNum(ref) ? v / ref - 1 : null));
+  const mx = Math.max(...dev.flat().filter(isNum).map(Math.abs), 1e-9);
+  let h = `<thead><tr><th>WACC \\ g</th>${SE.g.map(g => `<th>${pct(g)}</th>`).join('')}</tr></thead><tbody>`;
+  SE.wacc.forEach((w, i) => { h += `<tr><th>${pct(w, 2)}</th>` + SE.g.map((g, j) => { const d = dev[i][j], a = isNum(d) ? Math.round(Math.min(Math.abs(d) / mx, 1) * 70 + 8) : 0;
+    return `<td tabindex="0" data-i="${i}" data-j="${j}" class="${i === SE.i_base && j === SE.j_base ? 'base-cell' : ''}" style="background:color-mix(in srgb, ${isNum(d) && d >= 0 ? 'var(--good)' : 'var(--bad)'} ${a}%, var(--panel))">${isNum(SE.vps[i][j]) ? (MON === 'COP' ? n0 : n2).format(SE.vps[i][j]) : ND}</td>`; }).join('') + '</tr>'; });
+  t.innerHTML = h + '</tbody>';
+  const pick = (i, j) => { t.querySelectorAll('td').forEach(c => c.classList.remove('sel')); const c = t.querySelector(`td[data-i="${i}"][data-j="${j}"]`); c && c.classList.add('sel');
+    const u = SE.upside && SE.upside[i] ? SE.upside[i][j] : null;
+    rd.innerHTML = `<b class="num">${pxf(SE.vps[i][j])}</b><span>WACC ${pct(SE.wacc[i], 2)} · g ${pct(SE.g[j])}</span>${isNum(u) ? `<span class="num ${u >= 0 ? 'up' : 'down'}" style="font-weight:700">${sgn(u)} frente al precio</span>` : ''}${i === SE.i_base && j === SE.j_base ? TAG.res : ''}`; };
+  t.addEventListener('click', e => { const c = e.target.closest('td'); if (c) pick(+c.dataset.i, +c.dataset.j); });
+  t.addEventListener('keydown', e => { const c = e.target.closest('td'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); pick(+c.dataset.i, +c.dataset.j); } });
+  if (SE.i_base == null) rd.insertAdjacentHTML('afterend', '<p class="lead" style="font-size:12px;margin-top:6px">El caso base queda fuera de esta rejilla: el motor limita g por el WACC más bajo de la matriz.</p>');
+  pick(SE.i_base ?? Math.floor(SE.wacc.length / 2), SE.j_base ?? Math.floor(SE.g.length / 2));
+});
+
+/* 8 Controles */
+const nCtr = (S.controles || []).length, nOk = (S.controles || []).filter(c => c.ok === true).length;
+add('controles', 'Controles de auditoría', `
+<section class="slide">
+  <div class="eyebrow">08 · Controles de auditoría</div>
+  <h2>${nOk} controles superados, ${fails.length} fallidos y ${warns.length} advertencias</h2>
+  <ul class="checks">${[...fails, ...warns, ...(S.controles || []).filter(c => c.ok === true)].map(c => `<li><span class="pill ${c.ok === true ? 'ok' : c.ok === false ? 'fail' : 'warn'}">${c.ok === true ? 'Superado' : c.ok === false ? 'Fallido' : 'Advertencia'}</span><span class="lvl">${esc(c.nivel)}</span><span>${esc(c.msg)}</span></li>`).join('')}</ul>
+</section>`,
+'Los fallidos y advertencias se muestran primero. No se ocultan: forman parte de la defensa del valor frente al comité.');
+
+/* 9 Conclusión */
+add('conclusion', 'Conclusión', `
+<section class="slide">
+  <div class="eyebrow">09 · Conclusión del marco del motor</div>
+  <h2>${esc(T.decision_modelo || 'Sin decisión registrada por el motor')}</h2>
+  <div class="grid">
+    <div class="panel c6"><h3>Soportes</h3>${S.soportes && S.soportes.length ? `<ul style="margin:0;padding-left:18px">${S.soportes.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : '<p class="lead">Sin soportes destacados por el motor.</p>'}</div>
+    <div class="panel c6"><h3>Riesgos y limitaciones</h3>${fails.length + warns.length ? `<ul style="margin:0;padding-left:18px">${[...fails, ...warns].slice(0, 6).map(c => `<li>${esc(c.msg)}</li>`).join('')}</ul>` : '<p class="lead">Sin alertas registradas.</p>'}</div>
+    ${T.decision_texto ? `<div class="panel c12"><h3>Texto del marco de decisión</h3><p class="pre">${esc(T.decision_texto)}</p></div>` : ''}
+  </div>
+  <p class="disclaimer">Apoyo a la decisión: no es asesoría de inversión ni orden de compra o venta. La recomendación final la redacta y defiende el equipo.</p>
+</section>`,
+'Cerrar abriendo preguntas. Atajos: I abre el índice; N muestra u oculta estas notas.');
+
+/* Motor de la presentación */
+const stage = document.getElementById('stage'), notes = document.getElementById('notes');
+slides.forEach(s => { const node = el(s.html); node.id = s.id; node.hidden = true; node.setAttribute('aria-label', s.title); stage.appendChild(node); });
+document.getElementById('snapinfo').textContent = `Snapshot ${M.hash} · ${MON}`;
+document.title = 'Comité · ' + (M.empresa || '');
+let cur = -1; const inited = new Set();
+function go(i){
+  i = Math.max(0, Math.min(slides.length - 1, i)); if (i === cur) return;
+  const prev = stage.querySelector('.slide:not([hidden])'); if (prev) prev.hidden = true;
+  cur = i; const node = document.getElementById(slides[i].id); node.hidden = false; node.scrollTop = 0;
+  node.classList.remove('enter'); void node.offsetWidth; node.classList.add('enter');
+  if (!inited.has(i) && slides[i].init) { try { slides[i].init(); } catch (e) { console.error(e); } inited.add(i); }
+  document.getElementById('counter').textContent = `${i + 1} / ${slides.length}`;
+  document.getElementById('progfill').style.width = ((i + 1) / slides.length * 100) + '%';
+  notes.innerHTML = `<b>Notas del presentador:</b> ${slides[i].notes || ''}`;
+  try { history.replaceState(null, '', '#' + slides[i].id); } catch (e) {}
+}
+document.getElementById('prev').onclick = () => go(cur - 1);
+document.getElementById('next').onclick = () => go(cur + 1);
+const bn = document.getElementById('btn-notes');
+const toggleNotes = () => { notes.hidden = !notes.hidden; bn.setAttribute('aria-pressed', String(!notes.hidden)); };
+bn.onclick = toggleNotes;
+document.getElementById('btn-fs').onclick = () => { try { const d = document; const r = d.fullscreenElement ? d.exitFullscreen() : d.documentElement.requestFullscreen(); r && r.catch && r.catch(() => {}); } catch (e) {} };
+const bi = document.getElementById('btn-index'); let idx = null;
+const toggleIndex = () => { if (idx) { idx.remove(); idx = null; bi.setAttribute('aria-expanded', 'false'); return; }
+  idx = el(`<div class="index" role="dialog" aria-label="Índice"><h2>Índice</h2><ol>${slides.map((s, i) => `<li><button type="button" data-i="${i}">${esc(s.title)}</button></li>`).join('')}</ol></div>`);
+  idx.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { go(+b.dataset.i); toggleIndex(); } });
+  stage.appendChild(idx); bi.setAttribute('aria-expanded', 'true'); idx.querySelector('button').focus(); };
+bi.onclick = toggleIndex;
+document.addEventListener('keydown', e => {
+  if (['ArrowRight', 'PageDown'].includes(e.key) || (e.key === ' ' && !e.target.closest('button,td'))) { e.preventDefault(); go(cur + 1); }
+  else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); go(cur - 1); }
+  else if (e.key === 'Home') go(0); else if (e.key === 'End') go(slides.length - 1);
+  else if (e.key === 'n' || e.key === 'N') toggleNotes();
+  else if (e.key === 'i' || e.key === 'I') toggleIndex();
+  else if (e.key === 'Escape' && idx) toggleIndex();
+});
+let tx = null; stage.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, {passive: true});
+stage.addEventListener('touchend', e => { if (tx === null) return; const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 70) go(cur + (dx < 0 ? 1 : -1)); tx = null; });
+const h0 = slides.findIndex(s => s.id === location.hash.slice(1));
+go(h0 < 0 ? 0 : h0);
+</script>
+</body>
+</html>

@@ -81,6 +81,39 @@ def _publicar_snapshot_isa(empresa):
         st.warning("La valoración terminó, pero no se pudo publicar la instantánea ISA: " + str(exc)[:300])
 
 
+def _boton_presentacion_comite(empresa):
+    """Descarga de la presentación de comité (HTML autónomo) de la última corrida de la pestaña 4.
+
+    Solo lee las métricas canónicas de esa corrida; nunca recalcula con otros supuestos ni bloquea la pestaña.
+    """
+    metrics = L.metricas_valoracion_sesion(empresa)
+    if not metrics:
+        return
+    try:
+        import presentacion_comite as PC
+        tab4 = ((getattr(L, "RESULTADOS_SESION", {}) or {}).get("tabs", {}) or {}).get("4", {}) or {}
+        snap = PC.construir_snapshot_comite(metrics, decision_text=tab4.get("decision", ""))
+        html_comite = PC.generar_html_comite(snap)
+    except Exception as exc:
+        st.caption("No se pudo preparar la presentación de comité: " + str(exc)[:300])
+        return
+    ctr = snap.get("controles") or []
+    fallidos = sum(1 for c in ctr if c.get("ok") is False)
+    avisos = sum(1 for c in ctr if c.get("ok") is None)
+    st.download_button(
+        "⬇️ Descargar presentación de comité (HTML)",
+        data=html_comite.encode("utf-8"),
+        file_name=PC.nombre_archivo(snap),
+        mime="text/html",
+        key="dl_presentacion_comite_" + str(snap["meta"].get("hash")),
+        help="Diapositivas interactivas que funcionan sin conexión, con las cifras congeladas de esta corrida.",
+    )
+    st.caption(
+        "Huella de la corrida {} · {} controles fallidos · {} advertencias. Ábrelo en cualquier navegador; "
+        "usa ← → para avanzar, N para notas e I para el índice.".format(snap["meta"].get("hash"), fallidos, avisos)
+    )
+
+
 def _resolve_gemini_key(ui_key=None):
     """Orden: input UI → st.secrets → env; no hay clave embebida de respaldo."""
     if ui_key and str(ui_key).strip():
@@ -4838,6 +4871,7 @@ def main():
             alerts.append(("ok", "Uso del output", "Esto apoya la discusión; no es una orden de compra/venta."))
             _semaforo(alerts)
             _analogy("Equity")
+            _boton_presentacion_comite(empresa)
         else:
             st.info(
                 "Aún no hay recomendación cuantitativa. Configura parámetros y pulsa **Generar todo**. "
