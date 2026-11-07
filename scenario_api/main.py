@@ -58,7 +58,9 @@ def _snapshot_inputs(metrics: dict[str, Any]) -> tuple[list[dict], dict, dict]:
         if not isinstance(row, dict) or not required.issubset(row):
             raise ValueError(f"La proyección del año {index + 1} está incompleta.")
         for key in required:
-            _finite(row[key], f"{key} año {index + 1}")
+            value = _finite(row[key], f"{key} año {index + 1}")
+            if key == "Ingresos" and value <= 0:
+                raise ValueError(f"Los ingresos del año {index + 1} deben ser positivos.")
     if bridge.get("acciones") is not None and _finite(bridge["acciones"], "acciones") <= 0:
         raise ValueError("El número de acciones debe ser positivo cuando se informa.")
     return rows, bridge, assumptions
@@ -162,7 +164,8 @@ def calculate_scenario(metrics: dict, parameters: dict) -> dict:
     }
 
     wacc_grid = [max(0.04, current["wacc"] + step) for step in (-0.02, -0.01, 0.0, 0.01, 0.02)]
-    growth_grid = [max(0.005, current["g"] + step) for step in (-0.01, -0.005, 0.0, 0.005, 0.01)]
+    growth_grid = sorted(set(round(max(0.005, current["g"] + step), 6)
+                              for step in (-0.01, -0.005, 0.0, 0.005, 0.01)))
     sensitivity = []
     for w in sorted(set(round(x, 6) for x in wacc_grid)):
         cells = []
