@@ -9,6 +9,29 @@ import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
 
+type ScenarioMetric = {
+  EV: number | null;
+  Equity_Value: number | null;
+  value_per_share: number | null;
+  upside_pct: number | null;
+  WACC: number | null;
+  g_used: number | null;
+  PV_FCFF: number | null;
+  PV_TV: number | null;
+  TV: number | null;
+  tv_pct_ev: number | null;
+  mult_terminal: number | null;
+};
+type ScenarioResult = {
+  currency: string;
+  unit: string;
+  base: ScenarioMetric;
+  scenarios: Record<string, { parameters: { wacc: number; g: number; ebitda_margin: number } } & ScenarioMetric>;
+  sensitivity: Array<{ wacc: number; cells: Array<{ g: number; EV: number | null; Equity_Value: number | null; value_per_share: number | null; valid: boolean }> }>;
+  tornado: Array<{ driver: string; delta_low: number | null; delta_high: number | null }>;
+  diagnostics: { official_ev: number | null; scenario_ev_delta_vs_official: number | null; baseline_margin_from_projection: number; margin_adjustment_applied: number; official_publication_is_unchanged: boolean; calculation_is_persisted: boolean };
+};
+
 type Snapshot = {
   ticker?: string;
   company_name?: string;
@@ -59,6 +82,9 @@ export default function Home() {
   const [wacc, setWacc] = useState(14.34);
   const [growth, setGrowth] = useState(3.5);
   const [margin, setMargin] = useState(57.8);
+  const [scenarioResult, setScenarioResult] = useState<ScenarioResult | null>(null);
+  const [scenarioError, setScenarioError] = useState("");
+  const [scenarioLoading, setScenarioLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,11 +98,12 @@ export default function Home() {
       const metrics = body?.payload?.metrics || {};
       const officialWacc = numeric(metrics.wacc_calc);
       const officialGrowth = numeric(metrics.g_usada);
-      const assumptions = (metrics.supuestos || {}) as Record<string, unknown>;
-      const officialMargin = numeric(assumptions.margen_ebitda);
+      const officialMargin = numeric(metrics.margen_ebitda_base_simulacion);
       if (officialWacc !== null) setWacc(officialWacc * 100);
       if (officialGrowth !== null) setGrowth(officialGrowth * 100);
       if (officialMargin !== null) setMargin(officialMargin * 100);
+      setScenarioResult(null);
+      setScenarioError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error inesperado de conexión.");
     } finally {
@@ -97,6 +124,27 @@ export default function Home() {
     : "Sin publicación";
 
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  const runScenario = async () => {
+    setScenarioLoading(true);
+    setScenarioError("");
+    setScenarioResult(null);
+    try {
+      const response = await fetch("/api/scenario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wacc, growth, margin }),
+        cache: "no-store"
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "No fue posible calcular el escenario.");
+      setScenarioResult(body as ScenarioResult);
+    } catch (e) {
+      setScenarioError(e instanceof Error ? e.message : "Error inesperado al calcular el escenario.");
+    } finally {
+      setScenarioLoading(false);
+    }
+  };
+
 
   return (
     <main>
@@ -192,22 +240,84 @@ export default function Home() {
         <div className="shell">
           <div className="eyebrow">03 / THE SIMULATION LAB</div>
           <h2 className="section-title mt-5 max-w-3xl">Una valoración es una hipótesis.<br/><span className="text-mint">Pongámosla a prueba.</span></h2>
-          <p className="lead mt-6">Explora las variables críticas y comprende qué supuestos estás modificando. Esta primera entrega prepara el espacio de experimentación sin fabricar resultados financieros: el recálculo se habilitará al conectar el endpoint de escenarios del motor Python.</p>
+          <p className="lead mt-6">Modifica los drivers y ejecuta el DCF real en el motor Python. La valoración publicada permanece intacta; cada resultado de esta sala es experimental, trazable y no se persiste como valoración oficial.</p>
           <div className="glass mt-12 grid gap-10 p-6 sm:p-9 lg:grid-cols-[1fr_.8fr]">
             <div className="space-y-9">
               <Range label="WACC" value={wacc} min={8} max={22} step={0.01} suffix="% " onChange={setWacc}/>
               <Range label="CRECIMIENTO PERPETUO (g)" value={growth} min={0.5} max={6} step={0.05} suffix="% " onChange={setGrowth}/>
-              <Range label="MARGEN EBITDA PROYECTADO" value={margin} min={35} max={70} step={0.1} suffix="% " onChange={setMargin}/>
+              <Range label="MARGEN EBITDA PROMEDIO PROYECTADO" value={margin} min={35} max={70} step={0.1} suffix="% " onChange={setMargin}/>
             </div>
             <div className="flex flex-col justify-between border-t border-white/10 pt-7 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
               <div><span className="pill">ESCENARIO EXPERIMENTAL · NO PUBLICADO</span>
                 <div className="mt-7 flex items-center gap-3 text-mint"><Gauge size={22}/><span className="text-sm">Parámetros de exploración</span></div>
                 <p className="mt-4 text-sm leading-7 muted">WACC: <strong className="text-paper">{wacc.toFixed(2)}%</strong><br/>g: <strong className="text-paper">{growth.toFixed(2)}%</strong><br/>Margen EBITDA: <strong className="text-paper">{margin.toFixed(1)}%</strong></p>
-                <p className="mt-5 text-xs leading-6 text-amber-100/80">{wacc <= growth ? "Advertencia: el WACC debe ser superior a g para aplicar el modelo de perpetuidad de Gordon." : "Parámetros editables localmente. Aún no se ha ejecutado un recálculo del DCF."}</p>
+                <p className="mt-5 text-xs leading-6 text-amber-100/80">{wacc <= growth ? "Advertencia: el WACC debe ser superior a g para aplicar el modelo de perpetuidad de Gordon." : "Los cambios se aplicarán al motor Python cuando ejecutes la simulación."}</p>
               </div>
-              <button className="mt-8 self-start text-xs text-mint underline underline-offset-4" onClick={() => { setWacc(numeric(metrics.wacc_calc) === null ? 14.34 : Number(metrics.wacc_calc) * 100); setGrowth(numeric(metrics.g_usada) === null ? 3.5 : Number(metrics.g_usada) * 100); }}>Restablecer WACC y g oficiales</button>
+              <button className="mt-8 self-start text-xs text-mint underline underline-offset-4" onClick={() => {
+                setWacc(numeric(metrics.wacc_calc) === null ? 14.34 : Number(metrics.wacc_calc) * 100);
+                setGrowth(numeric(metrics.g_usada) === null ? 3.5 : Number(metrics.g_usada) * 100);
+                setMargin(numeric(metrics.margen_ebitda_base_simulacion) === null ? 57.8 : Number(metrics.margen_ebitda_base_simulacion) * 100);
+                setScenarioResult(null); setScenarioError("");
+              }}>Restablecer supuestos oficiales</button>
             </div>
           </div>
+          <div className="mt-7 flex flex-wrap items-center gap-4">
+            <button className="cta disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void runScenario()} disabled={scenarioLoading || loading || !snapshot}>
+              {scenarioLoading ? <RefreshCw size={15} className="animate-spin"/> : <Gauge size={15}/>}
+              {scenarioLoading ? "Calculando en Python…" : "Ejecutar simulación DCF"}
+            </button>
+            <span className="text-xs muted">Cada ejecución consulta el snapshot oficial en servidor y envía sus drivers al servicio privado.</span>
+          </div>
+          {scenarioError && <div role="alert" className="mt-5 border border-amber-300/25 bg-amber-200/5 p-4 text-sm text-amber-100">{scenarioError}</div>}
+          {scenarioResult && <div className="mt-10 space-y-8" aria-live="polite">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div><div className="eyebrow">RESULTADO EXPERIMENTAL</div><h3 className="mt-2 text-2xl font-semibold">El escenario recalculado</h3></div>
+              <span className="pill">MOTOR PYTHON · NO PUBLICADO</span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Metric title="Enterprise Value" value={money(scenarioResult.base.EV, scenarioResult.currency)} note={scenarioResult.unit}/>
+              <Metric title="Equity Value" value={money(scenarioResult.base.Equity_Value, scenarioResult.currency)} note="Después del bridge oficial"/>
+              <Metric title="Valor por acción" value={money(scenarioResult.base.value_per_share, scenarioResult.currency)} note="Acciones del snapshot"/>
+              <Metric title="Upside / downside" value={percent(scenarioResult.base.upside_pct)} note="Frente al precio comparable"/>
+            </div>
+            <div className="glass p-5 sm:p-7">
+              <div className="eyebrow mb-5">COMPARACIÓN DE ESCENARIOS</div>
+              <div className="grid gap-5 md:grid-cols-3">
+                {Object.entries(scenarioResult.scenarios).map(([name, item]) => <div key={name} className="border-t border-mint/25 pt-4">
+                  <div className="text-xs tracking-[.14em] text-mint">{name.toUpperCase()}</div>
+                  <div className="mt-3 text-2xl font-medium">{money(item.Equity_Value, scenarioResult.currency)}</div>
+                  <div className="mt-2 text-xs muted">Equity Value · {money(item.value_per_share, scenarioResult.currency)} por acción</div>
+                  <div className="mt-4 text-[11px] leading-6 muted">WACC {percent(item.parameters.wacc)} · g {percent(item.parameters.g)} · margen {percent(item.parameters.ebitda_margin)}</div>
+                </div>)}
+              </div>
+            </div>
+            <div className="glass p-5 sm:p-7">
+              <div className="eyebrow mb-2">SENSIBILIDAD · WACC × g</div>
+              <p className="mb-5 text-xs muted">Enterprise Value en la unidad publicada. Las celdas no válidas se bloquean cuando g no es menor que WACC.</p>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] border-collapse text-right text-xs">
+                  <thead><tr><th className="p-3 text-left text-muted">WACC / g</th>{scenarioResult.sensitivity[0]?.cells.map(cell => <th key={cell.g} className="p-3 text-mint">{percent(cell.g)}</th>)}</tr></thead>
+                  <tbody>{scenarioResult.sensitivity.map(row => <tr key={row.wacc} className="border-t border-white/10">
+                    <th className="p-3 text-left font-mono text-mint">{percent(row.wacc)}</th>
+                    {row.cells.map(cell => <td key={cell.g} className="p-2">
+                      <span className={`inline-block min-w-[88px] rounded px-2 py-3 ${cell.valid ? "bg-mint/10 text-paper" : "bg-white/5 text-muted"}`}>
+                        {cell.valid ? money(cell.EV, scenarioResult.currency) : "—"}
+                      </span>
+                    </td>)}
+                  </tr>)}</tbody>
+                </table>
+              </div>
+            </div>
+            <div className="glass p-5 sm:p-7">
+              <div className="eyebrow mb-5">TORNADO · IMPACTO EN EQUITY VALUE</div>
+              <div className="space-y-4">{scenarioResult.tornado.map(item => <div key={item.driver} className="grid gap-2 sm:grid-cols-[190px_1fr_1fr] sm:items-center">
+                <span className="text-xs">{item.driver}</span>
+                <span className="text-xs text-amber-200">Shock bajo: {item.delta_low === null ? "N/D" : money(item.delta_low, scenarioResult.currency)}</span>
+                <span className="text-xs text-mint">Shock alto: {item.delta_high === null ? "N/D" : money(item.delta_high, scenarioResult.currency)}</span>
+              </div>)}</div>
+            </div>
+            <p className="text-xs leading-6 muted">Control de trazabilidad: diferencia del EV experimental base frente al EV publicado: {scenarioResult.diagnostics.scenario_ev_delta_vs_official === null ? "N/D" : money(scenarioResult.diagnostics.scenario_ev_delta_vs_official, scenarioResult.currency)}. El snapshot oficial no se modifica y el cálculo no se guarda como nueva publicación.</p>
+          </div>}
         </div>
       </section>
 
