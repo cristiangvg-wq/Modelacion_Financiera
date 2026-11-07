@@ -59,8 +59,8 @@ def _snapshot_inputs(metrics: dict[str, Any]) -> tuple[list[dict], dict, dict]:
             raise ValueError(f"La proyección del año {index + 1} está incompleta.")
         for key in required:
             _finite(row[key], f"{key} año {index + 1}")
-    if not bridge.get("acciones") or _finite(bridge["acciones"], "acciones") <= 0:
-        raise ValueError("El snapshot no contiene un número de acciones válido.")
+    if bridge.get("acciones") is not None and _finite(bridge["acciones"], "acciones") <= 0:
+        raise ValueError("El número de acciones debe ser positivo cuando se informa.")
     return rows, bridge, assumptions
 
 
@@ -95,9 +95,11 @@ def _dcf(metrics: dict, bridge: dict, assumptions: dict, parameters: dict):
     ronic_spread = None
     if ronic_terminal is not None:
         ronic_spread = _finite(ronic_terminal, "ronic_terminal") - wacc
-    market_price = metrics.get("precio_mercado_moneda_modelo")
-    if market_price is None:
-        market_price = metrics.get("precio_mercado")
+    market_price = None
+    if metrics.get("monedas_alineadas"):
+        market_price = metrics.get("precio_mercado_moneda_modelo")
+        if market_price is None:
+            market_price = metrics.get("precio_mercado")
     result = ml.valoracion_dcf(
         fcff,
         wacc,
