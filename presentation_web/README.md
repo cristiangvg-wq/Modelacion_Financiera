@@ -63,6 +63,7 @@ Abre http://localhost:3000.
 - La publicación debe incluir `proyeccion_sensibilidad`. Tras desplegar esta rama y publicar el cambio del motor Python, vuelve a ejecutar la pestaña 4 para generar un snapshot compatible con escenarios.
 - Los escenarios no se persisten ni actualizan la publicación oficial. El precio de mercado solo se usa para upside si la moneda está alineada.
 - Configura el mismo secreto aleatorio en Render (`SCENARIO_API_TOKEN`) y Vercel (`SCENARIO_API_TOKEN`). `SCENARIO_API_URL` debe apuntar al servicio Render.
+- El Blueprint usa el plan Free para evitar crear cargos sin autorización. Ese plan puede suspender el servicio por inactividad y provocar arranques en frío; para uso institucional continuo, cambia Render a Starter y confirma el presupuesto antes de activar producción.
 
 ## Verificación
 ```bash
