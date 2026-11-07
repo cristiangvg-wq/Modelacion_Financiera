@@ -251,7 +251,7 @@ export default function Home() {
               <div><span className="pill">ESCENARIO EXPERIMENTAL · NO PUBLICADO</span>
                 <div className="mt-7 flex items-center gap-3 text-mint"><Gauge size={22}/><span className="text-sm">Parámetros de exploración</span></div>
                 <p className="mt-4 text-sm leading-7 muted">WACC: <strong className="text-paper">{wacc.toFixed(2)}%</strong><br/>g: <strong className="text-paper">{growth.toFixed(2)}%</strong><br/>Margen EBITDA: <strong className="text-paper">{margin.toFixed(1)}%</strong></p>
-                <p className="mt-5 text-xs leading-6 text-amber-100/80">{wacc <= growth ? "Advertencia: el WACC debe ser superior a g para aplicar el modelo de perpetuidad de Gordon." : "Parámetros editables localmente. Aún no se ha ejecutado un recálculo del DCF."}</p>
+                <p className="mt-5 text-xs leading-6 text-amber-100/80">{wacc <= growth ? "Advertencia: el WACC debe ser superior a g para aplicar el modelo de perpetuidad de Gordon." : "Los cambios se aplicarán al motor Python cuando ejecutes la simulación."}</p>
               </div>
               <button className="mt-8 self-start text-xs text-mint underline underline-offset-4" onClick={() => {
                 setWacc(numeric(metrics.wacc_calc) === null ? 14.34 : Number(metrics.wacc_calc) * 100);
