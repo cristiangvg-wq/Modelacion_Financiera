@@ -10870,6 +10870,21 @@ def tab4_recomendacion(nombre_empresa, archivo, horizonte, de_ratio, kd, tax, g,
                     # Insumos exactos de ESTA corrida (incluido un archivo propio del usuario) para
                     # que el comité calcule anclas de precio objetivo sin re-proyectar con otra fuente.
                     "fcff_proy": [float(x) for x in df_proj["FCFF"].values],
+                    # Insumos por año para escenarios de margen, reconstruidos por el motor Python.
+                    # Se conservan los drivers originales; la web nunca recalcula FCFF.
+                    "margen_ebitda_base_simulacion": _finite_or_none(
+                        float((df_proj["EBITDA"].astype(float) / df_proj["Ingresos"].astype(float)).mean())
+                    ),
+                    "proyeccion_sensibilidad": [
+                        {
+                            "Año": int(anio),
+                            **{
+                                col: _finite_or_none(float(fila[col]))
+                                for col in ("Ingresos", "EBITDA", "EBIT", "Depreciacion", "CAPEX", "Delta_NWC")
+                            },
+                        }
+                        for anio, fila in df_proj.iterrows()
+                    ],
                     "nopat_final": _finite_or_none(_nopat_final(df_proj)),
                     "ebitda_salida": _finite_or_none(ebitda_out),
                     "ebitda_ultimo_hist": _finite_or_none(float(df_hist["EBITDA"].iloc[-1])) if (df_hist is not None and "EBITDA" in df_hist.columns and len(df_hist)) else None,
